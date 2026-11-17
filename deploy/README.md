@@ -6,15 +6,33 @@
 
 ## Публикация
 
-Свой worktree от main → локальная проверка → кандидат пользователю → «выкладывай» → свежий main в свою ветку → адресная проверка → PR и merge через GitHub → автодеплой main → проверка опубликованной версии и сценария → завершение.
+Свой worktree → локальная проверка → кандидат пользователю → «выкладывай» → PR → `./Queue-PR.ps1 -PullRequest <номер>` → автоматические обновление/проверка/слияние/выкладка → проверка своего сценария.
 
-Новая .github/workflows/staging.yml сохраняет имя файла, но публикует только push main через существующий environment ui. Task/codex-ветки и PR собираются в build без деплоя. Повторно используются UI_DEPLOY_SSH_KEY и DEPLOY_HOST/DEPLOY_KNOWN_HOSTS. Интеграционный ключ workflow не использует.
+Новая .github/workflows/staging.yml сохраняет имя файла, но публикует только main (push либо точный workflow_dispatch очереди) через существующий environment ui. Task/codex-ветки и PR собираются в build без деплоя. Повторно используются UI_DEPLOY_SSH_KEY и DEPLOY_HOST/DEPLOY_KNOWN_HOSTS. Интеграционный ключ workflow не использует.
 
-Receiver допускает только ui release с GitHub OIDC: repository/owner, refs/heads/main, точный commit/run_id, event=push и .github/workflows/staging.yml@refs/heads/main. Staging/task/PR и второй target отвергаются. Сохранены проверка digest (SHA256 архива для старого протокола), OCI commit, точный image_id, server flock, highest-run и возврат предыдущего образа. Main concurrency group не отменяет выполняющийся деплой; перед отправкой проверяется актуальный main. Следующая задача не сливается до проверки предыдущей публикации; локальная работа остальных продолжается.
+Receiver допускает только ui release с GitHub OIDC: repository/owner, refs/heads/main, точный commit/run_id, event=push/workflow_dispatch и .github/workflows/staging.yml@refs/heads/main. Staging/task/PR и второй target отвергаются. Сохранены проверка digest (SHA256 архива для старого протокола), OCI commit, точный image_id, server flock, highest-run и возврат предыдущего образа. Main concurrency group не отменяет выполняющийся деплой; перед отправкой проверяется актуальный main. Следующая задача не сливается до проверки предыдущей публикации; локальная работа остальных продолжается.
+
+## Автоматическая очередь
+
+Постановка одобренного PR из своего чистого worktree:
+
+```powershell
+./Queue-PR.ps1 -PullRequest 15
+```
+
+Эквивалент: `gh workflow run merge-queue.yml --repo caymanlogistic-crypto/1c-ip-php --ref main -f pr=15 -f head=<полный-одобренный-SHA>`. Существующие открытые PR автоматически не принимаются. Постановка проверяет право отправителя, открытый ready PR из этого репозитория в main и точное совпадение head. Изменённый после постановки код без нового запроса не сливается.
+
+Intake сохраняет ticket в комментарии Actions и ставит queue:ready до ожидания worker. Один worker concurrency `ipphp-merge-deploy-queue` выполняет весь цикл для одного PR: подтверждает доставку текущего main, обновляет ветку через GitHub (только merge существующего main), запускает сборку точного нового head, перепроверяет head/base, сливает и явно dispatch-ит публикацию main. Это важно: merge через GITHUB_TOKEN сам по себе не запускает push workflow. Публикация проверяет expected_sha; receiver принимает только OIDC точного main workflow. Для перехода к следующему PR нужны успешный run и artifact с deployment.json, совпадающими commit/image_id, ui, database_ready и registry transport. Одного зелёного run с пропущенным деплоем недостаточно.
+
+Конфликт/провал теста до merge помечает PR queue:blocked, сохраняя main. Агент исправляет кандидата и ставит новый head. Провал/неверная квитанция после merge блокирует последующие слияния; после исправления причины повторяют именно неуспешный run (`gh run rerun <deploy_run>`), а очередь возобновляется по workflow_run. Повторное начало worker читает сохранённый ticket и фактическое merged-состояние, не выполняет неизвестное слияние повторно. queued-заявку можно снять удалением queue:ready до её начала.
+
+Следующий worker запускается по завершению build/deploy или через явный dispatch оставшихся заявок. Пустая очередь не запускает cron и не расходует Actions-минуты. После отмены самого worker возобновление — `gh workflow run merge-queue.yml --repo caymanlogistic-crypto/1c-ip-php --ref main`; ticket сохраняется. Отдельная БД, сервер, PAT, scheduler-сервис и постоянный агент не создаются. Состояние заявок сохраняется в PR, поэтому замена pending job механизмом concurrency не теряет очередь. Источник статуса — комментарий ticket и метки PR; агент не обязан ждать или слать одинаковые сообщения о чужой выкладке.
+
+На текущем бесплатном тарифе приватного личного репозитория GitHub API защиты main возвращает 403 (требуется Pro). Владелец отказался от оплаты. Поэтому это автоматическая последовательная очередь, а не серверный запрет обхода: общий admin-доступ всё ещё способен выполнить прямой merge. AGENTS.md запрещает агентам прямой merge/push; обнаруженное изменение main вне очереди останавливает её. Не заявлять, что платная защита включена.
 
 ## Доставка слоёв через приватный GHCR
 
-Workflow публикует образ только для push main в `ghcr.io/caymanlogistic-crypto/1c-ip-php`. Task/PR проверяют сборку, но не публикуют образ, build cache или сайт. Main сохраняет registry build cache; метка SOURCE_COMMIT находится после runtime/vendor, поэтому они повторно используются при обычной правке кода.
+Workflow публикует образ только для main (push или workflow_dispatch очереди) в `ghcr.io/caymanlogistic-crypto/1c-ip-php`. Task/PR проверяют сборку, но не публикуют образ, build cache или сайт. Main сохраняет registry build cache; метка SOURCE_COMMIT находится после runtime/vendor, поэтому они повторно используются при обычной правке кода.
 
 Вместо полного tar.gz по SSH идёт только короткий JSON-заголовок: OIDC, commit/run, точный config image_id и `registry_ref` с manifest digest. Receiver разрешает только фиксированный GHCR repository и digest, получает недостающие Docker-слои и сверяет config image_id/OCI revision до запуска. Пакет остаётся приватным (настройку видимости не менять). GITHUB_TOKEN ограничен сроком job; на сервере docker login использует отдельный временный DOCKER_CONFIG с удалением при успехе/ошибке. В state/artifact попадают только публичные реквизиты и метрики delivery, без токенов.
 
