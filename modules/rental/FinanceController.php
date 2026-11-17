@@ -79,6 +79,7 @@ final class FinanceController {
         Auth::requirePermission('rental.read');
         $id = (int)($_GET['id'] ?? 0);
         $r = self::invoice($id);
+        $r['_calculation_review']=InvoiceCalculation::reviewFacts(DB::pdo(),[$id])[$id] ?? null;
         $raw=json_decode($r['source_json'],true) ?: [];
         $r['_delivery']=InvoiceDelivery::presentation(DB::pdo(),$id);
         $delivery=$r['_delivery']['intent'];
@@ -139,11 +140,9 @@ final class FinanceController {
                 Controller::money($debt)
             ]
         ]);
-        $review = Controller::query("SELECT fact_json FROM rental_facts WHERE namespace='calculation_review' AND source_key=?", [
-            (string)$id
-        ])[0] ?? null;
+        $review = $r['_calculation_review'];
         if ($review) {
-            $x = json_decode($review['fact_json'], true);
+            $x = $review;
             $body.=RentalUI::pairs([
                 [
                     'Расчёт по новым условиям',

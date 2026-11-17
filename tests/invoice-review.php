@@ -1,0 +1,64 @@
+<?php
+declare(strict_types=1);
+require dirname(__DIR__).'/app/bootstrap.php';
+use App\DB;
+use Modules\Rental\{InitialBilling,InvoiceCalculation,InvoiceDueDate,InvoiceFacts,MonthlyBilling,Occupancy,Service};
+$p=DB::pdo();
+if(PHP_SAPI!=='cli'||!preg_match('/^ipphp_task_[a-z0-9_]+$/D',(string)$p->query('SELECT DATABASE()')->fetchColumn()))throw new RuntimeException('ISOLATED_TASK_DATABASE_REQUIRED');
+$check=static function(bool $ok,string $why):void{if(!$ok)throw new RuntimeException($why);};
+$actor=static function(string $role)use($p):void{$q=$p->prepare('SELECT id,auth_version FROM users WHERE role=? AND active=1 ORDER BY id LIMIT 1');$q->execute([$role]);$u=$q->fetch();$_SESSION=['user_id'=>$u['id'],'auth_version'=>$u['auth_version']];};
+$check(InvoiceDueDate::automatic('2026-11-17','2026-11',false)==='2026-11-20','Late monthly due');
+$check(InvoiceDueDate::automatic('2026-10-25','2026-11',false)==='2026-11-01','Normal monthly due');
+$check(InvoiceDueDate::automatic('2026-11-01','2026-11',false)==='2026-11-01','Explicit month boundary remains');
+$check(InvoiceDueDate::automatic('2026-12-31','Обеспечение',true)==='2027-01-03','Initial due follows issued date');
+$p->beginTransaction();
+try{
+    $actor('accountant');$p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
+    $source=$p->query("SELECT * FROM invoices WHERE number='Д-971541'")->fetch();
+    $input=['id'=>$source['id'],'version'=>$source['version'],'due'=>'2026-11-20','reason'=>'LOCAL TEST agreed deadline','command_key'=>bin2hex(random_bytes(16))];
+    Service::command('invoice.edit-due',$input);
+    $changed=Service::get($p,'invoices',(int)$source['id']);
+    foreach($source as $key=>$value)if(!in_array($key,['due','version'],true))$check($changed[$key]===$value,'Due command changed '.$key);
+    $check($changed['due']==='2026-11-20'&&(int)$changed['version']===(int)$source['version']+1,'Due/version change');
+    $p->prepare("INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES('invoice_signal',?,'{\"lastSeverity\":\"red\"}',1) ON DUPLICATE KEY UPDATE fact_json=VALUES(fact_json)")->execute([(string)$source['id']]);
+    foreach(Modules\Rental\Indicators::tasks('2026-11-18','12:59',['invoices']) as $task)$check($task['entity']!=='invoice'||$task['id']!==(int)$source['id'],'Future due must ignore stale red cache');
+    Service::command('invoice.edit-due',$input);
+    $check(Service::get($p,'invoices',(int)$source['id'])===$changed,'Replay must not change invoice');
+    try{Service::command('invoice.edit-due',array_replace($input,['command_key'=>bin2hex(random_bytes(16))]));throw new LogicException('Stale version accepted');}catch(RuntimeException $e){$check($e->getCode()===409,'Stale version guard');}
+    $actor('manager');
+    try{Service::command('invoice.edit-due',array_replace($input,['version'=>$changed['version'],'command_key'=>bin2hex(random_bytes(16))]));throw new LogicException('Manager changed deadline');}catch(RuntimeException $e){$check($e->getCode()===403,'Forbidden role guard');}
+    $actor('accountant');
+    $cid=(int)$p->query('SELECT MAX(id)+1 FROM contracts')->fetchColumn();
+    $party=(int)$p->query('SELECT id FROM parties ORDER BY id LIMIT 1')->fetchColumn();
+    $objects=$p->query('SELECT id FROM rental_objects ORDER BY id LIMIT 2')->fetchAll(PDO::FETCH_COLUMN);
+    $p->prepare("INSERT INTO contracts(id,number,party_id,document_date,start_date,end_date,amount,status,signed,source_json) VALUES(?,?,?,'2026-11-17','2026-11-17','2026-12-31','12500.00','active',1,'{}')")->execute([$cid,'LOCAL-REVIEW-'.$cid,$party]);
+    Occupancy::insert($p,'contract_objects',['contract_id'=>$cid,'object_id'=>$objects[0]]);
+    $p->prepare("INSERT INTO contract_terms(contract_id,object_id,start_date,end_date,amount,source_json) VALUES(?,?,'2026-11-17','2026-12-31','12500.00','{}')")->execute([$cid,$objects[0]]);
+    $contract=Service::get($p,'contracts',$cid);$ids=InitialBilling::issue($p,$contract);
+    $q=$p->prepare("SELECT * FROM invoices WHERE contract_id=? AND kind='Первый период'");$q->execute([$cid]);$invoice=$q->fetch();
+    $check($invoice['amount']==='5833.33','Initial descriptor preserved');
+    $coverage=MonthlyBilling::coverage($p,$contract,$invoice);
+    $check(count($coverage)===1&&(int)$coverage[0]['object_id']===(int)$objects[0],'Original object persisted');
+    $check(InitialBilling::issue($p,$contract)===$ids,'Initial replay preserves invoices');
+    $did=(int)$p->query('SELECT MAX(id)+1 FROM rental_documents')->fetchColumn();
+    $p->prepare("INSERT INTO rental_documents(id,contract_id,number,kind,status,effective_date,start_date,end_date,amount,source_json) VALUES(?,?,'LOCAL-REPLACEMENT','ДС','accounting','2026-11-17','2026-11-17','2026-12-31','12500.00','{}')")->execute([$did,$cid]);
+    $p->prepare("INSERT INTO document_terms(document_id,object_id,start_date,end_date,amount) VALUES(?,?,'2026-11-17','2026-12-31','12500.00')")->execute([$did,$objects[1]]);
+    InvoiceCalculation::review($p,$contract,Service::get($p,'rental_documents',$did));
+    $facts=InvoiceCalculation::reviewFacts($p,[(int)$invoice['id']])[(int)$invoice['id']];
+    $check($facts['expectedAmount']==='0.00'&&$facts['difference']==='-5833.33'&&count($facts['excludedTargets'])===1,'Zero is excluded original object, not lost payment');
+    $replacement=(int)$p->query('SELECT MAX(id)+1 FROM invoices')->fetchColumn();
+    $p->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,document_id,source_json) VALUES(?,'LOCAL-REPLACEMENT-INVOICE',?,'Первый период','2026-11','5833.33','0.00',CURRENT_DATE,CURRENT_DATE,'active',?,'{}')")->execute([$replacement,$cid,$did]);
+    $facts=InvoiceCalculation::reviewFacts($p,[(int)$invoice['id']])[(int)$invoice['id']];
+    $check($facts['replacement_invoices']===['LOCAL-REPLACEMENT-INVOICE'],'Link separate invoice for same addendum/kind/period');
+    $p->prepare("UPDATE contract_terms SET superseded_on='2026-11-16' WHERE contract_id=?")->execute([$cid]);
+    $p->prepare("INSERT INTO contract_terms(contract_id,object_id,start_date,end_date,amount,effective_date,source_json) VALUES(?,?,'2026-11-17','2026-12-31','12500.00','2026-11-17','{}')")->execute([$cid,$objects[1]]);
+    $p->prepare('UPDATE contract_objects SET object_id=? WHERE contract_id=?')->execute([$objects[1],$cid]);
+    $check(MonthlyBilling::coverage($p,$contract,$invoice)===$coverage,'Addendum must not rebind old invoice');
+    $current=Service::get($p,'invoices',(int)$invoice['id']);
+    $check($current['amount']===$invoice['amount']&&$current['paid']===$invoice['paid']&&$current['manual_review']==1,'Keep money and review guard');
+    $current['_calculation_review']=$facts;$text=InvoiceFacts::view($current)['explanation'];
+    $check(str_contains($text,'LOCAL-REPLACEMENT')&&str_contains($text,'17.11.2026')&&str_contains($text,'Исключены из начисления')&&str_contains($text,'LOCAL-REPLACEMENT-INVOICE')&&str_contains($text,strip_tags(Modules\Rental\Controller::money('-5833.33'))),'Concrete review reason');
+    InvoiceCalculation::review($p,$contract);
+    $check(Service::get($p,'invoices',(int)$invoice['id'])['version']===$current['version'],'Unchanged review must not duplicate');
+    echo "PASS: late/normal/initial due dates, narrow due edit/money/history/replay/version/role guards, immutable legacy initial coverage, replacement zero and concrete review reason; fixtures rolled back.\n";
+}finally{$p->rollBack();}

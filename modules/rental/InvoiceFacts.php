@@ -5,6 +5,21 @@ namespace Modules\Rental;
 /** Read-only registry facts; money and unknown values retain their SQL precision. */
 final class InvoiceFacts
 {
+    private static function reviewExplanation(array $invoice): string
+    {
+        $review=$invoice['_calculation_review'] ?? null;
+        if(!is_array($review)||!isset($review['historicalAmount'],$review['expectedAmount'],$review['difference']))
+            return 'Финансовые данные изменены. Конкретное расхождение не сохранено — проверьте историю счёта.';
+        $money=static fn($v)=>strip_tags(Controller::money($v));
+        $document=!empty($review['document_number'])?'ДС №'.$review['document_number']:'изменения условий';
+        $effective=$review['document_effective_date'] ?? $review['effectiveDate'] ?? null;
+        $text='При проверке после '.$document.($effective?' с '.Documents::dateText($effective):'').': в счёте '.$money($review['historicalAmount']).', расчёт '.$money($review['expectedAmount']).'; расхождение '.$money($review['difference']).'.';
+        if(!empty($review['excludedTargets']))$text.=' Исключены из начисления: '.implode(', ',$review['excludedTargets']).'.';
+        if($invoice['paid']!==null)$text.=' Оплачено '.$money($invoice['paid']).'.';
+        if(!empty($review['replacement_invoices']))$text.=' По этому ДС выставлен отдельный счёт: '.implode(', ',$review['replacement_invoices']).'. Проверьте корректировку старого начисления и распределение оплаты.';
+        return $text;
+    }
+
     public static function overdueDays(array $invoice, ?string $today = null): int
     {
         $today ??= date('Y-m-d');
@@ -61,7 +76,7 @@ final class InvoiceFacts
                 : (($delivery['intent']['status'] ?? '')==='blocked'
                     ? (json_decode($delivery['intent']['payload_json'],true)['preflight']['message'] ?? 'Не удалось подготовить отправку счёта.')
                     : 'Письмо клиенту не отправлено. Повторите отправку или подтвердите передачу документов.'),
-            !empty($invoice['manual_review']) => 'После изменения финансовых данных требуется ручная повторная проверка.',
+            !empty($invoice['manual_review']) => self::reviewExplanation($invoice),
             $remaining === null => 'Исходные данные не подтверждают сумму или оплату.',
             $overdueDays > 0 => 'Остаток '.strip_tags(Controller::money($remaining)).' · просрочка: '.$overdueDays.' календ. дн.',
             $unpaid => 'Ожидается оплата за указанный период.',

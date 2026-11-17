@@ -115,7 +115,9 @@ final class InvoiceRegistry
             'SELECT i.*,c.number contract_number,c.party_id,p.name party_name,p.inn party_inn FROM invoices i JOIN contracts c ON c.id=i.contract_id JOIN parties p ON p.id=c.party_id WHERE (?=0 OR c.id=?) ORDER BY i.id',
             [$contractId,$contractId]
         );
+        $reviews=InvoiceCalculation::reviewFacts(\App\DB::pdo(),array_column(array_filter($rows,static fn($r)=>!empty($r['manual_review'])),'id'));
         foreach ($rows as &$row) {
+            $row['_calculation_review']=$reviews[(int)$row['id']] ?? null;
             $row['_delivery']=InvoiceDelivery::presentation(\App\DB::pdo(),(int)$row['id']);
             $row['_view'] = InvoiceFacts::view($row,$severity[$row['id']] ?? '');
         }

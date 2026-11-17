@@ -107,8 +107,10 @@ final class InitialBilling
             $creation=NativeOperatingWriter::begin($db,'invoice',$id,'native-c-initial','evidence.initial-invoice',$issued,$plan['coverage_key']);
             $source=$typed?['native_invoice_targets'=>BillingInvoiceTargets::producerMarker($plan['invoice_targets'],'initial','contract',(int)$contract['id'])]:new \stdClass();
             $db->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,initial_invoice,coverage_key,source_json) VALUES(?,?,?,?,?,?,0,?,?,'active',?,?,?)")
-                ->execute([$id,'Д-'.$id,$contract['id'],$plan['kind'],$plan['period'],$plan['amount'],$issued,$plan['initial']?date('Y-m-d',strtotime('+3 days')):$plan['period'].'-01',$plan['initial'],$plan['coverage_key'],Importer::json($source)]);
-            if($typed)self::links($db,$id,$plan);
+                ->execute([$id,'Д-'.$id,$contract['id'],$plan['kind'],$plan['period'],$plan['amount'],$issued,InvoiceDueDate::automatic($issued,$plan['period'],(bool)$plan['initial']),$plan['initial'],$plan['coverage_key'],Importer::json($source)]);
+            // Preserve the physical fallback at creation, before a later addendum changes it.
+            if(!$typed)$plan['coverage']=MonthlyBilling::sourceCoverage($db,$contract,Service::get($db,'invoices',$id));
+            self::links($db,$id,$plan);
             Billing::snapshotInvoice($db,$id);
             NativeInvoiceScope::record($db,$id,'native-c-initial',null,$plan['invoice_targets']??null);
             if($typed)BillingInvoiceTargets::record($db,$id,$plan['invoice_targets'],self::basis($plan,'initial','contract',(int)$contract['id']));
