@@ -58,7 +58,15 @@
   function destroy(){if(disposed)return;disposed=true;generation++;dirty=false;pause();for(const[target,type,handler]of listeners)target.removeEventListener(type,handler);listeners.length=0;nav=null;}
   const api=Object.freeze({isExpanded,setExpanded,toggle,mount,start,requestRefresh,destroy});return api;
  }
- const api=Object.freeze({aggregate,specimen,createController});
+ // Restore with the same preference reader before the workspace is painted.
+ function restoreNavigation(nav){
+  if(!nav?.dataset.userId)return;
+  nav.dataset.menuInitializing='true';
+  const controller=createController({projectId:'f6e21e3c-d974-4604-82fb-333da66559d2',surface:'php-rental',identityProvider:()=>nav.dataset.userId,folderIds:[...nav.querySelectorAll('[data-folder]')].map(node=>node.dataset.folder),readCounts:async()=>null,applyCounts:()=>{}});
+  controller.mount(nav).destroy();
+  root.requestAnimationFrame(()=>root.requestAnimationFrame(()=>{delete nav.dataset.menuInitializing;}));
+ }
+ const api=Object.freeze({aggregate,specimen,createController,restoreNavigation});
  if(typeof module==='object'&&module.exports)module.exports=api;
  else root.UIMenuCounts=api;
 })(typeof window==='object'?window:globalThis);
