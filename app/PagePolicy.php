@@ -133,7 +133,8 @@ final class PagePolicy {
         ], true))return 'rental.reconciliation';
         if (in_array($action, [
             'contract.create',
-            'contract.edit'
+            'contract.edit',
+            'contract.delete'
         ], true) || (str_starts_with($action, 'booking.') || str_starts_with($action, 'reservation.')))return 'rental.contracts';
         if (str_starts_with($action, 'document.') && in_array($action, [
             'document.create',

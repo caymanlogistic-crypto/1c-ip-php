@@ -12,9 +12,9 @@ final class RentalUI
         return $h.'</div>';
     }
 
-    public static function button(string $label,string $url,bool $primary=false): string
+    public static function button(string $label,string $url,bool $primary=false,bool $danger=false): string
     {
-        return '<button type="button" class="btn '.($primary?'btn-primary':'btn-secondary').'" data-rental-open="'.View::e($url).'">'.View::e($label).'</button>';
+        return '<button type="button" class="btn '.($danger?'btn-danger':($primary?'btn-primary':'btn-secondary')).'" data-rental-open="'.View::e($url).'">'.View::e($label).'</button>';
     }
 
     public static function alert(string $title,string $sub='',string $tone='info'): string

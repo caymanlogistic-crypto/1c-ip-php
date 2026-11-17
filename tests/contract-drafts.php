@@ -25,7 +25,7 @@ try {
  try { Service::command('contract.edit',['id'=>$id,'version'=>$c['version'],'number'=>$duplicate,'command_key'=>keyForTest(),'intent'=>'draft']);throw new LogicException('Duplicate number accepted'); } catch(RuntimeException $e){if($e instanceof LogicException)throw $e;}
  $_GET=['id'=>$id];$form=ContractForm::render();ok(!preg_match('/name="number"[^>]*readonly/',$form),'Draft number remains locked');ok(str_contains($form,'formnovalidate'),'Draft button bypass');
  ok(str_contains(WorkRegistry::render(),'contract:'.$id),'Unassigned draft missing in registry');
- ok(str_contains(SourceCards::show(),'Редактировать проект'),'Unassigned card failed');
+ ok(str_contains(SourceCards::show(),'Сохранить в черновиках')&&!str_contains(SourceCards::show(),'Редактировать проект'),'Draft did not open editor directly');
  $p->exec('SAVEPOINT expected_submit');
  try { Service::command('contract.submit',['id'=>$id,'version'=>$c['version'],'command_key'=>keyForTest()]);throw new LogicException('Incomplete submit accepted'); } catch (RuntimeException $e) {if($e instanceof LogicException)throw $e;$p->exec('ROLLBACK TO SAVEPOINT expected_submit');}
  ok(record($id)['status']==='draft','Failed submit changed status');
@@ -46,6 +46,12 @@ try {
  Service::command('contract.submit',['id'=>$id,'version'=>$c['version'],'command_key'=>keyForTest()]);$c=record($id);
  ok($c['status']==='legal'&&!isset(json_decode($c['source_json'],true)['draft_input']),'Complete submission did not finalize staged draft');
  ok($p->query('SELECT amount FROM contract_terms WHERE contract_id='.$id)->fetchColumn()==='123.45','Money changed on submission');
+ $event=Modules\Rental\WorkflowEvents::latest($p,'contract',$id);
+ $entry=$p->query("SELECT title,body_text,version FROM integration_template_catalog WHERE channel='top' AND source_key='document-submitted'")->fetch();
+ $notice=Modules\Rental\WorkflowNotices::sender($event,['document-submitted'=>$entry]);
+ $partyName=$p->query('SELECT name FROM parties WHERE id='.$party)->fetchColumn();
+ ok($notice['severity']==='green'&&str_contains($notice['text'],$partyName)&&!str_contains($notice['text'],'Сохранён договор'),'Submit notice missing counterparty/repeats save');
+
  echo "PASS: empty/partial drafts, reopen/card/registry, replay, version, forbidden role, incomplete refusal, complete submission, exact money; transaction rolled back.\n";
 } catch (Throwable $failure) { fwrite(STDERR,get_class($failure).': '.$failure->getMessage().' at '.$failure->getFile().':'.$failure->getLine().PHP_EOL); $failed=true; } finally {if($p->inTransaction())$p->rollBack();}
 

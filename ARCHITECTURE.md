@@ -200,3 +200,9 @@ FROZEN в FrozenPacketWire относится к содержимому утве
 
 Если ответ требует долгой археологии, уточни этот раздел карты в рамках задачи. Не создавай новый слой отчётности.
 
+
+### Локальный кандидат: редактор и общие состояния формы
+
+WorkRegistry ведёт редактируемый проект прямо в ContractForm; SourceCards сохраняет совместимость старых ссылок тем же редактором. contract.delete проходит Service::command → ContractDraft; ContractDraft::visibleSql/deleted задают исключение удалённого проекта из реестров и Access без удаления бизнес-истории. Контрагенты сохраняются прежним путём ExtraService → DirectoryRules с проверкой занятого ИНН под блокировкой.
+
+Общий opt-in public/assets/source-form-validation.js подключён приложением и витриной layout-rules.html: form[data-source-validation] с novalidate получает системные is-error/aria-invalid и верхний PlanexNotifications toast; formnovalidate сохраняет черновик. data-required-items объявляет наличие выбранных строк. DirectoryUi::inputWithOption использует общий field-label-row и checkbox-inline. Пример композиции, удаления и ошибок — /design/demo/layout-rules.html → «Показать компактную форму». Никаких локальных копий стилей формы не добавлено.

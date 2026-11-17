@@ -118,14 +118,12 @@ final class PartyDirectory
             .DirectoryUi::input('inn','ИНН',$party['inn'] ?? '').'</div>'
             .'<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
             .DirectoryUi::input('address','Юридический адрес',$party['address'] ?? '')
-            .DirectoryUi::input('postal_address','Почтовый адрес',$party['postal_address'] ?? '').'</div>'
-            .DirectoryUi::checkbox('postal_same_as_legal','Почтовый адрес совпадает с юридическим',$party?self::selected($party['postal_same_as_legal']):true);
+            .DirectoryUi::inputWithOption('postal_address','Почтовый адрес',$party['postal_address'] ?? '', 'postal_same_as_legal','Как юридический','Почтовый адрес совпадает с юридическим',$party?self::selected($party['postal_same_as_legal']):true).'</div>';
         foreach ([['Основной контакт','contact','phone','email','document_recipient'],['Дополнительный контакт','additional_contact','additional_phone','account_email','additional_document_recipient']] as $index=>[$title,$name,$phone,$email,$recipient]) {
-            $body.='<section class="registry-ui-modal-grid" aria-label="'.$title.'"><div class="registry-ui-modal-quality"><span class="registry-ui-modal-summary">'.$title.'</span>'
-                .DirectoryUi::checkbox($recipient,'Получает документацию на email',$party?self::selected($party[$recipient]):$index===0).'</div>'
+            $body.='<section class="registry-ui-modal-grid" aria-label="'.$title.'"><span class="registry-ui-modal-summary">'.$title.'</span>'
                 .'<div class="form-grid-3">'.DirectoryUi::input($name,'ФИО',$party[$name] ?? '')
                 .DirectoryUi::input($phone,'Телефон',$party[$phone] ?? '','tel')
-                .DirectoryUi::input($email,'Электронная почта',$party[$email] ?? '').'</div></section>';
+                .DirectoryUi::inputWithOption($email,'Электронная почта',$party[$email] ?? '',$recipient,'Документы','Получает документы на email — '.mb_strtolower($title),$party?self::selected($party[$recipient]):$index===0).'</div></section>';
         }
         $body.='<fieldset class="form-grid-4" data-party-bank data-bank-prefix=""><legend class="registry-ui-modal-summary">Банковские реквизиты</legend>';
         foreach (['bank'=>'Наименование банка','account'=>'Расчётный счёт','bik'=>'БИК','correspondent_account'=>'Корреспондентский счёт'] as $key=>$label) {

@@ -29,6 +29,7 @@ final class SourceCards {
         $id = (int)($_GET['id'] ?? 0);
         $c = self::contract($id);
         $role = Auth::user()['role'];
+        if(in_array($role,['admin','manager'],true) && Auth::can('rental.write') && \App\PagePolicy::level('rental.contracts',Auth::user())>=2 && empty(json_decode($c['source_json'],true)['imported']) && in_array($c['status'],['draft','returned'],true) && $c['return_to']!=='lawyer')return ContractForm::render();
         $managed = empty(json_decode($c['source_json'], true)['imported']);
         $rows = Controller::query('SELECT o.* FROM rental_objects o JOIN contract_objects co ON co.object_id=o.id WHERE co.contract_id=? ORDER BY o.id', [
             $id
@@ -41,10 +42,6 @@ final class SourceCards {
         $responsible = match ($c['status']) {
             'legal' => 'Юрист', 'accounting', 'approved' => 'Бухгалтер', 'returned' => $c['return_to'] === 'lawyer'?'Юрист':'Менеджер', default => $managed?'Менеджер':'Не назначен'
         };
-        $q = Controller::query("SELECT SUM(GREATEST(amount-paid,0)) debt,SUM(amount IS NULL OR paid IS NULL) unknown_count,COUNT(*) n FROM invoices WHERE contract_id=? AND status<>'revoked'", [
-            $id
-        ])[0];
-        $balance = $q['unknown_count']?'Не подтверждено':($q['n']?Controller::money($q['debt']):'Счета в исходном реестре не представлены');
         $pairs = [
             [
                 'Стадия',
@@ -76,11 +73,8 @@ final class SourceCards {
             [
                 'Подписание',
                 $c['signed']?'Подписи обеих сторон подтверждены':($managed?'Ожидается подписанный экземпляр':'По исходному реестру')
-            ],
-            [
-                $c['status'] === 'closed'?'Остаток по реестру счетов (история)':'Остаток по счетам',
-                $balance
             ]
+
         ];
         $body = '';
         $delivery=Delivery::presentation(\App\DB::pdo(),'contract',$id);
@@ -137,19 +131,6 @@ final class SourceCards {
             ], $check);
         }
         $body.=RentalUI::pairs($pairs);
-        $more = RentalUI::button('Условия договора', '/rental/conditions?id='
-        . $id)
-        . ($c['party_id']?RentalUI::button('Контрагент', '/rental/party?id='
-        . $c['party_id']):'')
-        . RentalUI::button('Счета и оплаты', '/rental/invoice-list?contract_id='
-        . $id)
-        . RentalUI::button('Допсоглашения', '/rental/documents?contract_id='
-        . $id)
-        . RentalUI::button('История и сообщения', '/rental/history?contract_id='
-        . $id);
-        $body.='<div class="demo-row">'
-        . $more
-        . '</div>';
         $add = function(string $label, string $action, bool $primary = false)use(&$actions, $id) {
             $user=Auth::user();
             $grant=match($user['role']) {'lawyer'=>'rental.approve.legal','accountant'=>'finance.write','director'=>'rental.approve.executive',default=>'rental.write'};
@@ -163,6 +144,7 @@ final class SourceCards {
             'admin',
             'manager'
         ], true)) {
+            if(ContractDraft::deletable(\App\DB::pdo(),$c))$add('Удалить черновик','contract.delete');
             if ($managed && in_array($c['status'], [
                 'draft',
                 'returned'
@@ -182,7 +164,6 @@ final class SourceCards {
             }
             if ($c['status'] === 'reconciling')$add('Загрузить акт возврата', 'contract.return-act', true);
             if ($managed && in_array($c['status'], [
-                'draft',
                 'returned',
                 'legal',
                 'accounting',
@@ -317,6 +298,7 @@ final class SourceCards {
             'contract.return-act' => 'Акт возврата помещения',
             'contract.reconcile' => 'Завершение договора',
             'contract.cancel' => 'Аннулировать проект',
+            'contract.delete' => 'Удалить черновик',
             'contract.send' => 'Пакет и отправка',
             'contract.handed' => 'Документы переданы клиенту',
             'contract.close' => 'Завершить финальную сверку',
@@ -334,6 +316,11 @@ final class SourceCards {
                 $c['party_name']
             ]
         ]);
+        if($action==='contract.delete'){
+            Service::roles(['manager']);
+            if(!ContractDraft::deletable(\App\DB::pdo(),$c))throw new RuntimeException('Этот договор нельзя удалить как черновик.',409);
+            $fields.='<span class="registry-ui-modal-text">Удалить черновик? Он исчезнет из рабочих списков. История изменений сохранится.</span>';
+        }
         $extra = '';
         if ($action === 'contract.packet') {
             $fields .= PacketForm::preview('contract', $id);
@@ -411,9 +398,9 @@ final class SourceCards {
         . $fields
         . '</form>'
         . $extra;
-        $foot = '<button class="btn btn-primary" type="submit" form="'
+        $foot = '<button class="btn '.($action==='contract.delete'?'btn-danger':'btn-primary').'" type="submit" form="'
         . $formId
-        . '">Подтвердить</button>';
+        . '">'.($action==='contract.delete'?'Удалить черновик':'Подтвердить').'</button>';
         return RentalUI::modal($title, $body, $foot);
     }
 }

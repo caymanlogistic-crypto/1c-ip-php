@@ -49,10 +49,12 @@ final class ExtraService {
             if ($table === 'parties') {
                 $fields=DirectoryRules::party($in,$old);
                 if ($fields['inn']!=='') {
-                    $q=$p->prepare('SELECT id,inn FROM parties WHERE blocked=1 AND id<>?');
-                    $q->execute([$id]);
-                    foreach ($q->fetchAll() as $blocked) {
-                        if (preg_replace('/\D/','',$blocked['inn'] ?? '')===$fields['inn']) throw new RuntimeException('Работа с контрагентом с этим ИНН заблокирована.',422);
+                    // Lock the identity range in the command transaction, including concurrent inserts.
+                    $q=$p->query('SELECT id,inn,blocked FROM parties ORDER BY id FOR UPDATE');
+                    foreach ($q->fetchAll() as $existing) {
+                        if((int)$existing['id']===$id || preg_replace('/\D/','',(string)$existing['inn'])!==$fields['inn'])continue;
+                        if($existing['blocked'])throw new RuntimeException('Работа с контрагентом с этим ИНН заблокирована.',422);
+                        if(!$old || preg_replace('/\D/','',(string)$old['inn'])!==$fields['inn'])throw new RuntimeException('Контрагент с ИНН '.$fields['inn'].' уже существует. Выберите существующую карточку.',422);
                     }
                 }
                 if (!$old || array_intersect(['bank','account','bik','correspondent_account'],array_keys($in))) {

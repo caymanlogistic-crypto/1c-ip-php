@@ -30,7 +30,7 @@ final class ContractObjectEditor
             .'<div class="table-scroll registry-ui-compact-table-scroll"><table class="table registry-ui-table registry-ui-compact-table"><thead><tr><th>Помещение</th><th>Аренда с НДС, ₽</th><th>Состав</th></tr></thead><tbody data-rental-terms>'.$rows.'</tbody>'
             .'<tfoot><tr><td colspan="3" class="registry-ui-number"><input type="hidden" name="amount" value="'.View::e($total).'"><strong data-rental-contract-total data-rental-total-prefix="ИТОГО: ">ИТОГО: '.View::e(Controller::money($total)).'</strong></td></tr></tfoot></table></div></div>'
             .'<div class="field"><label class="field-label" for="contract-object">Выбрать помещение</label><div class="registry-ui-modal-address-row">'
-            .'<select class="field-input field-select" id="contract-object"'.($draftPicker?' name="draft_object_id"':'').' data-rental-object-picker data-rental-picker="room">'.$options.'</select>'
+            .'<select class="field-input field-select" id="contract-object" data-required-items="[name=&quot;objects[]&quot;],input[name^=&quot;term_amount[part_&quot;]"'.($draftPicker?' name="draft_object_id"':'').' data-rental-object-picker data-rental-picker="room">'.$options.'</select>'
             .'<button class="btn btn-secondary" type="button" data-rental-add-object>Добавить помещение</button></div></div>'
             .'<span class="field-msg">Укажите месячную стоимость каждого помещения с НДС.</span></div>'
             .'<template data-rental-term-template>'.self::row($template,$period).'</template>';

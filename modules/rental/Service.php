@@ -73,7 +73,7 @@ final class Service {
     }
 
     private static function cancelBlockedProjects(PDO $p,array $actor,int $partyId,string $reason):array {
-        $q=$p->prepare("SELECT * FROM contracts WHERE party_id=? AND status IN ('draft','legal','accounting','returned','approved','sent') ORDER BY id FOR UPDATE");
+        $q=$p->prepare("SELECT * FROM contracts WHERE party_id=? AND status IN ('draft','legal','accounting','returned','approved','sent') AND ".ContractDraft::visibleSql('contracts')." ORDER BY id FOR UPDATE");
         $q->execute([$partyId]);$projects=[];
         foreach($q->fetchAll(PDO::FETCH_ASSOC) as $contract){
             if((int)$contract['party_id']!==$partyId||!in_array($contract['status'],self::BLOCK_PROJECT_STATUSES,true)||!RegistryState::managed($contract))continue;
@@ -249,6 +249,7 @@ final class Service {
             ]);
             $old = $action === 'contract.edit'?self::get($p, 'contracts', $id):null;
             if ($old) {
+                if(ContractDraft::deleted($old))throw new RuntimeException('Договор не найден.',404);
                 self::version($old, $in);
                 if (!in_array($old['status'], [
                     'draft',
@@ -278,7 +279,7 @@ final class Service {
             }
             $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
             if (!$old || $number !== $old['number']) {
-                $q = $p->prepare('SELECT id FROM contracts WHERE number=? AND id<>? LIMIT 1 FOR UPDATE');
+                $q = $p->prepare('SELECT id FROM contracts WHERE number=? AND id<>? AND '.ContractDraft::visibleSql('contracts').' LIMIT 1 FOR UPDATE');
                 $q->execute([
                     $number,
                     $id
@@ -398,7 +399,9 @@ final class Service {
         }
         if (str_starts_with($action, 'contract.')) {
             $c = self::get($p, 'contracts', $id);
+            if(ContractDraft::deleted($c))throw new RuntimeException('Договор не найден.',404);
             self::version($c, $in);
+            if($action==='contract.delete'){self::roles(['manager']);return ContractDraft::delete($p,$c,$u,(string)$in['command_key']);}
             $status = $c['status'];
             $next = $status;
             $return = null;
@@ -520,6 +523,7 @@ final class Service {
                     'ended',
                     'closed'
                 ], true))throw new RuntimeException('Действующий договор завершается через сверку.');
+                if($status==='draft')throw new RuntimeException('Черновик нужно удалить, а не аннулировать.',409);
                 $reason = trim($in['reason'] ?? '');
                 if (!$reason)throw new RuntimeException('Укажите причину.');
                 $next = 'cancelled';

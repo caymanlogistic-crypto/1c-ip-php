@@ -97,7 +97,7 @@ final class ContractForm {
         . '<input class="field-input" name="number" value="'
         . View::e($number)
         . '"'.($c && $c['status']!=='draft'?' readonly aria-readonly="true"':'').'></label>'
-        . Controller::input('document_date', 'Дата договора', $c['document_date'] ?? date('Y-m-d'), 'date', false)
+        . Controller::input('document_date', 'Дата договора', $c['document_date'] ?? date('Y-m-d'), 'date', true)
         . Controller::input('start_date', 'Начало аренды', $start, 'date', true)
         . Controller::input('end_date', 'Окончание аренды', $end, 'date', true)
         . '</div>';
@@ -133,7 +133,7 @@ final class ContractForm {
         if (!$booking && !empty($draft['booking_id'])) $hidden.='<input type="hidden" name="booking_id" value="'.(int)$draft['booking_id'].'"><input type="hidden" name="booking_version" value="'.(int)($draft['booking_version'] ?? 0).'">';
         $body = '<form id="'
         . $fid
-        . '" class="registry-ui-modal-grid" data-rental-contract-form data-rental-availability-url="'
+        . '" class="registry-ui-modal-grid" novalidate data-source-validation data-rental-contract-form data-rental-availability-url="'
         . View::e($availability)
         . '" method="post" action="/rental/action">'
         . $hidden
@@ -146,7 +146,7 @@ final class ContractForm {
         . '" name="intent" value="submit">'
         . ($c && $c['status'] === 'returned'?'Повторно согласовать':'Отправить на согласование')
         . '</button>';
-        return RentalUI::modal($c?'Изменить проект договора':'Новый договор', $body, $actions, 'contracts', true);
+        return RentalUI::modal($c?'Изменить проект договора':'Новый договор', $body, $actions, 'contracts', true, $c && ContractDraft::deletable(\App\DB::pdo(),$c)?RentalUI::button('Удалить черновик','/rental/action-form?id='.$id.'&action=contract.delete',false,true):'');
     }
 
 }

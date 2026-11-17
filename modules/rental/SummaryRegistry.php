@@ -20,7 +20,7 @@ final class SummaryRegistry
         $query=isset($_GET['reset'])?'':trim((string)($_GET['q'] ?? ''));
         $flag=(string)($_GET['flag'] ?? 'all');
         if (!in_array($flag,['all','draft','booking','approval'],true)) $flag='all';
-        $contracts=Controller::query("SELECT c.*,p.name party_name FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status NOT IN ('closed','cancelled') ORDER BY c.id");
+        $contracts=Controller::query("SELECT c.*,p.name party_name FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status NOT IN ('closed','cancelled') AND ".ContractDraft::visibleSql()." ORDER BY c.id");
         $bookings=Controller::query("SELECT r.*,o.name object_name,COALESCE(NULLIF(r.client_name,''),p.name) client FROM reservations r JOIN rental_objects o ON o.id=r.object_id LEFT JOIN parties p ON p.id=r.party_id WHERE r.status='active' ORDER BY r.id");
         $pending=[];
         foreach (Controller::query("SELECT DISTINCT contract_id FROM rental_documents WHERE status IN ('legal','accounting','returned','approved','sent')") as $row) $pending[(int)$row['contract_id']]=true;
