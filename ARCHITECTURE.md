@@ -133,6 +133,8 @@ source_json и fact_json сейчас содержат смешанные ист
 
 Важные ограничения:
 
+Ручной путь `/email` → `Controller::action` → `Messaging::dispatch` → `MessageTransport` допускает отдельный `IPPHP_ALLOW_EMAIL=owner-authorized-email-access` при сохранении прав, CSRF, revision, approved_recipients, spool/receipt и request_key. Локальный Start-Local получает этот допуск только из собственного boolean `email_enabled`; preflight сверяет их. Общий gate и guards RentalOutbox/WorkflowMaxEvent этим параметром не включаются. SMTP SSL/TLS и STARTTLS проверяют сертификат; учётные данные и allowlist остаются вне Git.
+
 1. В ZIP среди private/integrations есть только key и max.enc. Остальные профили и .local не переданы; их фактическое наличие проверяется локально.
 2. WorkflowMaxEvent::dispatch привязан к старой R2-БД и порту. AutoMAX из CURRENT не является работающим. Общая проверка MAX и специальный MaxReadCheck — разные пути.
 3. Отсутствие .local/onec-dev-transport.json выбирает direct. Не меняй транспорт молча при переносе.
