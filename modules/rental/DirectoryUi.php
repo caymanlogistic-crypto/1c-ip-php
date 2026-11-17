@@ -32,13 +32,13 @@ final class DirectoryUi
             .'<input type="checkbox" name="'.$key.'" value="1"'.($checked?' checked':'').'><span>'.View::e($label).'</span></label>';
     }
 
-    public static function counts(array $counts): string
+    public static function counts(array $counts,string $page=''): string
     {
         $html='';
         foreach (['is-alert','is-warning','is-success','is-info'] as $index=>$class) {
             $count=(int)($counts[$index] ?? 0);
             if ($count>0) {
-                $label=['Ошибки / срочно','Требует внимания','Брони','Уведомления'][$index].': '.$count;
+                $label=\App\Menu::attentionLabels($page)[$index].': '.$count;
                 $html.='<span class="sub-count '.$class.'" data-attention="'.['red','yellow','green','blue'][$index].'" aria-label="'.$label.'" title="'.$label.'">'.$count.'</span>';
             }
         }

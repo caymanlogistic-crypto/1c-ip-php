@@ -2,6 +2,11 @@
 declare(strict_types=1);
 namespace App;
 final class Menu {
+    public static function attentionLabels(string $page=''):array {
+        return $page==='objects'
+            ? ['Простой от 30 дней','Простой 14–29 дней','Недавно сданы','Брони']
+            : ['Ошибки / срочно','Требует внимания','Положительные события','Ожидание / наблюдение'];
+    }
     public const GROUPS=['Договоры'=>['contracts'=>'Договоры в работе','contracts-active'=>'Действующие договоры','contracts-completed'=>'Завершённые договоры'],'Согласования'=>['approvals'=>'Согласование документов','templates'=>'Шаблоны документов'],'Счета и сверка'=>['invoices'=>'Оплаты контрагентов','invoice-list'=>'Счета и оплаты','reconciliation'=>'Финальная сверка'],'Справочники'=>['parties'=>'Контрагенты','organization'=>'Наша организация','cadastre'=>'Кадастровые объекты','objects'=>'Объекты аренды'],'Контроль'=>['operations'=>'Операции и отправки','errors'=>'Контроль ошибок','journal'=>'Журнал','summary'=>'Обзор документов']];
     public static function allowed(string $key,array $u):bool {if($u['role']==='admin')return true;if(!empty($u['grants_configured'])&&(empty($u['workflow_role'])||PagePolicy::level('rental.'.$key,$u)<1))return false;if(in_array($key,['errors','journal','summary','thresholds'],true))return $u['role']==='director';if($key==='contracts')return $u['role']==='manager';if($key==='templates')return in_array($u['role'],['lawyer','director'],true);return true;}
     public static function counts(array $u):array {
@@ -15,5 +20,5 @@ final class Menu {
             if($visible||!$configured)$folders['menu-folder-'.$i]=$sum;
         }return ['pages'=>$pages,'folders'=>$folders,'notices'=>\Modules\Rental\WorkflowNotices::projection(DB::pdo(),$u,$tasks,$allowed)];
     }
-    public static function badges(array $counts,bool $sub=false):string {$html='';$names=['Ошибки / срочно','Требует внимания','Брони','Уведомления'];foreach($counts as $i=>$n){if(!$n)continue;$label=$names[$i].': '.(int)$n;$html.='<span class="'.($sub?'sub-count':'nav-count').' '.['is-alert','is-warning','is-success','is-info'][$i].'" data-attention="'.['red','yellow','green','blue'][$i].'" aria-label="'.View::e($label).'" title="'.View::e($label).'">'.(int)$n.'</span>';}return $html?'<span class="nav-counts">'.$html.'</span>':'';}
+    public static function badges(array $counts,bool $sub=false,string $page=''):string {$html='';$names=self::attentionLabels($page);foreach($counts as $i=>$n){if(!$n)continue;$label=$names[$i].': '.(int)$n;$html.='<span class="'.($sub?'sub-count':'nav-count').' '.['is-alert','is-warning','is-success','is-info'][$i].'" data-attention="'.['red','yellow','green','blue'][$i].'" aria-label="'.View::e($label).'" title="'.View::e($label).'">'.(int)$n.'</span>';}return $html?'<span class="nav-counts">'.$html.'</span>':'';}
 }

@@ -110,7 +110,7 @@ final class ObjectDirectory
         $controls.=$inactive.'</form>';
         $summary=' · Площадь: <b>'.DirectoryUi::area($area).'</b> м²'.($unknown?' · Не указана у '.$unknown:'');
         $body=Controller::heading('Объекты аренды','Помещения и машиноместа: занятость, бронирование и контроль простоя',self::editable()?RentalUI::button('Добавить объект','/rental/edit-object',true):'')
-            .Controller::tabs($tabs,$flag,true,['floor'=>$floor,'inactive'=>(int)$show])
+            .Controller::tabs($tabs,$flag,true,['floor'=>$floor,'inactive'=>(int)$show],'objects')
             .DirectoryUi::registry('rental-contracts',['Объект аренды','Тип','Этаж','Площадь, м²','Занятость','Договор до','Комментарий'],$rows,['text','text','short','money','flex','code','flex'],$controls,$summary);
         return View::page('Объекты аренды',$body,'objects');
     }
