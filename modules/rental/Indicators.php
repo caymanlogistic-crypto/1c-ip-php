@@ -231,18 +231,8 @@ final class Indicators {
                 $add('document',(int)$d['id'],$task['role'],$task['severity'],'approvals',$task['text'],(int)$d['contract_id'],['version'=>(int)$d['version'],'legal_sla'=>$sla]);
             }
         }
-        if ($allow('objects'))foreach (Controller::query("SELECT o.*,ca.number parent_number,ca.type parent_type,ca.rentable parent_rentable,ca.source_json parent_source FROM rental_objects o JOIN cadastre ca ON ca.id=o.cadastre_id WHERE o.active=1 AND NOT EXISTS(SELECT 1 FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE ".\App\ContractOccupancy::physicalPredicate('co')." AND co.object_id=o.id AND c.status NOT IN ('ended','closed','cancelled')) AND NOT EXISTS(SELECT 1 FROM rental_object_holds h WHERE ".\App\ContractOccupancy::physicalPredicate('h')." AND h.object_id=o.id AND h.return_confirmed=0) AND NOT EXISTS(SELECT 1 FROM reservations r WHERE ".Occupancy::reservationPredicate('r')." AND r.object_id=o.id AND r.status='active' AND r.until_date>=CURRENT_DATE)") as $o) {
-            if (!DirectoryScope::signals($o,['number'=>$o['parent_number'],'type'=>$o['parent_type'],'rentable'=>$o['parent_rentable'],'source_json'=>$o['parent_source']])) continue;
-            if (!$o['free_since'])continue;
-            $days = (int)(new \DateTimeImmutable($o['free_since']))->diff(new \DateTimeImmutable($today))->format('%r%a');
-            if ($days >= 14) {
-                $add('object', (int)$o['id'], 'manager', $days >= 30?'red':'yellow', 'objects', 'Простой '
-                . $days
-                . ' дней');
-                if ($days >= 30)$add('object', (int)$o['id'], 'director', 'red', 'objects', 'Простой '
-                . $days
-                . ' дней');
-            }
+        if ($allow('objects')) foreach (ObjectFacts::idleSignals($today) as $signal) {
+            $add('object',$signal['id'],$signal['role'],$signal['severity'],'objects',$signal['text']);
         }
         return $tasks;
     }

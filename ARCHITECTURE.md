@@ -103,6 +103,8 @@ source_json и fact_json сейчас содержат смешанные ист
 - public/design/demo/demo_geometry.css — несмотря на имя demo, используется рабочими страницами.
 - app/View.php — порядок подключения CSS, предзагрузка существующих шрифтов и общий renderer папок навигации. Подключения (включая Email/MAX) и Администрирование фильтруются прежними правами. app/views/workspace.php и public/assets/workspace-menu-restore.js восстанавливают папки до запуска отложенных обработчиков; логика и изоляция настроек остаются в source-menu-counts.js.
 - modules/rental/RentalUI.php — кнопки, сообщения, пары значений, модальные окна и другие общие HTML-компоненты.
+- app/views/workspace.php подключает общий design/system/palette-runtime.js для SVG-стрелок селектов и лупы поиска из витрины. DirectoryUi::registry(filterForm: true) строит панель как GET-форму без дополнительной вложенности, search(grouped: true) использует штатную registry-ui-search-group; опции применены в объектах аренды, прежние вызовы сохраняют свою композицию.
+- Подписи цветных счётчиков: app/Menu.php → attentionLabels; PHP меню/вкладки и workspace-ui.js используют один набор (JS получает его в data-count-labels оболочки). Для объектов подписи уточняют простой, недавнюю сдачу и бронь. Простой в Indicators и строках использует общие ObjectFacts::idleDays/idleSeverity и Availability; красный срок договора остаётся отдельным текстовым выделением.
 - public/assets — текущая JS-логика; подбирай фактический script по экрану.
 
 Файлы modules/auxiliary/source-ui — исходные фрагменты отдельных страниц, не доказанная общая витрина.

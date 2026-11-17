@@ -32,13 +32,13 @@ final class DirectoryUi
             .'<input type="checkbox" name="'.$key.'" value="1"'.($checked?' checked':'').'><span>'.View::e($label).'</span></label>';
     }
 
-    public static function counts(array $counts): string
+    public static function counts(array $counts,string $page=''): string
     {
         $html='';
         foreach (['is-alert','is-warning','is-success','is-info'] as $index=>$class) {
             $count=(int)($counts[$index] ?? 0);
             if ($count>0) {
-                $label=['Ошибки / срочно','Требует внимания','Брони','Уведомления'][$index].': '.$count;
+                $label=\App\Menu::attentionLabels($page)[$index].': '.$count;
                 $html.='<span class="sub-count '.$class.'" data-attention="'.['red','yellow','green','blue'][$index].'" aria-label="'.$label.'" title="'.$label.'">'.$count.'</span>';
             }
         }
@@ -64,16 +64,18 @@ final class DirectoryUi
         return [$body,'<button class="btn btn-primary" type="submit" form="'.$id.'">'.View::e($label).'</button>',$id];
     }
 
-    public static function registry(string $id,array $headers,array $rows,array $columns,string $controls='',string $summary='',string $after=''): string
+    public static function registry(string $id,array $headers,array $rows,array $columns,string $controls='',string $summary='',string $after='',bool $filterForm=false): string
     {
+        $toolbar=$filterForm?'form':'div';
         return '<section class="table-card registry-ui-card registry-ui-sticky-table registry-ui-scroll" data-registry-id="'.$id.'" data-registry-managed-markup="true">'
-            .'<div class="table-toolbar registry-ui-toolbar"><div class="found-label">Найдено: <b>'.count($rows).'</b>'.$summary.'</div>'
-            .'<div class="toolbar-right">'.$controls.'</div></div>'.$after.Controller::table($headers,$rows,$columns).'</section>';
+            .'<'.$toolbar.($filterForm?' method="get" data-rental-registry-filter':'').' class="table-toolbar registry-ui-toolbar"><div class="found-label">Найдено: <b>'.count($rows).'</b>'.$summary.'</div>'
+            .'<div class="toolbar-right">'.$controls.'</div></'.$toolbar.'>'.$after.Controller::table($headers,$rows,$columns).'</section>';
     }
 
-    public static function search(string $query): string
+    public static function search(string $query,bool $grouped=false): string
     {
-        return '<input class="registry-ui-search" id="search" name="q" type="search" value="'.View::e($query).'" placeholder="Поиск по всем столбцам" aria-label="Поиск по реестру">';
+        $input='<input class="'.($grouped?'toolbar-search ':'').'registry-ui-search" id="search" name="q" type="search" value="'.View::e($query).'" placeholder="'.($grouped?'Поиск по всему реестру':'Поиск по всем столбцам').'" aria-label="'.($grouped?'Поиск по всему реестру':'Поиск по реестру').'">';
+        return $grouped?'<div class="registry-ui-search-group">'.$input.'</div>':$input;
     }
 
     public static function bankName(array $bank): string
