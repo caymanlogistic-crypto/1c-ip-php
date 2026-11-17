@@ -78,12 +78,19 @@ final class OnecOperations
         if (!is_string($id)||!preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D',$id)) throw new RuntimeException('NATIVE_INPUT_REJECTED',400);
         $q=$this->db->prepare('SELECT kind,actor_id FROM integration_native_intents WHERE id=?');$q->execute([$id]);$intent=$q->fetch(PDO::FETCH_ASSOC);
         if (!$intent||$intent['kind']!==$definition['kind']||(int)$intent['actor_id']!==$actor) throw new RuntimeException('ONEC_ACTOR_DENIED',403);
+        if($action==='state')return self::result($service->readHistory($id,$actor));
         if ($action==='dispatch'&&!OnecWriteAdmission::createAllowed($this->db)) return ['state'=>'write_disabled','code'=>'NATIVE_WRITES_DISABLED','written'=>false,'title'=>'Запись в 1С пока не настроена. Данные не отправлялись.'];
         return self::result(match($action){'dispatch'=>$service->dispatch($id,$actor),'reconcile'=>$service->reconcile($id,$actor),default=>$service->readExisting($id,$actor)});
     }
 
     public static function result(array $intent): array
     {
+        if(array_key_exists('_source_current',$intent)&&!$intent['_source_current'])return [
+            'intent_id'=>$intent['id'],'state'=>!empty($intent['_proof_verified'])?$intent['state']:'source_unavailable','native_number'=>$intent['native_number'],
+            'written'=>false,'historical'=>true,'proof_verified'=>(bool)$intent['_proof_verified'],'source_current'=>false,
+            'title'=>!empty($intent['_proof_verified'])?'Сохранённый результат 1С подтверждён квитанциями.':'Историческая операция требует проверки.',
+            'messages'=>['Исходный пакет отсутствует или изменён в текущей БД. Повторная передача недоступна.'],
+        ];
         return ['intent_id'=>$intent['id'],'state'=>$intent['state'],'revision'=>(int)$intent['revision'],'native_number'=>$intent['native_number'],
             'written'=>in_array($intent['state'],['saved','existing_verified'],true),'title'=>match($intent['state']){
                 'saved'=>'Запись сохранена в 1С и проверена.','existing_verified'=>'Подтверждена существующая запись 1С.',

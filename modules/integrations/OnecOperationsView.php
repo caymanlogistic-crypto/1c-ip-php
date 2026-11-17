@@ -40,10 +40,14 @@ final class OnecOperationsView
         } else {
             $invoice=$kind==='customer_invoice';
             $from=($invoice?'invoices i JOIN contracts c ON c.id=i.contract_id':'contracts c').' JOIN parties p ON p.id=c.party_id';
-            // Only the approvals context is listed here; callers from other pages
-            // retain the normal owner/packet authorization for their own identity.
-            $where="c.status IN ('legal','accounting','returned','approved','sent')";
-            if(\App\PagePolicy::level('rental.approvals',Auth::user())<1)$where='1=0';
+            // Read the current business set. Listing a row never grants CREATE:
+            // owner/packet/finance checks remain in the shared command service.
+            $allowed=[];$viewer=Auth::user();
+            foreach(['active','ended','reconciling','legal','accounting','returned','approved','sent']as$status){
+                foreach(\Modules\Rental\Access::statusPages($status)as$pageKey)if(\App\PagePolicy::level('rental.'.$pageKey,$viewer)>=1){$allowed[]=$db->quote($status);break;}
+            }
+            $where=$allowed?'c.status IN ('.implode(',',$allowed).')':'1=0';
+            if($invoice){$where.=" AND i.status NOT IN ('revoked','cancelled')";try{\Modules\Rental\Access::finance();}catch(\RuntimeException){$where='1=0';}}
             if($search!==''){$where.=' AND (p.name LIKE ? OR c.number LIKE ?'.($invoice?' OR i.number LIKE ?':'').')';$args=['%'.$search.'%','%'.$search.'%'];if($invoice)$args[]='%'.$search.'%';}
             $select='c.id AS record_id,c.number AS contract_number,p.name,p.id AS party_id,p.inn'.($invoice?',i.id AS invoice_id,i.number,i.amount':',c.number,c.amount');
             $order=$invoice?'i.id DESC':'c.id DESC';$labels=$invoice?['Счёт','Договор','Контрагент','Сумма']:['Контрагент','ИНН','Договор'];

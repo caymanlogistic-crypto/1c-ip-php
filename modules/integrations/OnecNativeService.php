@@ -237,6 +237,22 @@ final class OnecNativeService
         return $intent;
     }
 
+    /** Historical evidence survives business-data resets; it never authorizes another write. */
+    public function readHistory(string $id,int $actor): array
+    {
+        (new OnecOwnerFacade($this->db,$this->store))->actor($actor,'read_existing');
+        $intent=$this->row('SELECT * FROM integration_native_intents WHERE id=?',[$id]);
+        if((int)$intent['actor_id']!==$actor)throw new RuntimeException('ONEC_ACTOR_SCOPE_CHANGED');
+        $intent['_proof_verified']=false;
+        if(in_array($intent['state'],['saved','existing_verified'],true)){
+            OnecNativeEvidence::readSaved($this->store,$intent);
+            $intent['_proof_verified']=true;
+        }
+        try{$current=$this->owner->current($intent,'read_existing');$this->immutable($intent,$current);$intent['_source_current']=true;}
+        catch(\RuntimeException){$intent['_source_current']=false;}
+        return $intent;
+    }
+
     private function reconcileIntent(string $id, int $actor, bool $recordedDispatch): array
     {
         $intent = $this->row('SELECT * FROM integration_native_intents WHERE id=?', [$id]);
