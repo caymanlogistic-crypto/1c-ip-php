@@ -12,6 +12,11 @@ check($invoiceValues['managerEmail']==='manager@example.com','Preview must use n
 check($invoiceValues['documentLabel']==='' && $invoiceValues['actor']==='','Unavailable data must not be invented in preview');
 check(!isset(EmailTemplateAdmin::variables($invoice)['documentLabel']),'Invoice editor must not offer package-only values');
 check(isset(EmailTemplateAdmin::variables($package)['documentLabel']),'Package editor must offer document label');
+$legal=['source_key'=>'legalApproval'];
+check(isset(EmailTemplateAdmin::variables($legal)['lawyer'],EmailTemplateAdmin::variables($legal)['accountant']),'Legal template must expose its actual placeholder names');
+check(!isset(EmailTemplateAdmin::variables($legal)['invoiceNumbers']),'Legal template must not offer invoice-only values');
+check(EmailTemplateAdmin::sampleValues($legal)['lawyer']==='Юрист','Legal preview must show a neutral lawyer name');
+check(str_contains(EmailTemplateAdmin::usage($legal)['text'],'не подключена'),'Catalog-only template must not claim active delivery');
 
 $render=TemplateCatalog::preview('email',[
     'subject'=>'Счёт {invoiceNumbers} · договор {number}',

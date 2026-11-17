@@ -31,10 +31,16 @@ final class EmailTemplateAdmin
             'effective'=>'Дата начала действия документа',
             'effectiveSummary'=>'Пояснение о начале действия условий',
             'invoiceSummary'=>'Пояснение о составе счетов',
+            'accountant'=>'Имя бухгалтера',
+            'lawyer'=>'Имя юриста',
         ];
-        return ($entry['source_key']??'')==='invoice'
-            ? array_intersect_key($variables,array_flip(['number','party','manager','managerEmail','invoiceNumbers']))
-            : $variables;
+        $keys=match($entry['source_key']??''){
+            'invoice'=>['number','party','manager','managerEmail','invoiceNumbers'],
+            'legalApproval'=>['accountant','lawyer','documentLabel','party','version'],
+            'clientPackage'=>['number','party','manager','managerEmail','invoiceNumbers','documentLabel','documentNumber','version','effective','effectiveSummary','invoiceSummary'],
+            default=>array_keys($variables),
+        };
+        return array_intersect_key($variables,array_flip($keys));
     }
 
     /** Neutral examples, with unavailable values blank exactly as in TemplateCatalog. */
@@ -52,16 +58,30 @@ final class EmailTemplateAdmin
             'effective'=>'2026-12-01',
             'effectiveSummary'=>'Условия и даты действия указаны в приложенном документе.',
             'invoiceSummary'=>'Счета: 2026-115, 2026-116.',
+            'accountant'=>'Бухгалтер',
+            'lawyer'=>'Юрист',
         ];
         return array_replace(array_fill_keys(TemplateCatalog::MESSAGE_VARS,''),array_intersect_key($values,self::variables($entry)));
     }
 
     public static function help(array $entry=[]): string
     {
-        $what=($entry['source_key']??'')==='invoice'
-            ? 'Файл счёта прикладывается при отправке автоматически.'
-            : 'Состав вложений определяется подтверждённым пакетом документов.';
+        $what=match($entry['source_key']??''){
+            'invoice'=>'Файл счёта прикладывается при отправке автоматически.',
+            'legalApproval'=>'Это сохранённый шаблон проекта бухгалтеру. Отправка письма по этому событию пока не подключена.',
+            default=>'Состав вложений определяется подтверждённым пакетом документов.',
+        };
         return '<span class="registry-ui-modal-help">'.$what.' Получатели определяются документом и его контактами. В этом разделе изменяются тема и текст письма; сохранение не отправляет письмо.</span>'
             .'<span class="registry-ui-modal-help">В предпросмотре используются вымышленные данные. Подстановки вставляются в фигурных скобках, например {number}. Для письма со счётом доступны только данные договора, контрагента, менеджера и номера счетов.</span>';
+    }
+
+    public static function usage(array $entry): array
+    {
+        return match($entry['source_key']??''){
+            'invoice'=>['text'=>'Используется при подготовке письма со счётом.'],
+            'clientPackage'=>['text'=>'Используется при подготовке подтверждённого пакета клиенту и менеджеру.'],
+            'legalApproval'=>['text'=>'Сохранён в каталоге. Отправка письма по этому событию пока не подключена.'],
+            default=>['text'=>'Сохранён в каталоге. Применение зависит от обработчика события.'],
+        };
     }
 }
