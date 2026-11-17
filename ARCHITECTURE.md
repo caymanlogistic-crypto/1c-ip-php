@@ -1,5 +1,7 @@
 # Карта текущего приложения для ИИ-агента
 
+Коррекция нулевой точки: `bin/zero-point-correction.php plan/apply/recover` → `ZeroPointCorrection` → `Service::command(zero-point.correct)`. CLI/admin-only, доказательства книги, CAS текущего графа, rental_number_guard. Меняются только16 free_since, продолжение33 и датированное условие/происхождение. Предыдущий JSON/pin сохраняются. `revision-pending.json` блокирует ZeroPoint::load/restore до сверки committed rental_commands receipt; recover сериализуется тем же guard, неизвестную команду не повторяет. Подготовленный файл сам по себе не доказывает commit. DDL, admission, внешние отправки не меняются.
+
 Снимок анализа: 1C-IP-PHP-CURRENT.zip от 17.11.2026, SHA256 e4224741a30c75c3d86272fe92b5106bd56b482c8372a090d660207bead73b84.
 
 Документ описывает код этого снимка. Изменения, которые ещё нужно сделать, отмечены отдельно. Фактическую среду нового проекта бери из START-HERE.md после локального подтверждения. Не выдавай наличие класса за работоспособность функции.
