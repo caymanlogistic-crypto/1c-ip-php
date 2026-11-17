@@ -248,7 +248,9 @@ final class OnecNativeService
             OnecNativeEvidence::readSaved($this->store,$intent);
             $intent['_proof_verified']=true;
         }
-        try{$current=$this->owner->current($intent,'read_existing');$this->immutable($intent,$current);$intent['_source_current']=true;}
+        // read_existing deliberately permits a frozen historical packet. Only
+        // validate checks today's business confirmation and write eligibility.
+        try{$current=$this->owner->current($intent,'validate');$this->immutable($intent,$current);$intent['_source_current']=true;}
         catch(\RuntimeException){$intent['_source_current']=false;}
         return $intent;
     }
