@@ -1,0 +1,5 @@
+<?php
+declare(strict_types=1);
+if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
+require dirname(__DIR__,2).'/app/bootstrap.php';
+try{$db=App\DB::pdo();$counts=[];foreach(['parties','contracts','invoices','rental_imports','command_receipts','rental_delivery_intents','messaging_attempts','external_documents','integration_capture_documents','integration_capture_file_refs','integration_capture_blobs','integration_capture_message_attempts'] as $table)$counts[$table]=(int)$db->query('SELECT COUNT(*) FROM '.$table)->fetchColumn();$hashes=$db->query('SELECT state_hash FROM rental_imports ORDER BY id')->fetchAll(PDO::FETCH_COLUMN);$captures=$db->query('SELECT id,status,eligible,global_pit,restore_ready,archive_only FROM integration_captures ORDER BY created_at')->fetchAll(PDO::FETCH_ASSOC);echo json_encode(['counts'=>$counts,'state_hashes'=>$hashes,'captures'=>$captures],JSON_THROW_ON_ERROR)."\n";}catch(Throwable){fwrite(STDERR,"CAPTURE_STATUS_FAILED; no source values disclosed\n");exit(1);}

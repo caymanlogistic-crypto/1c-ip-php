@@ -1,0 +1,159 @@
+{
+  "source_commit": "b99cd29d5ee76a96c546aae51fe3f16a6d67b349",
+  "source_path": "prototype/rental/toast-templates.js",
+  "source_sha256": "58c5caf1a8b8d2738f95fa7e32ae724336575bdfe77f7cba82ef54198df9de0b",
+  "entries": [
+    {
+      "id": "booking-created",
+      "name": "Создание брони",
+      "when": "После сохранения новой брони.",
+      "tone": "success",
+      "title": "Бронь сохранена",
+      "message": "{record}. {text}"
+    },
+    {
+      "id": "booking-extended",
+      "name": "Продление брони",
+      "when": "После сохранения нового срока брони.",
+      "tone": "success",
+      "title": "Бронь продлена",
+      "message": "{record}. {text}"
+    },
+    {
+      "id": "booking-cancelled",
+      "name": "Снятие брони",
+      "when": "После снятия брони без дополнительного подтверждения.",
+      "tone": "success",
+      "title": "Бронь снята",
+      "message": "{record}. {text}"
+    },
+    {
+      "id": "document-submitted",
+      "name": "Передача юристу",
+      "when": "После отправки или повторной отправки менеджером на согласование.",
+      "tone": "success",
+      "title": "Документ направлен юристу",
+      "message": "{record}. {text}"
+    },
+    {
+      "id": "document-approved",
+      "name": "Согласование документа",
+      "when": "После подтверждения юристом и передачи бухгалтеру.",
+      "tone": "success",
+      "title": "Проверка завершена",
+      "message": "{record}. {text}"
+    },
+    {
+      "id": "document-returned",
+      "name": "Возврат на доработку",
+      "when": "После возврата документа назначенному исполнителю.",
+      "tone": "success",
+      "title": "Документ возвращён",
+      "message": "{record}. {text}"
+    },
+    {
+      "id": "remarks-forwarded",
+      "name": "Передача замечаний менеджеру",
+      "when": "После передачи юристом замечаний менеджеру.",
+      "tone": "success",
+      "title": "Замечания переданы",
+      "message": "{record}. {text}"
+    },
+    {
+      "id": "agreement-submitted",
+      "name": "Передача допсоглашения",
+      "when": "После направления ДС на согласование.",
+      "tone": "success",
+      "title": "Допсоглашение направлено",
+      "message": "{record}. {text}"
+    },
+    {
+      "id": "project-blocked",
+      "name": "Блокировка работы",
+      "when": "После подтверждённой блокировки работы с контрагентом.",
+      "tone": "success",
+      "title": "Блокировка сохранена",
+      "message": "{text}"
+    },
+    {
+      "id": "project-cancelled",
+      "name": "Аннулирование проекта",
+      "when": "После подтверждённого аннулирования проекта.",
+      "tone": "success",
+      "title": "Проект аннулирован",
+      "message": "{record}. {text}"
+    },
+    {
+      "id": "packet-confirmed",
+      "name": "Подтверждение пакета",
+      "when": "После подтверждения бухгалтером проверенного состава пакета.",
+      "tone": "success",
+      "title": "Пакет подтверждён",
+      "message": "{record}. {text}"
+    },
+    {
+      "id": "task-received",
+      "name": "Получение задачи или уведомления",
+      "when": "При появлении нового вычисленного сигнала для текущего пользователя.",
+      "tone": "computed",
+      "title": "Новая задача или уведомление",
+      "message": "{record}. {why} Раздел: {section}."
+    },
+    {
+      "id": "operation-failed",
+      "name": "Ошибка операции",
+      "when": "При появлении новой ошибки в «Операциях и отправках».",
+      "tone": "danger",
+      "title": "Операция не завершена",
+      "message": "{record}. {why} Раздел: {section}."
+    },
+    {
+      "id": "record-saved",
+      "name": "Сохранение записи",
+      "when": "Когда сохранённая запись скрыта текущим фильтром и показывается верхнее подтверждение.",
+      "tone": "success",
+      "title": "Изменения сохранены",
+      "message": "{text}"
+    },
+    {
+      "id": "toast-template-saved",
+      "name": "Сохранение шаблона уведомления",
+      "when": "После сохранения руководителем или администратором новой версии текста.",
+      "tone": "success",
+      "title": "Шаблон сохранён",
+      "message": "«{template}», версия {number}. Изменения применяются к новым уведомлениям."
+    },
+    {
+      "id": "fallback-success",
+      "name": "Другие успешные действия",
+      "when": "Для остальных успешных уведомлений без специального события.",
+      "tone": "success",
+      "title": "{title}",
+      "message": "{text}"
+    },
+    {
+      "id": "fallback-warning",
+      "name": "Другие предупреждения",
+      "when": "Для остальных предупреждений; цвет задаёт вызывающая операция.",
+      "tone": "warning",
+      "title": "{title}",
+      "message": "{text}"
+    },
+    {
+      "id": "fallback-danger",
+      "name": "Другие ошибки",
+      "when": "Для остальных ошибок; цвет задаёт вызывающая операция.",
+      "tone": "danger",
+      "title": "{title}",
+      "message": "{text}"
+    },
+    {
+      "id": "fallback-info",
+      "name": "Другие информационные сообщения",
+      "when": "Для остальных голубых уведомлений.",
+      "tone": "info",
+      "title": "{title}",
+      "message": "{text}"
+    }
+  ]
+}

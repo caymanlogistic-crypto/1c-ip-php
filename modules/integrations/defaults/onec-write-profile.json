@@ -1,0 +1,93 @@
+{
+  "source_metadata_sha256": "94fda9e6b6bc0d5f0dd422c99463cfa556ec0f7443e30bb9ef8e8b5963ea913c",
+  "discovery_scope": "onec-create-context-ro-20261114-v1",
+  "discovery_source_sha256": "952f1bafa54e92a136dd4b8eb87e0b9b5b7a755f488b5a66246280c3773ca948",
+  "entity_types": {
+    "legal_entity": {
+      "value": "ЮридическоеЛицо",
+      "entrepreneur": false
+    },
+    "individual": {
+      "value": "ФизическоеЛицо",
+      "entrepreneur": false
+    },
+    "entrepreneur": {
+      "value": "ФизическоеЛицо",
+      "entrepreneur": true
+    }
+  },
+  "contact_rules": {},
+  "unsupported_fields": [
+    "legal_address",
+    "postal_address",
+    "email",
+    "phone",
+    "foreign",
+    "due_date",
+    "period_from",
+    "period_to",
+    "bank_account",
+    "unit"
+  ],
+  "invoice_operation": "ТоварыИУслуги",
+  "precision": {
+    "money": 2,
+    "price": 2,
+    "quantity": 3
+  },
+  "precision_origin": "local_input_policy_NOT_native_numeric_qualifier_proof",
+  "vat_rates": {
+    "БезНДС": {
+      "value": "БезНДС",
+      "rate": "0",
+      "without_vat": true
+    },
+    "НДС0": {
+      "value": "НДС0",
+      "rate": "0",
+      "without_vat": false
+    },
+    "НДС5": {
+      "value": "НДС5",
+      "rate": "5",
+      "without_vat": false
+    },
+    "НДС7": {
+      "value": "НДС7",
+      "rate": "7",
+      "without_vat": false
+    },
+    "НДС10": {
+      "value": "НДС10",
+      "rate": "10",
+      "without_vat": false
+    },
+    "НДС18": {
+      "value": "НДС18",
+      "rate": "18",
+      "without_vat": false
+    },
+    "НДС20": {
+      "value": "НДС20",
+      "rate": "20",
+      "without_vat": false
+    },
+    "НДС22": {
+      "value": "НДС22",
+      "rate": "22",
+      "without_vat": false
+    }
+  },
+  "limitations": [
+    "No production create was performed",
+    "GET does not prove write rights",
+    "OData does not invoke fill checks",
+    "No atomic natural-key duplicate guarantee",
+    "No update or posting",
+    "Only observed currency/rate1/multiplicity1; no foreign-exchange assumption",
+    "Contacts remain unsupported until structured XML/JSON mapping is established"
+  ],
+  "max_lines": 100,
+  "max_lines_origin": "ERP integration policy: existing context/PDF reader supports up to 100, not a native 1C maximum",
+  "runtime_policy_required": "Source instance and organization are required Binding inputs; currency_rules must be explicitly injected by the trusted integration owner. No runtime references are defaults."
+}

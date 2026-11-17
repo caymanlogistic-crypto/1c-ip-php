@@ -1,0 +1,100 @@
+{
+  "calendar_proof": null,
+  "count_evidence": {
+    "candidate_csv_rows": 365,
+    "derived_working_dates": 247,
+    "kind": "DERIVED_FROM_NEW_OFFICIAL_PERIODS_PLUS_EXISTING_SAT_SUN_SCOPE",
+    "not_explicit_247_118_quote_in_ministry_article": true,
+    "regular_weekend_dates": 104,
+    "union_equals_existing_candidate_exact_nonworking_set": true,
+    "union_nonworking_dates": 118
+  },
+  "draft_pairs_match_retained_final1466": true,
+  "holiday_dates": [
+    "2026-01-01",
+    "2026-01-02",
+    "2026-01-03",
+    "2026-01-04",
+    "2026-01-05",
+    "2026-01-06",
+    "2026-01-07",
+    "2026-01-08",
+    "2026-02-23",
+    "2026-03-08",
+    "2026-05-01",
+    "2026-05-09",
+    "2026-06-12",
+    "2026-11-04"
+  ],
+  "independent_semantic_sufficiency": "PENDING",
+  "limitations": [
+    "New source is a July 2025 official 2026 explanation with proposed annual transfers; final1466 establishes the exact same two annual pairs.",
+    "Source sufficiency/current applicability must be assessed independently, including any later amendment concern at the 2026-11-15 snapshot.",
+    "Original remote HTML/PDF bytes hashes unavailable. No 2025/2027 calendar or CalendarProof created."
+  ],
+  "new_source_2026_periods": [
+    {
+      "from": "2026-01-01",
+      "source_boundary_clipped_to_2026": true,
+      "to": "2026-01-11"
+    },
+    {
+      "from": "2026-02-21",
+      "source_boundary_clipped_to_2026": false,
+      "to": "2026-02-23"
+    },
+    {
+      "from": "2026-03-07",
+      "source_boundary_clipped_to_2026": false,
+      "to": "2026-03-09"
+    },
+    {
+      "from": "2026-05-01",
+      "source_boundary_clipped_to_2026": false,
+      "to": "2026-05-03"
+    },
+    {
+      "from": "2026-05-09",
+      "source_boundary_clipped_to_2026": false,
+      "to": "2026-05-11"
+    },
+    {
+      "from": "2026-06-12",
+      "source_boundary_clipped_to_2026": false,
+      "to": "2026-06-14"
+    },
+    {
+      "from": "2026-11-04",
+      "source_boundary_clipped_to_2026": false,
+      "to": "2026-11-04"
+    },
+    {
+      "from": "2026-12-31",
+      "source_boundary_clipped_to_2026": false,
+      "to": "2026-12-31"
+    }
+  ],
+  "new_source_draft_pairs": [
+    {
+      "rest_from": "2026-01-03",
+      "rest_to": "2026-01-09"
+    },
+    {
+      "rest_from": "2026-01-04",
+      "rest_to": "2026-12-31"
+    }
+  ],
+  "new_source_holiday_list_matches_candidate": true,
+  "old_candidate_status_unchanged": "UNVERIFIED",
+  "old_files_checked_byte_identical": 17,
+  "result": "PASS_NEW_SOURCE_ALIGNMENT_ONLY",
+  "reuse_not_repeated": {
+    "12_monthly_helper_parity_repeated": false,
+    "365_working_helper_parity_repeated": false,
+    "new_checks": "Only new source list/period/transfer alignment and exact existing dependency hashes; no planner/runtime call.",
+    "prior_candidate_data_validation": "candidates/2026-review-20261115/validation.json",
+    "sha256": "b57529b91005432306e330d79449e6e10b180243010e2f5c6602c14477c06f63"
+  },
+  "schema": "rental-calendar-sourceproof-comparison-v1",
+  "supported_verified_years": []
+}

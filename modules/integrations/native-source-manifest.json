@@ -1,0 +1,119 @@
+{
+  "source_commit": "fa907cce3ea6722cb60bc8a7436750e509715c79",
+  "files": [
+    {
+      "source": "deploy/access-broker/native/php/diadoc/Catalog.php",
+      "target": "native/php/diadoc/Catalog.php",
+      "source_sha256": "e7766fb9028c70d797da7b5008a7fab13bc87b40169c7121e720efc1dc386667",
+      "copied_sha256": "e7766fb9028c70d797da7b5008a7fab13bc87b40169c7121e720efc1dc386667"
+    },
+    {
+      "source": "deploy/access-broker/native/php/diadoc/Export.php",
+      "target": "native/php/diadoc/Export.php",
+      "source_sha256": "da6d4dc21e1add0b8368a8ea8d66ae6a779881962077bd5d62b1cd1a41d52bf1",
+      "copied_sha256": "da6d4dc21e1add0b8368a8ea8d66ae6a779881962077bd5d62b1cd1a41d52bf1"
+    },
+    {
+      "source": "deploy/access-broker/native/php/diadoc/Http.php",
+      "target": "native/php/diadoc/Http.php",
+      "source_sha256": "8d31aa7735bdc1d013556cacb9bc17dea491a58d0019318028590accf4e2baf0",
+      "copied_sha256": "8d31aa7735bdc1d013556cacb9bc17dea491a58d0019318028590accf4e2baf0"
+    },
+    {
+      "source": "deploy/access-broker/native/php/diadoc/NativePrint.php",
+      "target": "native/php/diadoc/NativePrint.php",
+      "source_sha256": "a18e785a53eaa70ccc2cbb1c5b432280a0c8ab8bdb1311438c7c7b2245835d3f",
+      "copied_sha256": "a18e785a53eaa70ccc2cbb1c5b432280a0c8ab8bdb1311438c7c7b2245835d3f"
+    },
+    {
+      "source": "deploy/access-broker/native/php/diadoc/Package.php",
+      "target": "native/php/diadoc/Package.php",
+      "source_sha256": "d9b860bdd38d1cc0f560f453218e839539a2c70ff6fbd9e48f9021ceccdd95e8",
+      "copied_sha256": "d9b860bdd38d1cc0f560f453218e839539a2c70ff6fbd9e48f9021ceccdd95e8"
+    },
+    {
+      "source": "deploy/access-broker/native/php/diadoc/PrintDiscovery.php",
+      "target": "native/php/diadoc/PrintDiscovery.php",
+      "source_sha256": "2f680db0ebc89d18d511ba3a5ce9694e5a176178382ff578112e88dab06e2364",
+      "copied_sha256": "2f680db0ebc89d18d511ba3a5ce9694e5a176178382ff578112e88dab06e2364"
+    },
+    {
+      "source": "deploy/access-broker/native/php/diadoc/WebClient.php",
+      "target": "native/php/diadoc/WebClient.php",
+      "source_sha256": "ce1e3740f44d8ea78a8294bc1d7740d690246135c550793ba30080b08f3a7928",
+      "copied_sha256": "5760037a9cb5ba62a420d61b7360d940481b6b13cfae78ac8d1c7bb80fef5280"
+    },
+    {
+      "source": "deploy/access-broker/native/php/mosvodokanal/Api.php",
+      "target": "native/php/mosvodokanal/Api.php",
+      "source_sha256": "1896002865b23bccd1f3325abb5d9dd81bdaf6cf1f0d3f8f27d393cd50f2554e",
+      "copied_sha256": "a3fb6fb1a925540f34a539e45c46b487846b1b13b30dd50a2113598fb5326643"
+    },
+    {
+      "source": "deploy/access-broker/native/php/mosvodokanal/Exporter.php",
+      "target": "native/php/mosvodokanal/Exporter.php",
+      "source_sha256": "e4518b39261130092478eb97ef4dbcadcbce43833952ddd7278daa5cc13676ee",
+      "copied_sha256": "e4518b39261130092478eb97ef4dbcadcbce43833952ddd7278daa5cc13676ee"
+    },
+    {
+      "source": "deploy/access-broker/native/php/onec/bank_worker.php",
+      "target": "native/php/onec/bank_worker.php",
+      "source_sha256": "2c5069b0e7c2e8a65770d9e8e098be80846035a68afc40bbfaecc9aadd87a81a",
+      "copied_sha256": "4b86380146f52d38855ac25e9bcb1e46146afe5c4fb1b2f7df2992f4e3736467"
+    },
+    {
+      "source": "deploy/access-broker/native/php/onec/FreshRead.php",
+      "target": "native/php/onec/FreshRead.php",
+      "source_sha256": "af2a0ef92a497f1fa39cede007d34135a007f20d64878c62cc0f9dff7bbc3e04",
+      "copied_sha256": "af2a0ef92a497f1fa39cede007d34135a007f20d64878c62cc0f9dff7bbc3e04"
+    },
+    {
+      "source": "deploy/access-broker/native/php/onec/OnecProbe.php",
+      "target": "native/php/onec/OnecProbe.php",
+      "source_sha256": "b5ed012d75f5f0b402a2e6772fbdbfdff7e5779497a58e1cc671ae66af1611ba",
+      "copied_sha256": "b5ed012d75f5f0b402a2e6772fbdbfdff7e5779497a58e1cc671ae66af1611ba"
+    },
+    {
+      "source": "deploy/access-broker/native/php/onec/ReadOnly.php",
+      "target": "native/php/onec/ReadOnly.php",
+      "source_sha256": "fdcf54566ba18d4b3d996c31b8f6e9aa1f208c1b152d6032a9f52809575bbbbd",
+      "copied_sha256": "0baad7d30215063286c4523b73300eed8f1ac1539a97e8fe4c9cfeee81f87b89"
+    },
+    {
+      "source": "deploy/access-broker/native/php/pik/Client.php",
+      "target": "native/php/pik/Client.php",
+      "source_sha256": "3fe0f71d5bd4b2215bc6902cd0c1efd809d1798bbac17b6c196c0bfeb02d5a64",
+      "copied_sha256": "724f1495a4a24f06737cc8da93e74893eb4c46a15a01dde5e86b656dcc078de7"
+    },
+    {
+      "source": "deploy/access-broker/native/php/Portal.php",
+      "target": "native/php/Portal.php",
+      "source_sha256": "e0c0b5eb29afbe7c0961af8af419747cfd2eb3e18c6f44ac6be36e19768c2d3a",
+      "copied_sha256": "21d42a85e98baf7007e78172dcc4db6f1b6cbe43c747021751138509fbc07467"
+    },
+    {
+      "source": "deploy/access-broker/native/php/runner.php",
+      "target": "native/php/runner.php",
+      "source_sha256": "83c6e0e12acaf56565e68d19000f24177e1f72cd3a66c17068791e2d0a28dcfc",
+      "copied_sha256": "e8e6be2cb187f857b63b7d55063b7c2887597c264c957f2f0715c04f83458ad5"
+    },
+    {
+      "source": "deploy/access-broker/native/php/Telemetry.php",
+      "target": "native/php/Telemetry.php",
+      "source_sha256": "64fe287f2f0bee1aa56ef70ad156bcf984d446d61e77187830dc3ac051a5afdf",
+      "copied_sha256": "4a3ddabd71a42f65624c714e41fee59f9a6ff6362f4b7273dc07d9242656ed06"
+    },
+    {
+      "source": "deploy/access-broker/worker.php",
+      "target": "worker.php",
+      "source_sha256": "94eecaddf18b701e465261d95b0bc90a7ecd378fd87b0515b2223439e31ae50b",
+      "copied_sha256": "f75c6ced2fe5a245161501bd3f89082423e5c7e3fb501ea953e35fe8da01b292"
+    },
+    {
+      "source": "deploy/access-broker/certificates/mvk-chain.crt",
+      "target": "certificates/mvk-chain.crt",
+      "source_sha256": "6ed7d687a911eeedf9dd4bc1763ee00bf2eb25629a51f9d22d4fd335a92d1a96",
+      "copied_sha256": "6ed7d687a911eeedf9dd4bc1763ee00bf2eb25629a51f9d22d4fd335a92d1a96"
+    }
+  ]
+}

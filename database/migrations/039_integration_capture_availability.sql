@@ -1,0 +1,4 @@
+ALTER TABLE integration_capture_blobs
+ MODIFY private_path VARCHAR(240) NULL,
+ ADD source_status VARCHAR(64) NOT NULL DEFAULT 'STABLE_OBSERVED_COPY',
+ ADD available TINYINT NOT NULL DEFAULT 1;

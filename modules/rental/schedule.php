@@ -1,0 +1,12 @@
+<?php
+declare(strict_types=1);
+require dirname(__DIR__,2).'/app/bootstrap.php';
+use App\{Auth,DB};
+use Modules\Rental\{Scheduler,SourceCalendar,InvoiceSignals};
+if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
+$options=array_slice($argv,1);$positionals=array_values(array_filter($options,fn($v)=>!str_starts_with($v,'--')));$date=$positionals[0]??date('Y-m-d');$time=$positionals[1]??date('H:i');$testApply=in_array('--test-apply',$options,true);$datedApply=in_array('--dated-apply',$options,true);$p=DB::pdo();
+try{
+ if(in_array('--apply',$options,true))throw new RuntimeException('Автоматический выпуск выключен. Производственное применение рабочего календаря не допущено.');
+ if($testApply||$datedApply){session_save_path(APP_ROOT.'/runtime/sessions');session_start();if($testApply)$p->beginTransaction();$credentials=json_decode(stream_get_contents(STDIN,16385),true,8,JSON_THROW_ON_ERROR);if(!is_array($credentials)||!is_string($credentials['username']??null)||!is_string($credentials['password']??null)||!Auth::login($credentials['username'],$credentials['password']))throw new RuntimeException('Требуется действующая учётная запись.',401);unset($credentials);}
+ $reference=SourceCalendar::registered();if($testApply)$p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();$monthly=Scheduler::run($date,$time,false,false,$reference);$signals=$reference?InvoiceSignals::refresh($p,$date,$time,$reference,false):['blocked'=>'CALENDAR_REFERENCE_UNAVAILABLE'];if($testApply){if(!$reference||array_filter($monthly['blocked'],fn($row)=>($row['scope']??'')==='calendar')||!empty($signals['blocked']))throw new RuntimeException('CALENDAR_UNKNOWN: необходимые даты не покрыты календарём; применение не выполнено.');$monthly=Scheduler::run($date,$time,true,false,$reference);$signals=InvoiceSignals::refresh($p,$date,$time,$reference,true);}$result=['monthly'=>$monthly,'signals'=>$signals,'dated'=>Scheduler::dated($date,$datedApply||$testApply),'production_eligible'=>false,'automaticWorkerEnabled'=>false];if($testApply){$p->rollBack();$result['effectsRolledBack']=true;}$result['externalSends']=0;echo json_encode($result,JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR).PHP_EOL;
+}catch(Throwable $e){if($p->inTransaction())$p->rollBack();fwrite(STDERR,$e instanceof PDOException?'Не удалось выполнить планировщик.'.PHP_EOL:$e->getMessage().PHP_EOL);exit(2);}finally{if(session_status()===PHP_SESSION_ACTIVE){$_SESSION=[];session_destroy();}}

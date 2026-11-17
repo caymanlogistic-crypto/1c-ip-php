@@ -1,0 +1,10 @@
+/.local/
+/private/
+/runtime/
+/uploads/
+/storage/
+/artifacts/
+/vendor/
+/.env*
+/node_modules/
+*.log

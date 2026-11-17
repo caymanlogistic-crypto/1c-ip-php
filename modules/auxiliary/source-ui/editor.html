@@ -1,0 +1,9 @@
+<div data-editor-fragment data-editor-title="{{ page_title }}">
+<form method="post" id="premise-form" class="registry-ui-modal-grid">{% csrf_token %}
+{% include 'core/form_errors.html' with errors=form.non_field_errors %}
+<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">{% include 'core/fields.html' with hide_non_field_errors=True %}</div>
+</form>
+{% if premise.area_variants or premise.account_variants %}<details><summary class="registry-ui-primary">Значения в источнике</summary><span class="registry-ui-modal-help">Площади: {{ premise.area_variants|join:', ' }} м². Лицевые счета: {{ premise.account_variants|join:', ' }}. Варианты сохранены для проверки, площадь кадастрового объекта не установлена.</span></details>{% endif %}
+{% if sources %}<details><summary class="registry-ui-primary">Связь с источником ({{ sources|length }})</summary><div class="table-scroll registry-ui-compact-table-scroll"><table class="table registry-ui-table registry-ui-data registry-ui-compact-table"><thead><tr><th>Строка</th><th>Обозначение / этаж</th><th>Площадь строки, м²</th><th>Кадастр / счёт</th></tr></thead><tbody>{% for source in sources %}<tr><td>{{ source.row_number }}{% if source.hidden %} (скрытая){% endif %}<details><summary>Источник</summary><span class="registry-ui-modal-help">{{ source.batch.filename }} · «{{ source.batch.sheet }}» · SHA256: {{ source.batch.sha256 }}</span></details></td><td>{{ source.raw.values.designation }} / {{ source.raw.values.floor }}</td><td>{{ source.raw.values.area }}</td><td>{{ source.raw.values.cadastral }} / {{ source.raw.values.account }}</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
+<div class="modal-foot-actions" data-editor-actions><button class="btn btn-secondary" type="button" data-editor-close>Закрыть</button>{% if can_edit %}<button class="btn btn-primary" type="submit" form="premise-form">Сохранить</button>{% endif %}</div>
+</div>

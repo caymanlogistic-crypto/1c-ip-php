@@ -1,0 +1,125 @@
+{
+  "calendar_proof": null,
+  "conditional_inferences": {
+    "automatic_rest_transfers": [
+      {
+        "candidate_rest_date": "2026-03-09",
+        "holiday_date": "2026-03-08"
+      },
+      {
+        "candidate_rest_date": "2026-05-11",
+        "holiday_date": "2026-05-09"
+      }
+    ],
+    "candidate_working_weekends": [],
+    "holiday_dates_from_historical_list": [
+      "2026-01-01",
+      "2026-01-02",
+      "2026-01-03",
+      "2026-01-04",
+      "2026-01-05",
+      "2026-01-06",
+      "2026-01-07",
+      "2026-01-08",
+      "2026-02-23",
+      "2026-03-08",
+      "2026-05-01",
+      "2026-05-09",
+      "2026-06-12",
+      "2026-11-04"
+    ],
+    "rule": "For a Saturday/Sunday holiday outside January 1-8, move rest to the next date that is a weekday and not already a holiday or added rest day. January 1-8 holiday coincidences use only the observed annual decree destinations.",
+    "status": "UNVERIFIED_CURRENT_APPLICABILITY_NOT_CONFIRMED",
+    "working_weekends_explanation": "Both rest origins are also historical Article112 January holidays, so neither is converted into a working holiday.",
+    "workweek_basis": "Requested federal Saturday/Sunday five-day scope; Gregorian dates from Python datetime.date. No regional/employer/shift exceptions."
+  },
+  "confirmed_annual_act_facts": {
+    "rest_transfers": [
+      {
+        "rest_from": "2026-01-03",
+        "rest_to": "2026-01-09"
+      },
+      {
+        "rest_from": "2026-01-04",
+        "rest_to": "2026-12-31"
+      }
+    ],
+    "year_named_by_act": 2026
+  },
+  "coverage": {
+    "from": "2026-01-01",
+    "invoice_period2026_01": "UNKNOWN because issue date belongs to December 2025, outside candidate coverage.",
+    "invoice_period2027_01": "Only the December 2026 issue date is calculated. No January 2027 day classification is inferred.",
+    "outside_year_data_inferred": false,
+    "to": "2026-12-31"
+  },
+  "created_on": "2026-11-15",
+  "derivation_order": [
+    "Enumerate Gregorian dates 2026-01-01..2026-12-31 inclusive.",
+    "Apply the historical fixed Article112 holiday list conditionally.",
+    "Apply observed 2026 decree rest destinations; a holiday origin remains a holiday.",
+    "Apply the historical automatic-substitution rule conditionally outside January1-8.",
+    "Classify each in-range day using existing working>nonworking/holiday>weekday precedence.",
+    "For issue months January..December 2026, shift the 25th backward to a candidate working date; invoice period is the following month."
+  ],
+  "limitations": [
+    "This candidate does not resolve the current-applicability blocker.",
+    "No operator selection, approval, verified flag change or runtime activation is performed.",
+    "No 2025/2027 calendar, hourly norm or shortened-day classification is inferred.",
+    "Shortened working days remain working for these date predicates.",
+    "No new financial amount, payment deadline, rate, recipient or policy is introduced."
+  ],
+  "parent_evidence_commit": "5fca4e05c47e233eca277811b801a723e3b50311",
+  "planner_parity": {
+    "helpers": [
+      "_working",
+      "_monthly_day"
+    ],
+    "json_calendar_proof": null,
+    "parent_planner_commit": "56efe6a0c001412dc75b4de31f3a84e2d4ff9b94",
+    "planner_path": "app/rental_scheduler/planner.py",
+    "planner_sha256": "f0212681086ffdbf6f981b704508db362749d2e40d9f5ffc4eea67ec21d17f97",
+    "verification_context": "Temporary in-memory CalendarProof verified=False, receipt_sha256 empty; helpers only. plan/admission/runtime not invoked."
+  },
+  "protected_existing_artifact_sha256": {
+    "app/rental_scheduler/README.md": "bf195d7a9ba29477c1cdad487afe7d590b7643ce494777dbfbdaa59fec0cfa74",
+    "app/rental_scheduler/__init__.py": "8cdea5b800dd104fb727d7ba0ac7e5484a01ace816e60c6dd312223e2fa0ce4c",
+    "app/rental_scheduler/calendars/README.md": "2b2426993f3c1249b4ba950589585af2d551a5394ef7a726b1f3f520e40bcb8d",
+    "app/rental_scheduler/calendars/evidence/2026-transfer-act-extracted.txt": "0adcffc5c767a49cdb01b649d024d5425d9c5513651ffcda6895059a341da175",
+    "app/rental_scheduler/calendars/evidence/mintrud-20190531-article112-excerpt.txt": "fa625249a9c1da574a38e5414191e6fcae5cf4cee5ddea0fc2fb3403954b44e2",
+    "app/rental_scheduler/calendars/manifest.json": "6cb486daab35add24db2e412f21faa709f69ad49840ed751eb5169bd9c9be7cd",
+    "app/rental_scheduler/calendars/provenance.json": "54c2a3559bd58f84f9381b40698381b091d809686961df9e5b43b8ff57b11e02",
+    "app/rental_scheduler/calendars/status.json": "d3e59b1caaac396bf2e298b8cedfcfe788daa5cc72cba69fbc79f3279864a705",
+    "app/rental_scheduler/planner.py": "f0212681086ffdbf6f981b704508db362749d2e40d9f5ffc4eea67ec21d17f97",
+    "app/rental_scheduler/tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app/rental_scheduler/tests/test_planner.py": "6c5f439ca601bfdff844902c9894ce7fc5afcb8ce3b49f7153f0ac4d2a94e449"
+  },
+  "runtime_eligible": false,
+  "schema": "rental-calendar-review-candidate-provenance-v1",
+  "source_current_applicability_confirmed": false,
+  "source_inputs": [
+    {
+      "official_url": "https://mintrud.gov.ru/labour/relationship/351",
+      "original_bytes_sha256": null,
+      "retained_path": "../../evidence/mintrud-20190531-article112-excerpt.txt",
+      "role": "Historical Article112 fixed holiday list and automatic-substitution rule. Current applicability NOT confirmed.",
+      "source_id": "mintrud-article112-historical",
+      "source_publication_date": "2019-05-31",
+      "source_representation": "official-web-extracted-text-excerpt",
+      "source_representation_sha256": "fa625249a9c1da574a38e5414191e6fcae5cf4cee5ddea0fc2fb3403954b44e2"
+    },
+    {
+      "act_date": "2025-09-24",
+      "act_number": "1466",
+      "official_url": "https://static.government.ru/media/files/4jeB8hNKm69ggOa9yDiYOli6YoAyM21i.pdf",
+      "original_bytes_sha256": null,
+      "retained_path": "../../evidence/2026-transfer-act-extracted.txt",
+      "role": "Observed official body explicitly describes 2026 transfer pairs. These facts are separate from inferred application of the historical holiday list.",
+      "source_id": "ru-transfer-2026-observed",
+      "source_representation": "official-web-extracted-text",
+      "source_representation_sha256": "0adcffc5c767a49cdb01b649d024d5425d9c5513651ffcda6895059a341da175"
+    }
+  ],
+  "status": "UNVERIFIED",
+  "supported_verified_years": []
+}

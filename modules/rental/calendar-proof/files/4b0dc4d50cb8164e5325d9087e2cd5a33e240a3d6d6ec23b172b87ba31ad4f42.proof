@@ -1,0 +1,102 @@
+{
+  "bounded_chain_argument_for_reviewer": [
+    "Official ministry publication explicitly applies the complete statutory holiday list, automatic substitution rule and festive periods to 2026, supplying a year-specific official baseline beyond the 2019 quotation.",
+    "Ministry proposed two annual transfer pairs. The retained subsequent FINAL decree1466 names 2026 and adopts exactly those pairs. The July draft is not substituted for the final decree.",
+    "New official festive periods combined with requested ordinary Sat/Sun rest match the already frozen candidate set exactly. 247/118 are derived counts, not a direct numerical quotation from the ministry page.",
+    "Whether this chain establishes applicable 2026 data at the declared snapshot remains an independent semantic review decision. No verified flag or native receipt issued here."
+  ],
+  "calendar_proof": null,
+  "comparison_path": "comparison.json",
+  "comparison_sha256": "c2863cfca44e0a42b66636b39913604e23c5c054c7f533a3b68992059189b840",
+  "new_year_specific_primary_source": {
+    "explicit_calendar_year": 2026,
+    "later_amendments_absence_attested_by_this_body": false,
+    "license": {
+      "attribution": "Ministry of Labour and Social Protection of the Russian Federation; 2025-07-01; https://mintrud.gov.ru/social/social/1366",
+      "canonical_url": "https://creativecommons.org/licenses/by/3.0/",
+      "license_notice_source": "Same official article, extracted lines 193-196",
+      "linked_legalcode_url": "https://creativecommons.org/licenses/by/3.0/legalcode",
+      "name": "Creative Commons Attribution 3.0",
+      "notice_path": "mintrud-license-excerpt.txt",
+      "notice_sha256": "0319c2112dd00bad7ec0baeb51c29dbb616856c15996dc519d5e14bf453028ca"
+    },
+    "official_url": "https://mintrud.gov.ru/social/social/1366",
+    "original_html_bytes_sha256": null,
+    "publication_date": "2025-07-01",
+    "publisher": "Ministry of Labour and Social Protection of the Russian Federation",
+    "representation_path": "mintrud-20250701-2026-calendar-body.txt",
+    "representation_sha256": "7770e10aeae379aa523162dbd3cdfc9efbe57ebbbf1145224b4839e7720da96e",
+    "retained_body": "Full semantic publication body: extracted title 86/date 88/body 92-127; navigation/images excluded, quote marker removed; UTF-8 LF with final newline.",
+    "source_representation": "official-web-extracted-text",
+    "statement_status": "Official year-specific 2026 explanation. Statutory list and automatic-transfer rule stated; annual transfer pairs explicitly DRAFT in this July publication."
+  },
+  "observed_on": "2026-11-15",
+  "owner_approval_received": false,
+  "parent_candidate_commit": "527af5b0d4114f47e04c548fdd212a7a989dbb0b",
+  "previous_independent_assessment": {
+    "gap": "Current applicability of relevant Article112 standing list/substitution rule, not age 2019 alone.",
+    "project_local_path": ".project-local/calendar-provenance-independent-20261115/assessment.json",
+    "response": "New evidence is year-specific official 2026 source body plus subsequent final annual act; independent sufficiency review pending.",
+    "score": 6.5,
+    "sha256": "b1b64a8566e6b2e03c0303f980a9c4facb1b3db3321c82fe49ed2c25568fe90a"
+  },
+  "protected_existing_dependency_sha256": {
+    "app/rental_scheduler/README.md": "bf195d7a9ba29477c1cdad487afe7d590b7643ce494777dbfbdaa59fec0cfa74",
+    "app/rental_scheduler/__init__.py": "8cdea5b800dd104fb727d7ba0ac7e5484a01ace816e60c6dd312223e2fa0ce4c",
+    "app/rental_scheduler/calendars/README.md": "2b2426993f3c1249b4ba950589585af2d551a5394ef7a726b1f3f520e40bcb8d",
+    "app/rental_scheduler/calendars/candidates/2026-review-20261115/README.md": "93f88213809d251f494b9400bdd5794b4967b4a02591e24b301c89e392f38c87",
+    "app/rental_scheduler/calendars/candidates/2026-review-20261115/candidate.json": "25e4192e8139bbd4c629cec070f18c85d185733c507ad55b8f71c5e1b64c33e5",
+    "app/rental_scheduler/calendars/candidates/2026-review-20261115/dates.csv": "63ef4a1d7b884f4f32b7fb50b848613974f5914bab72396c9c4e4b738804bfc4",
+    "app/rental_scheduler/calendars/candidates/2026-review-20261115/manifest.json": "3527de90551df4e3a17a01919fa3a0b3c7e7dd168f4474eddb5cd5625091288a",
+    "app/rental_scheduler/calendars/candidates/2026-review-20261115/provenance.json": "cf9ad95e15ff3dc3f84b3cdbd3aa6d3f6d6b389ea8c689221e12a335def827fd",
+    "app/rental_scheduler/calendars/candidates/2026-review-20261115/validation.json": "b57529b91005432306e330d79449e6e10b180243010e2f5c6602c14477c06f63",
+    "app/rental_scheduler/calendars/evidence/2026-transfer-act-extracted.txt": "0adcffc5c767a49cdb01b649d024d5425d9c5513651ffcda6895059a341da175",
+    "app/rental_scheduler/calendars/evidence/mintrud-20190531-article112-excerpt.txt": "fa625249a9c1da574a38e5414191e6fcae5cf4cee5ddea0fc2fb3403954b44e2",
+    "app/rental_scheduler/calendars/manifest.json": "6cb486daab35add24db2e412f21faa709f69ad49840ed751eb5169bd9c9be7cd",
+    "app/rental_scheduler/calendars/provenance.json": "54c2a3559bd58f84f9381b40698381b091d809686961df9e5b43b8ff57b11e02",
+    "app/rental_scheduler/calendars/status.json": "d3e59b1caaac396bf2e298b8cedfcfe788daa5cc72cba69fbc79f3279864a705",
+    "app/rental_scheduler/planner.py": "f0212681086ffdbf6f981b704508db362749d2e40d9f5ffc4eea67ec21d17f97",
+    "app/rental_scheduler/tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app/rental_scheduler/tests/test_planner.py": "6c5f439ca601bfdff844902c9894ce7fc5afcb8ce3b49f7153f0ac4d2a94e449"
+  },
+  "retained_final_annual_act": {
+    "act_date": "2025-09-24",
+    "act_number": "1466",
+    "annual_rest_pairs": [
+      {
+        "rest_from": "2026-01-03",
+        "rest_to": "2026-01-09"
+      },
+      {
+        "rest_from": "2026-01-04",
+        "rest_to": "2026-12-31"
+      }
+    ],
+    "calendar_year": 2026,
+    "existing_representation_path": "../../evidence/2026-transfer-act-extracted.txt",
+    "official_url": "https://static.government.ru/media/files/4jeB8hNKm69ggOa9yDiYOli6YoAyM21i.pdf",
+    "original_pdf_bytes_sha256": null,
+    "publisher": "Government of the Russian Federation",
+    "representation_sha256": "0adcffc5c767a49cdb01b649d024d5425d9c5513651ffcda6895059a341da175",
+    "source_representation": "official-web-extracted-text",
+    "status": "Observed final decree body, not a draft. Existing retained body unchanged."
+  },
+  "runtime_verified": false,
+  "schema": "rental-calendar-sourceproof-chain-v1",
+  "scope": {
+    "business_state_access": 0,
+    "candidate_data_changed": false,
+    "global_settings_changed": 0,
+    "only_2026_sourceproof": true,
+    "owner_test_override": false,
+    "prior_checks_reused_on_exact_hashes": true,
+    "provider_calls": 0,
+    "runtime_or_planner_calls": 0,
+    "server_actions": 0,
+    "shared_ledger_writes": 0
+  },
+  "search_limit_minutes": 10,
+  "search_started_utc": "2026-11-15T00:53:48Z",
+  "status": "PENDING_INDEPENDENT_SUFFICIENCY_REVIEW",
+  "supported_verified_years": []
+}

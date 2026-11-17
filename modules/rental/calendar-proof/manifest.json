@@ -1,0 +1,78 @@
+{
+  "sourceCommit": "fa907cce3ea6722cb60bc8a7436750e509715c79",
+  "status": "CANDIDATE_NOT_ACTIVE",
+  "runtimeLanguage": "PHP",
+  "oldRuntimeExecuted": false,
+  "files": {
+    "compiled/ru-federal-2026-v1/verification-receipt.json": {
+      "sha256": "b8a1bcf9cd0738e545465390a96e8e300421589c648f155c56201e8fcdaefcf0",
+      "bytes": 5875,
+      "stored": "files/b8a1bcf9cd0738e545465390a96e8e300421589c648f155c56201e8fcdaefcf0.proof"
+    },
+    "compiled/ru-federal-2026-v1/calendar.json": {
+      "sha256": "ade23a325efea62b753b16f840f31e3aa8215b570783c926328695be35e60b39",
+      "bytes": 585,
+      "stored": "files/ade23a325efea62b753b16f840f31e3aa8215b570783c926328695be35e60b39.proof"
+    },
+    "../planner.py": {
+      "sha256": "f0212681086ffdbf6f981b704508db362749d2e40d9f5ffc4eea67ec21d17f97",
+      "bytes": 13924,
+      "stored": "files/f0212681086ffdbf6f981b704508db362749d2e40d9f5ffc4eea67ec21d17f97.proof"
+    },
+    "candidates/2026-review-20261115/candidate.json": {
+      "sha256": "25e4192e8139bbd4c629cec070f18c85d185733c507ad55b8f71c5e1b64c33e5",
+      "bytes": 9596,
+      "stored": "files/25e4192e8139bbd4c629cec070f18c85d185733c507ad55b8f71c5e1b64c33e5.proof"
+    },
+    "candidates/2026-review-20261115/dates.csv": {
+      "sha256": "63ef4a1d7b884f4f32b7fb50b848613974f5914bab72396c9c4e4b738804bfc4",
+      "bytes": 50203,
+      "stored": "files/63ef4a1d7b884f4f32b7fb50b848613974f5914bab72396c9c4e4b738804bfc4.proof"
+    },
+    "candidates/2026-review-20261115/provenance.json": {
+      "sha256": "cf9ad95e15ff3dc3f84b3cdbd3aa6d3f6d6b389ea8c689221e12a335def827fd",
+      "bytes": 6400,
+      "stored": "files/cf9ad95e15ff3dc3f84b3cdbd3aa6d3f6d6b389ea8c689221e12a335def827fd.proof"
+    },
+    "candidates/2026-review-20261115/validation.json": {
+      "sha256": "b57529b91005432306e330d79449e6e10b180243010e2f5c6602c14477c06f63",
+      "bytes": 1947,
+      "stored": "files/b57529b91005432306e330d79449e6e10b180243010e2f5c6602c14477c06f63.proof"
+    },
+    "compiled/ru-federal-2026-v1/source-review-receipt.json": {
+      "sha256": "d070ce5f535fdc60405b7327ed59679058c0d0a6248cfa5c9d3c46ee30ff53ec",
+      "bytes": 13991,
+      "stored": "files/d070ce5f535fdc60405b7327ed59679058c0d0a6248cfa5c9d3c46ee30ff53ec.proof"
+    },
+    "evidence/2026-transfer-act-extracted.txt": {
+      "sha256": "0adcffc5c767a49cdb01b649d024d5425d9c5513651ffcda6895059a341da175",
+      "bytes": 870,
+      "stored": "files/0adcffc5c767a49cdb01b649d024d5425d9c5513651ffcda6895059a341da175.proof"
+    },
+    "sourceproofs/2026-year-specific-20261115/comparison.json": {
+      "sha256": "c2863cfca44e0a42b66636b39913604e23c5c054c7f533a3b68992059189b840",
+      "bytes": 3031,
+      "stored": "files/c2863cfca44e0a42b66636b39913604e23c5c054c7f533a3b68992059189b840.proof"
+    },
+    "sourceproofs/2026-year-specific-20261115/manifest.json": {
+      "sha256": "78ccac0da3a98555deef47835db33889cb0f7159fe827911acc0444376e16d89",
+      "bytes": 637,
+      "stored": "files/78ccac0da3a98555deef47835db33889cb0f7159fe827911acc0444376e16d89.proof"
+    },
+    "sourceproofs/2026-year-specific-20261115/mintrud-20250701-2026-calendar-body.txt": {
+      "sha256": "7770e10aeae379aa523162dbd3cdfc9efbe57ebbbf1145224b4839e7720da96e",
+      "bytes": 3286,
+      "stored": "files/7770e10aeae379aa523162dbd3cdfc9efbe57ebbbf1145224b4839e7720da96e.proof"
+    },
+    "sourceproofs/2026-year-specific-20261115/mintrud-license-excerpt.txt": {
+      "sha256": "0319c2112dd00bad7ec0baeb51c29dbb616856c15996dc519d5e14bf453028ca",
+      "bytes": 163,
+      "stored": "files/0319c2112dd00bad7ec0baeb51c29dbb616856c15996dc519d5e14bf453028ca.proof"
+    },
+    "sourceproofs/2026-year-specific-20261115/proof-chain.json": {
+      "sha256": "4b0dc4d50cb8164e5325d9087e2cd5a33e240a3d6d6ec23b172b87ba31ad4f42",
+      "bytes": 6961,
+      "stored": "files/4b0dc4d50cb8164e5325d9087e2cd5a33e240a3d6d6ec23b172b87ba31ad4f42.proof"
+    }
+  }
+}

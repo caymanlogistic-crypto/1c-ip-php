@@ -1,0 +1,7 @@
+ALTER TABLE reservations ADD COLUMN document_id BIGINT NULL, ADD COLUMN contract_id BIGINT NULL, ADD CONSTRAINT reservations_document_fk FOREIGN KEY(document_id) REFERENCES rental_documents(id), ADD CONSTRAINT reservations_contract_fk FOREIGN KEY(contract_id) REFERENCES contracts(id);
+ALTER TABLE contract_terms ADD COLUMN superseded_on DATE NULL;
+CREATE TABLE IF NOT EXISTS rental_object_holds (contract_id BIGINT NOT NULL, document_id BIGINT NOT NULL, object_id BIGINT NOT NULL, effective_date DATE NOT NULL, return_confirmed BOOLEAN NOT NULL DEFAULT FALSE, return_date DATE NULL, return_file_id CHAR(32) NULL, PRIMARY KEY(contract_id,document_id,object_id), FOREIGN KEY(contract_id) REFERENCES contracts(id), FOREIGN KEY(document_id) REFERENCES rental_documents(id), FOREIGN KEY(object_id) REFERENCES rental_objects(id));
+ALTER TABLE rental_events ADD COLUMN actor_name VARCHAR(255) NULL, ADD COLUMN actor_role_id VARCHAR(32) NULL;
+CREATE TABLE IF NOT EXISTS rental_invoice_versions (invoice_id BIGINT NOT NULL, version INT NOT NULL, snapshot_json JSON NOT NULL, actor_id BIGINT UNSIGNED NULL, recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(invoice_id,version), FOREIGN KEY(invoice_id) REFERENCES invoices(id));
+ALTER TABLE rental_templates ADD COLUMN record_version INT NOT NULL DEFAULT 1, ADD COLUMN word_file_id CHAR(32) NULL, ADD COLUMN pending_version INT NULL, ADD COLUMN pending_body LONGTEXT NULL, ADD COLUMN pending_file_id CHAR(32) NULL, ADD COLUMN reason TEXT NULL;
+ALTER TABLE rental_template_versions ADD COLUMN word_file_id CHAR(32) NULL;

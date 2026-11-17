@@ -1,0 +1,127 @@
+<?php
+declare(strict_types=1);
+namespace Modules\Rental;
+
+use App\{Auth,DB,People,View};
+
+final class LeaseRegistry
+{
+    public static function section(array $contract): string
+    {
+        if (in_array($contract['status'],['closed','ended'],true)) return 'contracts-completed';
+        if ($contract['status']==='cancelled') return 'approvals';
+        if ($contract['finish_date']!==null && $contract['status']==='reconciling') return 'contracts-active';
+        $raw=json_decode($contract['source_json'],true) ?: [];
+        if (!RegistryState::managed($contract) && !empty($raw['imported'])) {
+            return ($raw['sourceStatus'] ?? '')==='Действует'?'contracts-active':'approvals';
+        }
+        return in_array($contract['status'],['active','reconciling'],true)?'contracts-active':($contract['status']==='draft'?'contracts':'approvals');
+    }
+
+    public static function expiry(?string $end,string $today): string
+    {
+        if ($end===null) return '';
+        $last=new \DateTimeImmutable($end);
+        $now=new \DateTimeImmutable($today);
+        if ((int)$now->diff($last)->format('%r%a')<=7) return 'red';
+        $previous=$last->modify('first day of previous month');
+        $previous=$previous->setDate((int)$previous->format('Y'),(int)$previous->format('m'),min((int)$last->format('d'),(int)$previous->format('t')));
+        return $today>=$previous->format('Y-m-d')?'yellow':'';
+    }
+
+    public static function projection(array $contract,string $role,array $tasks,bool $closed,bool $ending,array $reviews=[]): array
+    {
+        $mine=array_values(array_filter($tasks,fn($task)=>$task['entity']==='contract' && (int)$task['id']===(int)$contract['id']
+            && $task['role']===$role && ($role!=='director' || $contract['status']==='reconciling' || !in_array($task['severity'],['red','yellow'],true))));
+        $comment=implode('; ',array_unique(array_column($mine,'text')));
+        $completed=self::section($contract)==='contracts-completed';
+        if ($comment==='' && $closed) $comment='Взаиморасчёты, юридическая проверка и акт возврата подтверждены.';
+        elseif ($comment==='' && $completed) $comment='Аренда завершена. Подтверждения финальной сверки пока не представлены.';
+        if ($contract['status']==='reconciling') {
+            $responsible=[];
+            foreach (['finance'=>'accountant','legal'=>'lawyer','act'=>'manager'] as $key=>$owner) if (empty($reviews[$key])) $responsible[]=$owner;
+        } else {
+            $responsible=array_values(array_unique(array_column(array_filter($mine,fn($task)=>in_array($task['severity'],['red','yellow'],true)),'role')));
+            if (!$responsible && !$completed) $responsible=[RegistryState::owner($contract) ?: 'manager'];
+        }
+        $stage=RegistryState::stage($contract);
+        if (!RegistryState::managed($contract) && $completed && empty($contract['finish_date'])) {
+            $raw=json_decode($contract['source_json'],true) ?: [];
+            $stage=!empty($raw['sourceStatus']) && $raw['sourceStatus']!=='Действует'?$raw['sourceStatus']:Controller::status($contract['status']);
+        }
+        return ['severity'=>RegistryState::severity($mine),'comment'=>$comment,'responsible'=>$responsible,
+            'stage'=>$stage,'closed'=>$closed,'ending'=>$ending,
+            'end'=>$closed && $contract['finish_date']?$contract['finish_date']:$contract['end_date']];
+    }
+
+    public static function page(bool $active): string
+    {
+        $page=$active?'contracts-active':'contracts-completed';
+        Access::pages([$page]);
+        $user=Auth::user();
+        $query=isset($_GET['reset'])?'':trim((string)($_GET['q'] ?? ''));
+        $flag=(string)($_GET['flag'] ?? 'all');
+        if (!in_array($flag,$active?['all','ending','review']:['all','ended','closed'],true)) $flag='all';
+        $tasks=Indicators::tasks(null,null,[$page]);
+        $items=[];
+        $states=$active?"('active','reconciling')":"('ended','closed')";
+        foreach (Controller::query('SELECT c.*,p.name party_name,p.inn party_inn FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status IN '.$states.' ORDER BY c.id DESC') as $contract) {
+            if (self::section($contract)!==$page) continue;
+            $closed=false;$reviews=[];
+            if ($contract['status']==='closed' || $contract['status']==='reconciling') {
+                $signature=Evidence::signature(DB::pdo(),(int)$contract['id']);
+                $proof=Controller::query("SELECT after_json FROM audit_log WHERE action='contract.completed' AND entity_type='contract' AND entity_id=? ORDER BY id DESC LIMIT 1",[(string)$contract['id']])[0]['after_json'] ?? null;
+                $proof=$proof?json_decode($proof,true):null;
+                $closed=$contract['status']==='closed' && isset($proof['closure_proof']['closed_baseline'])
+                    && hash_equals($signature,$proof['closure_proof']['closed_baseline']);
+                foreach (Controller::query('SELECT kind,baseline_hash FROM rental_reviews WHERE contract_id=?',[$contract['id']]) as $review) $reviews[$review['kind']]=hash_equals($signature,$review['baseline_hash']);
+                try {
+                    $file=Evidence::latest(DB::pdo(),'contract',(int)$contract['id'],'return-act');
+                    $reviews['act']=$contract['return_confirmed'] && hash_equals($signature,$file['baseline_hash'] ?? '');
+                } catch (\RuntimeException $error) {if($error instanceof \PDOException)throw $error;}
+            }
+            $planned=Controller::query("SELECT COUNT(*) n FROM rental_documents d WHERE d.contract_id=? AND d.kind='renewal' AND d.applied=0 AND d.status<>'cancelled' AND d.end_date>? AND (d.status IN ('sent','signed') OR EXISTS(SELECT 1 FROM reservations r WHERE r.document_id=d.id AND r.status='active'))",[$contract['id'],$contract['end_date']])[0]['n'];
+            $ending=$contract['status']==='active' && !$planned && self::expiry($contract['end_date'],date('Y-m-d'))!=='';
+            $view=self::projection($contract,$user['role'],$tasks,$closed,$ending,$reviews);
+            $groups=[];
+            foreach (Controller::query('SELECT o.type,o.name FROM contract_objects co JOIN rental_objects o ON o.id=co.object_id WHERE co.contract_id=? ORDER BY o.id',[$contract['id']]) as $object) {
+                $groups[$object['type'] ?: 'Объекты'][]=$object['name'];
+            }
+            $objects='';
+            foreach ($groups as $type=>$names) {
+                $prefix=match($type){'Офис'=>'Офисы','Машиноместо'=>'Машиноместа',default=>$type};
+                $objects.='<div class="registry-ui-primary"><span class="registry-executor-secondary">'.View::e($prefix).':</span> '.View::e(implode(', ',$names)).'</div>';
+            }
+            if ($objects==='') $objects='—';
+            $responsible=implode('; ',array_map(fn($role)=>People::workflowName($role),$view['responsible']));
+            if (!WorkRegistry::matches($query,[$contract['number'],$contract['document_date'],$contract['party_name'],$contract['party_inn'],
+                RegistryState::date($contract['start_date']),RegistryState::date($view['end']),strip_tags($objects),$view['stage'],$view['comment'],$contract['amount'],$responsible])) continue;
+            $items[]=compact('contract','view','objects','responsible');
+        }
+        $tabs=$active?['all'=>['Все',count($items)],'ending'=>['Заканчиваются',count(array_filter($items,fn($row)=>$row['view']['ending']))],
+            'review'=>['На завершении',count(array_filter($items,fn($row)=>$row['contract']['status']==='reconciling'))]]
+            :['all'=>['Все',count($items)],'ended'=>['Аренда завершена',count(array_filter($items,fn($row)=>$row['contract']['status']==='ended'))],
+            'closed'=>['Расчёты закрыты',count(array_filter($items,fn($row)=>$row['view']['closed']))]];
+        $rows=[];$sum='0.00';$known=0;
+        foreach ($items as $item) {
+            ['contract'=>$contract,'view'=>$view,'objects'=>$objects,'responsible'=>$responsible]=$item;
+            if ($flag==='ending' && !$view['ending'] || $flag==='review' && $contract['status']!=='reconciling'
+                || $flag==='ended' && $contract['status']!=='ended' || $flag==='closed' && !$view['closed']) continue;
+            if ($contract['amount']!==null) {$sum=bcadd($sum,$contract['amount'],2);$known++;}
+            $rows[]=['_attrs'=>'class="'.RegistryState::rowClass($view['severity']).'" data-rental-url="/rental/contract?id='.(int)$contract['id'].'" tabindex="0"',
+                View::e($contract['number']),View::e($contract['party_name']),RegistryState::date($contract['start_date']),RegistryState::date($view['end']),$objects,
+                $view['closed']?'<strong class="registry-ui-success">'.View::e($view['stage']).'</strong>':View::e($view['stage']),
+                View::e($view['comment'] ?: '—'),Controller::money($contract['amount']),View::e($responsible ?: '—')];
+        }
+        $actions=$active && in_array($user['role'],['manager','admin'],true) && Auth::can('rental.write')
+            && \App\PagePolicy::level('rental.contracts',$user)>=2?RentalUI::button('Создать договор','/rental/new-contract',true):'';
+        $title=$active?'Действующие договоры':'Завершённые договоры';
+        $controls='<form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'.View::e($flag).'">'.DirectoryUi::search($query)
+            .'<button type="submit" name="reset" value="1" class="registry-ui-reset"'.($query===''?' hidden':'').'>Сбросить фильтры</button></form>';
+        $body=Controller::heading($title,$active?'Действующие условия аренды, сроки и назначенные действия.':'История завершённой аренды и подтверждений расчётов.',$actions)
+            .Controller::tabs($tabs,$flag,true).DirectoryUi::registry('rental-'.$page,
+                ['Договор','Контрагент','Начало','Окончание','Объекты аренды','Стадия','Комментарий','Аренда с НДС','Ответственный'],$rows,
+                ['short','flex','short','code','flex','text','flex','money','text'],$controls,' · Аренда с НДС: <b>'.Controller::money($known?$sum:($rows?null:'0.00')).'</b>');
+        return View::page($title,$body,$page);
+    }
+}

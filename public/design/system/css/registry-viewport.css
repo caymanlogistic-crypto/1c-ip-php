@@ -1,0 +1,27 @@
+/* Column geometry only. Scrolling is the canonical PLANEX registry-ui-scroll behavior. */
+.registry-ui-data.registry-ui-data--columns{width:100%;max-width:none}
+.registry-ui-scroll .registry-ui-table--placement.registry-ui-table--placement-blocks{max-width:none}
+/* This opt-in keeps a regular column table across breakpoints; the ledger's card mode is separate. */
+.registry-ui-data.registry-ui-table--finance.registry-ui-data--columns{display:table;min-width:1280px;table-layout:fixed}
+.registry-ui-data.registry-ui-table--finance.registry-ui-data--columns>colgroup{display:table-column-group}
+.registry-ui-data.registry-ui-table--finance.registry-ui-data--columns>thead{display:table-header-group}
+.registry-ui-data.registry-ui-table--finance.registry-ui-data--columns>tbody{display:table-row-group}
+.registry-ui-data.registry-ui-table--finance.registry-ui-data--columns>tfoot{display:table-footer-group}
+.registry-ui-data.registry-ui-table--finance.registry-ui-data--columns tr{display:table-row}
+.registry-ui-data.registry-ui-table--finance.registry-ui-data--columns :is(th,td){display:table-cell;width:auto;min-height:0}
+.registry-ui-data.registry-ui-table--finance.registry-ui-data--columns tbody td{padding:8px 10px;border:1px solid var(--tone-e3ded5);border-top:0;border-left:0}
+.registry-ui-data.registry-ui-table--finance.registry-ui-data--columns tfoot td{display:table-cell}
+.registry-ui-data--columns col.registry-ui-col-actions{width:40px}
+
+/* The horizontal position control stays inside the existing sticky filter block. */
+.registry-ui-toolbar .registry-ui-horizontal-control{display:flex;flex:1 0 100%;align-items:center;gap:10px;width:100%;min-width:0;margin:0;color:var(--p-secondary);font:500 11px/16px var(--font)}
+.registry-ui-horizontal-control[hidden]{display:none!important}
+.registry-ui-horizontal-label{flex:none}
+.registry-ui-horizontal-range{appearance:none;box-sizing:border-box;display:block;flex:1;min-width:0;width:100%;height:18px;margin:0;padding:0;border:0;border-radius:0;background:transparent;cursor:ew-resize}
+.registry-ui-horizontal-range::-webkit-slider-runnable-track{height:6px;border:1px solid var(--p-border);border-radius:2px;background:linear-gradient(180deg,var(--p-canvas),var(--p-panel))}
+.registry-ui-horizontal-range::-webkit-slider-thumb{appearance:none;width:42px;height:12px;margin-top:-4px;border:1px solid var(--p-stroke);border-radius:2px;background:linear-gradient(180deg,var(--p-surface),var(--p-canvas));box-shadow:inset 0 1px 0 var(--p-surface)}
+.registry-ui-horizontal-range::-moz-range-track{height:4px;border:1px solid var(--p-border);border-radius:2px;background:linear-gradient(180deg,var(--p-canvas),var(--p-panel))}
+.registry-ui-horizontal-range::-moz-range-thumb{width:40px;height:10px;border:1px solid var(--p-stroke);border-radius:2px;background:linear-gradient(180deg,var(--p-surface),var(--p-canvas));box-shadow:inset 0 1px 0 var(--p-surface)}
+.registry-ui-horizontal-range:hover::-webkit-slider-thumb{border-color:var(--p-text)}
+.registry-ui-horizontal-range:hover::-moz-range-thumb{border-color:var(--p-text)}
+.registry-ui-data :is(th,td).registry-ui-number{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "types": ["office", "parking"],
+  "geography": {
+    "base_address": "Москва, Мосфильмовская улица, 74Б",
+    "nearby": [
+      {"address": "Москва, Мосфильмовская улица, 70", "include_subunits": true},
+      {"address": "Москва, Мосфильмовская улица, 88", "include_subunits": true},
+      {"address": "Москва, Мосфильмовская улица, 38А", "include_subunits": false}
+    ]
+  },
+  "filters": {
+    "office": {"area_min": null, "area_max": null, "price_min": null, "price_max": null},
+    "parking": {"area_min": null, "area_max": null, "price_min": null, "price_max": null}
+  },
+  "sources": {
+    "cian": {
+      "enabled": true,
+      "office_urls": ["https://www.cian.ru/snyat-ofis-moskva-mosfilmovskaya-ulica-021531/"],
+      "parking_urls": ["https://www.cian.ru/snyat-mashinomesto-moskva-mosfilmovskaya-ulica-021531/"]
+    },
+    "yandex": {
+      "enabled": true,
+      "office_urls": ["https://realty.yandex.ru/moskva_i_moskovskaya_oblast/snyat/kommercheskaya-nedvizhimost/ofis/zhk-mosfilmovskaya-27100/", "https://realty.yandex.ru/moskva/snyat/kommercheskaya-nedvizhimost/st-mosfilmovskaya-ulica-127073/"],
+      "parking_urls": ["https://realty.yandex.ru/moskva_i_moskovskaya_oblast/snyat/garazh/ao-zapadnyj/"]
+    },
+    "morrow": {
+      "enabled": true,
+      "office_urls": ["https://morrowgroup.ru/biznescentr/mfk-mosfilmovskaya-74b/"],
+      "parking_urls": []
+    },
+    "fortex": {
+      "enabled": true,
+      "office_urls": ["https://fortexgroup.ru/bc/mosfilmovskaya-74b/arenda-ofisa/312-1406839/", "https://fortexgroup.ru/bc/mosfilmovskaya-38a/arenda-ofisa/340-1292587/"],
+      "parking_urls": []
+    }
+  },
+  "limits": {"max_pages_per_seed": 2, "max_listings_per_scope": 30},
+  "browser": {"channel": "msedge", "headless": false, "timeout_ms": 15000, "pause_ms": 1500, "robots_unavailable_policy": "rfc9309"},
+  "output_root": "${TEMP}/rental-browser-collector"
+}

@@ -1,0 +1,194 @@
+<?php
+declare(strict_types = 1);
+namespace Modules\Rental;
+use App\View;
+final class WorkRegistry {
+    public const HEADERS = [
+        'Договор',
+        'Контрагент',
+        'Начало',
+        'Окончание',
+        'Объекты аренды',
+        'Стадия',
+        'Комментарий',
+        'Аренда с НДС',
+        'Ответственный'
+    ];
+    public const COLUMNS = [
+        'short',
+        'long',
+        'short',
+        'code',
+        'text',
+        'text',
+        'flex',
+        'money',
+        'text'
+    ];
+
+    public static function matches(string $query, array $values): bool {
+        $text = mb_strtolower(implode(' ', array_map(fn($v) => (string)$v, $values)));
+        foreach (preg_split('/\s+/u', mb_strtolower(trim($query)), -1, PREG_SPLIT_NO_EMPTY) as $token)if (!str_contains($text, $token))return false;
+        return true;
+    }
+
+    public static function render(): string {
+        Access::pages([
+            'contracts'
+        ]);
+        Service::roles([
+            'manager'
+        ]);
+        $query = trim((string)($_GET['q'] ?? ''));
+        $flag = (string)($_GET['flag'] ?? 'all');
+        if (!in_array($flag, [
+            'all',
+            'draft',
+            'booking'
+        ], true))$flag = 'all';
+        $contracts = Controller::query("SELECT c.*,p.name party_name FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status='draft' ORDER BY c.id DESC");
+        $documents = Controller::query("SELECT d.*,c.number base_number,c.document_date base_document_date,p.name party_name FROM rental_documents d JOIN contracts c ON c.id=d.contract_id JOIN parties p ON p.id=c.party_id WHERE d.status='draft' AND JSON_UNQUOTE(JSON_EXTRACT(d.source_json,'$.entryMode'))='current' ORDER BY d.id DESC");
+        $bookings = [
+        ];
+        foreach (Controller::query("SELECT r.*,o.name object_name,o.type object_type,o.active object_active,o.source_json object_source,c.number cadastre_number,c.type cadastre_type,c.rentable cadastre_rentable,c.source_json cadastre_source FROM reservations r JOIN rental_objects o ON o.id=r.object_id JOIN cadastre c ON c.id=o.cadastre_id WHERE r.status='active' AND r.document_id IS NULL AND r.contract_id IS NULL AND r.until_date>=CURRENT_DATE ORDER BY r.id DESC") as $r)if (DirectoryScope::signals([
+            'active' => $r['object_active'],
+            'source_json' => $r['object_source']
+        ], [
+            'number' => $r['cadastre_number'],
+            'type' => $r['cadastre_type'],
+            'rentable' => $r['cadastre_rentable'],
+            'source_json' => $r['cadastre_source']
+        ]))$bookings[] = $r;
+        $h = Controller::tabs([
+            'all' => [
+                'Все',
+                count($contracts)+count($documents)+count($bookings)
+            ],
+            'draft' => [
+                'Черновики',
+                count($contracts)+count($documents)
+            ],
+            'booking' => [
+                'Брони',
+                count($bookings)
+            ]
+        ], $flag);
+        $rows = [
+        ];
+        $manager = People::label('manager');
+        if ($flag !== 'booking') {
+            foreach ($contracts as $c) {
+                $objects = Controller::objectNames((int)$c['id']);
+                if (!self::matches($query, [
+                    $c['number'],
+                    $c['party_name'],
+                    strip_tags($objects),
+                    'Черновик',
+                    $c['start_date'],
+                    $c['end_date']
+                ]))continue;
+                $rows[] = [
+                    '_attrs' => 'data-record-key="contract:'
+                    . $c['id']
+                    . '" data-open="contract" data-id="'
+                    . $c['id']
+                    . '" data-rental-url="/rental/contract?id='
+                    . $c['id']
+                    . '" tabindex="0"',
+                    View::e($c['number']),
+                    View::e($c['party_name']),
+                    Documents::dateText($c['start_date']),
+                    Documents::dateText($c['end_date']),
+                    $objects,
+                    'Черновик',
+                    '',
+                    Controller::money($c['amount']),
+                    View::e($manager)
+                ];
+            }
+            foreach ($documents as $d) {
+                $objects = Controller::query('SELECT o.name FROM document_terms t JOIN rental_objects o ON o.id=t.object_id WHERE t.document_id=? ORDER BY o.id', [
+                    $d['id']
+                ]);
+                $names = implode(', ', array_column($objects, 'name'));
+                if (!self::matches($query, [
+                    $d['number'],
+                    $d['document_date'],
+                    Documents::dateText($d['document_date']),
+                    $d['base_number'],
+                    $d['party_name'],
+                    $names,
+                    'ДС',
+                    'Черновик'
+                ]))continue;
+                $rows[] = [
+                    '_attrs' => 'data-record-key="document:'
+                    . $d['id']
+                    . '" data-open="document" data-id="'
+                    . $d['id']
+                    . '" data-rental-url="/rental/document?id='
+                    . $d['id']
+                    . '" tabindex="0"',
+                    View::e($d['number']?'ДС №'
+                    . $d['number']:'ДС'),
+                    View::e($d['party_name']),
+                    Documents::dateText($d['start_date']),
+                    Documents::dateText($d['end_date']),
+                    View::e($names),
+                    'Черновик',
+                    View::e('К договору №'
+                    . $d['base_number']
+                    . ($d['base_document_date']?' от '
+                    . Documents::dateText($d['base_document_date']):'')),
+                    Controller::money($d['amount']),
+                    View::e($manager)
+                ];
+            }
+        }
+        if ($flag !== 'draft')foreach ($bookings as $r) {
+            if (!self::matches($query, [
+                $r['client_name'],
+                $r['object_name'],
+                $r['object_type'],
+                $r['comment'],
+                $r['until_date'],
+                Documents::dateText($r['until_date']),
+                'Бронь до',
+                $manager
+            ]))continue;
+            $rows[] = [
+                '_attrs' => 'class="registry-ui-soft-info" data-record-key="reservation:'
+                . $r['id']
+                . '" data-rental-url="/rental/booking?id='
+                . $r['id']
+                . '" tabindex="0"',
+                '—',
+                View::e($r['client_name']?:'—'),
+                '—',
+                '—',
+                View::e($r['object_name']),
+                'Бронь',
+                '<strong>Бронь до '
+                . View::e(Documents::dateText($r['until_date']))
+                . '</strong>'
+                . ($r['comment']?'<div>'
+                . View::e($r['comment'])
+                . '</div>':''),
+                '—',
+                View::e($manager)
+            ];
+        }
+        return $h
+        . '<section class="table-card registry-ui-card registry-ui-sticky-table registry-ui-scroll" data-registry-id="rental-contracts-work" data-registry-managed-markup="true">'
+        . '<div class="table-toolbar registry-ui-toolbar">'
+        . '<div class="found-label">Найдено: <b>'
+        . count($rows)
+        . '</b></div><div class="toolbar-right"><form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'
+        . View::e($flag)
+        . '"><input class="registry-ui-search" id="search" name="q" type="search" value="'
+        . View::e($query)
+        . '" placeholder="Поиск по всем столбцам" aria-label="Поиск по реестру"></form></div></div>'
+        . Controller::table(self::HEADERS, $rows, self::COLUMNS)
+        . '</section>';
+    }
+}

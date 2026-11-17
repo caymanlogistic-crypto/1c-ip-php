@@ -1,0 +1,223 @@
+{
+  "source_commit": "b99cd29d5ee76a96c546aae51fe3f16a6d67b349",
+  "source_sha256": "0f61349e7c33e19a4bdb17ab7da217df54a5749c225ec77e34fceac6e2a45f29",
+  "profiles": {
+    "connection-onec": [
+      {
+        "key": "number",
+        "type": "identifier",
+        "size": "code"
+      },
+      {
+        "key": "date_display",
+        "type": "date",
+        "size": "text"
+      },
+      {
+        "key": "amount",
+        "type": "money",
+        "size": "text"
+      },
+      {
+        "key": "status",
+        "type": "text",
+        "size": "text"
+      },
+      {
+        "key": "file_status",
+        "type": "text",
+        "size": "short"
+      },
+      {
+        "key": "key",
+        "type": "identifier",
+        "size": "flex"
+      }
+    ],
+    "connection-diadoc": [
+      {
+        "key": "date_display",
+        "type": "date",
+        "size": "text"
+      },
+      {
+        "key": "title",
+        "type": "text",
+        "size": "flex"
+      },
+      {
+        "key": "type",
+        "type": "text",
+        "size": "text"
+      },
+      {
+        "key": "sender",
+        "type": "text",
+        "size": "text"
+      },
+      {
+        "key": "recipient",
+        "type": "text",
+        "size": "text"
+      },
+      {
+        "key": "status",
+        "type": "text",
+        "size": "text"
+      },
+      {
+        "key": "file_status",
+        "type": "text",
+        "size": "short"
+      },
+      {
+        "key": "key",
+        "type": "identifier",
+        "size": "code"
+      }
+    ],
+    "connection-mosenergo": [
+      {
+        "key": "date_display",
+        "type": "date",
+        "size": "text"
+      },
+      {
+        "key": "number",
+        "type": "identifier",
+        "size": "code"
+      },
+      {
+        "key": "account",
+        "type": "identifier",
+        "size": "account"
+      },
+      {
+        "key": "address",
+        "type": "text",
+        "size": "flex"
+      },
+      {
+        "key": "amount",
+        "type": "money",
+        "size": "text"
+      },
+      {
+        "key": "status",
+        "type": "text",
+        "size": "text"
+      },
+      {
+        "key": "file_status",
+        "type": "text",
+        "size": "short"
+      },
+      {
+        "key": "key",
+        "type": "identifier",
+        "size": "long"
+      }
+    ],
+    "connection-mosvodokanal": [
+      {
+        "key": "date_display",
+        "type": "date",
+        "size": "text"
+      },
+      {
+        "key": "number",
+        "type": "identifier",
+        "size": "code"
+      },
+      {
+        "key": "account",
+        "type": "identifier",
+        "size": "account"
+      },
+      {
+        "key": "address",
+        "type": "text",
+        "size": "flex"
+      },
+      {
+        "key": "amount",
+        "type": "money",
+        "size": "text"
+      },
+      {
+        "key": "status",
+        "type": "text",
+        "size": "text"
+      },
+      {
+        "key": "file_status",
+        "type": "text",
+        "size": "short"
+      },
+      {
+        "key": "key",
+        "type": "identifier",
+        "size": "long"
+      }
+    ],
+    "connection-pik": [
+      {
+        "key": "date_display",
+        "type": "date",
+        "size": "text"
+      },
+      {
+        "key": "number",
+        "type": "identifier",
+        "size": "code"
+      },
+      {
+        "key": "account",
+        "type": "identifier",
+        "size": "account"
+      },
+      {
+        "key": "address",
+        "type": "text",
+        "size": "flex"
+      },
+      {
+        "key": "amount",
+        "type": "money",
+        "size": "text"
+      },
+      {
+        "key": "status",
+        "type": "text",
+        "size": "text"
+      },
+      {
+        "key": "file_status",
+        "type": "text",
+        "size": "short"
+      },
+      {
+        "key": "key",
+        "type": "identifier",
+        "size": "long"
+      }
+    ],
+    "connection-history": [
+      {
+        "key": "date",
+        "type": "date",
+        "size": "text"
+      },
+      {
+        "key": "result",
+        "type": "text",
+        "size": "flex"
+      },
+      {
+        "key": "duration",
+        "type": "text",
+        "size": "code"
+      }
+    ]
+  }
+}

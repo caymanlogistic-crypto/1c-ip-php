@@ -1,0 +1,51 @@
+{
+  "schema": "php-calendar-reference-adapter-candidate-v1",
+  "kind": "DATA_ONLY_NOT_IMPORTED_NOT_ACTIVATED",
+  "label": "RU federal five-day working calendar 2026; reviewed source copy; test use",
+  "source": "RU-federal-five-day-SatSun/2026/source-compiled-20261115-v1",
+  "calendar": {
+    "holidays": [
+      "2026-01-01",
+      "2026-01-02",
+      "2026-01-03",
+      "2026-01-04",
+      "2026-01-05",
+      "2026-01-06",
+      "2026-01-07",
+      "2026-01-08",
+      "2026-02-23",
+      "2026-03-08",
+      "2026-05-01",
+      "2026-05-09",
+      "2026-06-12",
+      "2026-11-04"
+    ],
+    "working": [],
+    "nonworking": [
+      "2026-01-09",
+      "2026-03-09",
+      "2026-05-11",
+      "2026-12-31"
+    ]
+  },
+  "proof": {
+    "valid_from": "2026-01-01",
+    "valid_to": "2026-12-31",
+    "inclusive": true,
+    "source_data_sha256": "ade23a325efea62b753b16f840f31e3aa8215b570783c926328695be35e60b39",
+    "receipt_sha256": "b8a1bcf9cd0738e545465390a96e8e300421589c648f155c56201e8fcdaefcf0",
+    "receipt_path": "source-copy/compiled/ru-federal-2026-v1/verification-receipt.json"
+  },
+  "admission": {
+    "new_php_independent_review": "PENDING",
+    "database_imported": false,
+    "runtime_activated": false,
+    "owner_authorization": "TEST_USE_ONLY",
+    "verified_browser_flag_accepted": false,
+    "supported_years": [
+      2026
+    ],
+    "outside_coverage": "UNKNOWN_NO_WEEKDAY_FALLBACK",
+    "no_cbr_key_rates_in_this_dataset": true
+  }
+}

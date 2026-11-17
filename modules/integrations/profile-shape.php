@@ -1,0 +1,5 @@
+<?php
+declare(strict_types=1);
+if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
+require dirname(__DIR__,2).'/app/bootstrap.php';
+try{foreach(['onec','diadoc'] as $provider){$q=App\DB::pdo()->prepare('SELECT selected_profile FROM integration_configuration_sources WHERE provider=?');$q->execute([$provider]);$alias=$q->fetchColumn();if(!is_string($alias))throw new RuntimeException('SELECTED_PROFILE_MISSING');$s=Modules\Integrations\Config::profile($provider,$alias);$user=$s['username']??null;$pass=$s['password']??null;$valid=is_string($user)&&is_string($pass)&&$user!==''&&$pass!==''&&!preg_match('/[\x00-\x1f\x7f:]/',$user)&&!preg_match('/[\x00-\x1f\x7f]/',$pass);echo json_encode(['provider'=>$provider,'local_credential_shape_valid'=>(bool)$valid,'transport_auth_method'=>$provider==='onec'?'SOURCE_FIXED_HTTPS_BASIC':'SOURCE_WEB_PASSWORD_AND_BOX_SESSION','box_shape_valid'=>$provider==='diadoc'?(bool)preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iD',$s['box_id']??''):null,'network_calls'=>0],JSON_THROW_ON_ERROR)."\n";}}catch(Throwable){fwrite(STDERR,"PROFILE_SHAPE_CHECK_FAILED; no values disclosed\n");exit(1);}

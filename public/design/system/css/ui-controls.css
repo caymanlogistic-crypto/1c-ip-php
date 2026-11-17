@@ -1,0 +1,151 @@
+/* Owner-requested universal controls and typography, 01.11.2026. */
+.nav-count.is-warning,.sub-count.is-warning{background:color-mix(in srgb,var(--p-nav-accent) 20%,transparent)!important;border-color:color-mix(in srgb,var(--p-nav-accent) 40%,transparent)!important;color:var(--p-nav-accent)!important}
+.nav-count.is-success,.sub-count.is-success{background:color-mix(in srgb,var(--p-success) 20%,transparent)!important;border-color:color-mix(in srgb,var(--p-success) 40%,transparent)!important;color:color-mix(in srgb,var(--p-success) 55%,var(--p-inverse))!important}
+.nav-count.is-info,.sub-count.is-info{background:color-mix(in srgb,var(--p-info) 20%,transparent)!important;border-color:color-mix(in srgb,var(--p-info) 40%,transparent)!important;color:color-mix(in srgb,var(--p-info) 55%,var(--p-inverse))!important}
+.nav-counts{display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
+.nav-counts>.sub-count{margin-left:0}
+.sidebar #page-navigation .nav-count.is-alert,.sidebar #page-navigation .sub-count.is-alert{background:color-mix(in srgb,var(--p-error) 30%,transparent)!important;border-color:color-mix(in srgb,var(--p-error) 70%,transparent)!important;color:color-mix(in srgb,var(--p-error) 55%,var(--p-inverse))!important}
+.alert-warning .alert-mark{color:var(--p-text)}
+.step.is-active .step-circle{box-shadow:none}
+:focus{outline:none!important}
+.checkbox-item input:focus+.checkbox-mark,.radio-item input:focus+.radio-mark{outline:none!important}
+input,select,textarea,button{font-family:var(--font)}
+.ui-detail-card{font:500 12px/16.8px var(--font);color:var(--p-text)}
+.ui-detail-card .registry-ui-primary{font:500 12px/16.8px var(--font);color:var(--p-text)}
+.ui-detail-card .registry-ui-secondary{font:500 11px/15.4px var(--font);color:var(--p-secondary)}
+.ui-detail-card .doc-title,.ui-detail-card .activity-title{font:600 12px/16.8px var(--font)}
+.ui-detail-card .doc-meta,.ui-detail-card .activity-date{font:500 11px/15.4px var(--font)}
+.checkbox-item{align-items:center;min-height:16px}
+.checkbox-label,.radio-label{line-height:16px}
+.checkbox-mark,.radio-mark{position:relative;display:block;box-sizing:border-box;width:16px;height:16px;margin:0;border-width:1px;align-self:flex-start}
+.checkbox-mark::after,.radio-mark::after{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
+.checkbox-item input:checked+.checkbox-mark::after{width:9px;height:7px;border:0;background:var(--p-surface);transform:translate(-50%,-50%);clip-path:polygon(0 43%,17% 26%,39% 53%,83% 0,100% 15%,40% 100%)}
+.checkbox-item input:indeterminate+.checkbox-mark::after{width:8px;height:2px;border:0;border-radius:0;background:var(--p-surface);transform:translate(-50%,-50%);clip-path:none}
+.radio-item input:checked+.radio-mark::after{width:6px;height:6px;background:var(--p-surface);border:0;border-radius:50%;transform:translate(-50%,-50%)}
+.registry-ui-checkbox input[type=checkbox],.checkbox-inline input[type=checkbox],.ui-checkbox{appearance:none!important;position:relative;display:inline-block;flex:0 0 16px;width:16px;height:16px;min-width:16px;min-height:16px;margin:0;border:1px solid var(--p-border);border-radius:2px;background:linear-gradient(180deg,var(--p-surface),var(--p-panel));box-shadow:inset 0 1px 1px rgb(from var(--p-text) r g b / .05);vertical-align:middle}
+.registry-ui-checkbox input[type=checkbox]:checked,.checkbox-inline input[type=checkbox]:checked,.ui-checkbox:checked{background:var(--p-accent);border-color:var(--p-accent)}
+.registry-ui-checkbox input[type=checkbox]:checked::after,.checkbox-inline input[type=checkbox]:checked::after,.ui-checkbox:checked::after{content:"";position:absolute;left:50%;top:50%;width:9px;height:7px;transform:translate(-50%,-50%);background:var(--p-surface);clip-path:polygon(0 43%,17% 26%,39% 53%,83% 0,100% 15%,40% 100%)}
+.registry-ui-checkbox input[type=checkbox]:indeterminate::after,.checkbox-inline input[type=checkbox]:indeterminate::after,.ui-checkbox:indeterminate::after{content:"";position:absolute;left:50%;top:50%;width:8px;height:2px;transform:translate(-50%,-50%);background:var(--p-surface);clip-path:none}
+.ui-date-field{position:relative;display:flex;align-items:center;min-width:0;width:100%}
+.ui-date-field>.field-input{width:100%;padding-right:34px;font:500 12px/16.8px var(--font);font-variant-numeric:tabular-nums}
+.ui-date-toggle{position:absolute;right:1px;top:1px;bottom:1px;display:grid;place-items:center;width:30px;color:var(--p-secondary);border-left:1px solid transparent}
+.ui-date-toggle:hover{color:var(--p-accent);background:var(--p-canvas)}
+.ui-date-toggle:disabled{opacity:.5;cursor:default}
+.ui-date-toggle svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.ui-calendar{position:fixed;inset:auto;margin:0;padding:10px;width:286px;max-width:calc(100vw - 16px);border:1px solid var(--p-border);border-radius:2px;background:var(--p-panel);color:var(--p-text);font:500 12px/16.8px var(--font);box-shadow:0 4px 14px color-mix(in srgb,var(--p-text) 12%,transparent);z-index:6000}
+.ui-calendar::backdrop{background:transparent}
+.ui-calendar-head{display:grid;grid-template-columns:24px 1fr 66px 24px;gap:5px;align-items:center;margin-bottom:8px}
+.ui-calendar-head .field-select,.ui-calendar-head .field-input{width:100%;height:28px;min-height:28px;padding:0 6px;font:500 12px/16px var(--font);border:1px solid var(--p-border);background-color:var(--p-surface)}
+.ui-calendar-head .field-select{padding-right:18px}
+.ui-calendar-nav{display:grid;place-items:center;width:24px;height:28px;font:600 18px/1 var(--font);color:var(--p-secondary)}
+.ui-calendar-nav:hover{background:var(--p-canvas);color:var(--p-accent)}
+.ui-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+.ui-calendar-weekday{display:grid;place-items:center;height:24px;color:var(--p-secondary);font:600 10px/14px var(--font)}
+.ui-calendar-day{display:grid;place-items:center;height:30px;min-width:0;padding:0;border:1px solid transparent;border-radius:2px;font:500 12px/16px var(--font);font-variant-numeric:tabular-nums}
+.ui-calendar-day.is-outside{color:var(--p-secondary);opacity:.6}
+.ui-calendar-day:hover{background:var(--p-canvas);color:var(--p-text)}
+.ui-calendar-day.is-selected{background:var(--p-accent);color:var(--p-surface);font-weight:600}
+.ui-calendar-day.is-today:not(.is-selected){border-color:var(--p-border)}
+.ui-calendar-day:disabled{opacity:.3;cursor:default;background:transparent}
+.ui-calendar-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--p-border)}
+.ui-calendar-foot button{height:26px;padding:0 7px;font:600 11px/15px var(--font);color:var(--p-accent)}
+.ui-calendar-foot button:hover{background:var(--p-canvas)}
+.demo-palette-group{margin-top:6px}
+.demo-palette-group>.section-title{margin-bottom:8px}
+.demo-palette-row{padding:3px 0}
+
+/* Existing semantic colours, corrected only for meaningful text on its actual surface. */
+.registry-ui-data .registry-ui-missing,.registry-ui-modal .registry-ui-compact-table .registry-ui-missing{color:var(--p-secondary)}
+.registry-ui-data :is(.registry-ui-soft-error,.registry-ui-warning,.registry-ui-muted) .registry-ui-secondary:not(.registry-ui-error):not(.registry-ui-success){color:var(--p-secondary)}
+/* Content-sized variants retain the same modal body/header/footer contracts. */
+.registry-ui-modal.registry-ui-modal--reading,.registry-ui-modal.registry-ui-modal--finance{width:min(720px,calc(100vw - 32px))}
+.registry-ui-modal.registry-ui-modal--confirmation{width:min(520px,calc(100vw - 32px))}
+@media(max-width:700px){.registry-ui-modal.registry-ui-modal--reading,.registry-ui-modal.registry-ui-modal--finance,.registry-ui-modal.registry-ui-modal--confirmation{width:calc(100vw - 16px)}}
+
+.registry-ui-data .registry-ui-attention{color:var(--p-warning)}
+
+
+/* Keep small secondary text readable on hovered/selected row surfaces; semantic error/success text keeps its role. */
+.registry-ui-data tbody tr:is(:hover,.is-selected) .registry-ui-secondary:not(.registry-ui-error):not(.registry-ui-success):not(.registry-ui-attention):not(.registry-ui-due--overdue *):not(.registry-ui-due--complete *){color:var(--p-secondary)}
+
+/* Owner-approved PLANEX text-field focus: accent border and source halo, not button/checkbox decoration. */
+:is(.field-input,.field-select,.field-textarea):focus{border-color:var(--p-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--p-accent) 16%,transparent)}
+.registry-ui-toolbar :is(.registry-ui-search,.toolbar-select):focus{background-color:var(--surface-strong);border-color:var(--p-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--p-accent) 10%,transparent)}
+
+/* Stable desktop column profiles; measured at the existing IBM Plex Sans500/12.
+   Money600/12: positive81.25px / Unicode-minus88.453px +20padding+1border ->112px.
+   Date64.563px +20padding+1border ->88px. Rounded up to4px. */
+:root{--registry-money-width:112px;--registry-date-width:88px}
+@media(min-width:701px){
+ .registry-ui-card :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile]{table-layout:fixed;width:100%;min-width:900px}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] col.registry-column-id{width:64px}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] col.registry-column-short{width:88px}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] col.registry-column-code{width:112px}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] col.registry-column-text{width:160px}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] col.registry-column-long{width:240px}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] col.registry-column-account{width:168px}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] col.registry-column-flex{width:auto}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] col.registry-column-money{width:var(--registry-money-width)}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] col.registry-column-date{width:var(--registry-date-width)}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] :is(th,td){box-sizing:border-box}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] th{white-space:nowrap;overflow-wrap:normal}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] td:is(.registry-column-text,.registry-column-identifier){white-space:normal;overflow-wrap:anywhere;text-overflow:clip}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile]  :is(th,td).registry-column-money{text-align:left;white-space:nowrap;overflow:hidden;text-overflow:clip}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile]  :is(th,td).registry-column-date{text-align:center;white-space:nowrap;overflow:hidden;text-overflow:clip}
+ :is(table.registry-ui-data,table.registry-ui-compact-table)[data-column-profile] td:is(.registry-column-money,.registry-column-date)>.registry-ui-value{white-space:nowrap;text-align:inherit;overflow:hidden;text-overflow:clip}
+}
+
+/* OWNER 2026-11-13 RENTAL-CADASTRE WIDTH PROFILE BEGIN */
+/* Old widths: flex=(W-520), then 160:88:112:160. New first=(W-520)/2;
+   remaining pool=(W+520)/2 is shared in the original 160:88:112:160 ratio. */
+/* cqi resolves these expressions to lengths before fixed table layout; mixed %/px
+   calc on col is treated as auto by Chromium. Only inline-size containment is used. */
+@media(min-width:701px){
+ .table-scroll:has(>table.registry-ui-data[data-column-profile="rental-cadastre"]){container-type:inline-size}
+ table.registry-ui-data[data-column-profile="rental-cadastre"] col.registry-column-flex{width:calc(50cqi - 260px)}
+ table.registry-ui-data[data-column-profile="rental-cadastre"] col.registry-column-text{width:calc(15.3846153846154cqi + 80px)}
+ table.registry-ui-data[data-column-profile="rental-cadastre"] col.registry-column-short{width:calc(8.46153846153846cqi + 44px)}
+ table.registry-ui-data[data-column-profile="rental-cadastre"] col.registry-column-money{width:calc(10.7692307692308cqi + 56px)}
+}
+/* OWNER 2026-11-13 RENTAL-CADASTRE WIDTH PROFILE END */
+
+/* OWNER 2026-11-13 TAB ATTENTION COUNTERS BEGIN */
+.registry-ui-tabs .sub-count.is-alert{background:var(--p-error-fill)!important;border-color:var(--p-error)!important;color:var(--p-error)!important}
+.registry-ui-tabs .sub-count.is-warning{background:var(--p-warning-fill)!important;border-color:var(--p-warning)!important;color:var(--p-warning)!important}
+.registry-ui-tabs .sub-count.is-success{background:var(--p-success-fill)!important;border-color:var(--p-success)!important;color:var(--p-success)!important}
+.registry-ui-tabs .sub-count.is-info{background:var(--p-info-fill)!important;border-color:var(--p-info)!important;color:var(--p-text)!important}
+/* OWNER 2026-11-13 TAB ATTENTION COUNTERS END */
+
+/* OWNER 2026-11-13 SELECT COUNTERS SAVE BEGIN */
+.registry-ui-toolbar select.toolbar-select{appearance:none;-webkit-appearance:none;box-sizing:border-box;flex:0 0 auto;width:auto;max-width:100%;padding:0 30px 0 9px;background-image:var(--image-2f64dbf98fd2);background-position:calc(100% - 8px) center;background-size:10px 6px;background-repeat:no-repeat}
+.sidebar .nav-counts,.registry-ui-tabs .nav-counts{gap:2px}
+.sidebar .nav-counts>:is(.nav-count,.sub-count){min-width:12px;padding-inline:2px}
+.registry-ui-data tbody tr.registry-ui-save-flash>td,.registry-ui-data tbody tr.registry-ui-save-flash:hover>td{background:color-mix(in srgb,var(--p-accent) 16%,var(--p-surface))}
+/* OWNER 2026-11-13 SELECT COUNTERS SAVE END */
+
+/* OWNER 2026-11-13 FIXED COUNTER CHIPS BEGIN */
+.sidebar .nav-counts>:is(.nav-count,.sub-count),.registry-ui-tabs .nav-counts>:is(.nav-count,.sub-count){box-sizing:border-box;flex:0 0 24px;width:24px;min-width:24px;max-width:24px;padding:0 2px;justify-content:center}
+/* OWNER 2026-11-14 MENU-CR2: 1-4 chip colors stay inline with the native clipped label. */
+.sidebar .nav-counts{display:inline-flex;flex-wrap:nowrap;white-space:nowrap}
+.sidebar .nav-item.is-parent[aria-expanded="true"]>.nav-counts,.sidebar .nav-counts:not(:has(>:not([hidden]))){display:none}
+/* OWNER 2026-11-13 FIXED COUNTER CHIPS END */
+
+/* OWNER 2026-11-13 PARTY ACTIONS BEGIN */
+.btn.btn-success{background:var(--p-success-fill);border-color:var(--p-success);color:var(--p-success)}
+.btn.btn-success:hover{background:color-mix(in srgb,var(--p-success) 12%,var(--p-success-fill));border-color:var(--p-success);color:var(--p-success)}
+/* OWNER 2026-11-13 PARTY ACTIONS END */
+
+/* OWNER 2026-11-14 FLOW FEEDBACK BEGIN */
+/* Opt-in components only; ordinary save, native fields and approved registries keep their defaults. */
+.toast.toast--system.is-info{--status-toast-ink:var(--p-info);--status-toast-fill:var(--p-info-fill);background:var(--status-toast-fill);border-color:var(--status-toast-ink);color:var(--p-secondary)}
+.toast.toast--system.is-info .toast-icon{color:var(--p-info)}
+.registry-ui-data tbody tr.registry-ui-save-flash--neutral>td,.registry-ui-data tbody tr.registry-ui-save-flash--neutral:hover>td{background:color-mix(in srgb,var(--p-muted) 18%,var(--p-surface))}
+.cs-room-picker{min-width:0;flex:1}
+.cs-room-picker .cs-trigger{width:100%;height:auto;min-height:var(--control-h);text-align:left}
+.cs-room-picker .cs-value{padding:5px 0;white-space:normal;overflow-wrap:anywhere}
+.cs-room-picker .cs-dropdown{position:static;margin-top:3px}
+.cs-room-picker .cs-options{max-height:min(200px,40vh)}
+.cs-room-picker .cs-option{height:auto;min-height:30px;display:block;padding:7px 10px;white-space:normal;overflow-wrap:anywhere}
+.cs-room-picker .cs-option.is-active{background:var(--surface-muted)}
+.cs-room-picker .registry-ui-success{color:var(--p-success);font-weight:700}
+/* OWNER 2026-11-14 FLOW FEEDBACK END */

@@ -1,0 +1,24 @@
+<?php
+declare(strict_types=1);
+namespace App;
+use PDO;
+final class Migration037 {
+    public const NAME='037_rental_forward_history.sql';
+    public const ORIGINAL='029_rental_holds_and_history.sql';
+    public const ORIGINAL_SHA='a21154e179592561bbca73f69598f86f8e7bb81acba7e18253c02c798ba95e7a';
+    public const FULL_SHA='a0e80345ec7cea9156529c1a97b8ed8f2572cee9b540d11232ac4adfaa859148';
+    public const FORWARD_SHA='f9c5e8a4b90550a1df090ef298e3ef5c4ff16cd82e23b7f54ebbc903ba825ee5';
+    private const COLUMNS=[
+      'rental_document_versions'=>['document_id'=>['bigint','NO',null,''],'version'=>['int','NO',null,''],'snapshot_json'=>['json','NO',null,''],'actor_id'=>['bigint unsigned','NO',null,''],'recorded_at'=>['timestamp','YES','CURRENT_TIMESTAMP','DEFAULT_GENERATED']],
+      'invoice_objects'=>['invoice_id'=>['bigint','NO',null,''],'object_id'=>['bigint','NO',null,'']],
+      'invoice_coverage'=>['id'=>['bigint','NO',null,'auto_increment'],'invoice_id'=>['bigint','NO',null,''],'object_id'=>['bigint','NO',null,''],'start_date'=>['date','NO',null,''],'end_date'=>['date','NO',null,'']]];
+    private const PRIMARY=['rental_document_versions'=>['document_id','version'],'invoice_objects'=>['invoice_id','object_id'],'invoice_coverage'=>['id']];
+    private const FOREIGN=['rental_document_versions'=>['document_id'=>['rental_documents','id']],'invoice_objects'=>['invoice_id'=>['invoices','id'],'object_id'=>['rental_objects','id']],'invoice_coverage'=>['invoice_id'=>['invoices','id'],'object_id'=>['rental_objects','id']]];
+    public static function variant(string $name,string $current,?string $stored,array $source):bool {return $name===self::ORIGINAL&&$current===self::ORIGINAL_SHA&&$stored===self::FULL_SHA&&($source[self::NAME]['sha256']??null)===self::FORWARD_SHA;}
+    private static function columns(PDO $p,string $table):array {$q=$p->prepare('SELECT column_name AS name,column_type AS type,is_nullable AS nullable,column_default AS default_value,extra AS extra_value FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=? ORDER BY ordinal_position');$q->execute([$table]);$out=[];foreach($q as $r)$out[$r['name']]=[$r['type'],$r['nullable'],$r['default_value'],$r['extra_value']];return $out;}
+    public static function validate(PDO $p,bool $allowMissing):void {
+        foreach(self::COLUMNS as $table=>$expected){$actual=self::columns($p,$table);if(!$actual){if($allowMissing)continue;throw new \RuntimeException('037 required table is missing: '.$table);}if($actual!==$expected)throw new \RuntimeException('037 unexpected existing table shape: '.$table);$q=$p->prepare('SELECT engine AS engine,table_type AS table_type FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?');$q->execute([$table]);$engine=$q->fetch();if($engine['engine']!=='InnoDB'||$engine['table_type']!=='BASE TABLE')throw new \RuntimeException('037 unexpected table engine/type: '.$table);$q=$p->prepare("SELECT column_name FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=? AND index_name='PRIMARY' ORDER BY seq_in_index");$q->execute([$table]);if($q->fetchAll(PDO::FETCH_COLUMN)!==self::PRIMARY[$table])throw new \RuntimeException('037 unexpected primary key: '.$table);$q=$p->prepare('SELECT column_name AS column_name,referenced_table_name AS target_table,referenced_column_name AS target_column FROM information_schema.key_column_usage WHERE table_schema=DATABASE() AND table_name=? AND referenced_table_name IS NOT NULL');$q->execute([$table]);$foreign=[];foreach($q as $r)$foreign[$r['column_name']]=[$r['target_table'],$r['target_column']];ksort($foreign);$expectedForeign=self::FOREIGN[$table];ksort($expectedForeign);if($foreign!==$expectedForeign)throw new \RuntimeException('037 unexpected foreign keys: '.$table);}
+        $invoices=self::columns($p,'invoices');foreach(['document_id','planning_document_id']as $column){if(!isset($invoices[$column])){if($allowMissing)continue;throw new \RuntimeException('037 required invoice column is missing: '.$column);}if($invoices[$column]!==['bigint','YES',null,''])throw new \RuntimeException('037 unexpected invoice column shape: '.$column);}
+    }
+    public static function run(PDO $p,string $bytes):void {if(!hash_equals(self::FORWARD_SHA,hash('sha256',$bytes)))throw new \RuntimeException('037 forward bytes changed');self::validate($p,true);$sql=array_values(array_filter(array_map('trim',explode(';',$bytes))));if(count($sql)!==4)throw new \RuntimeException('037 forward inventory changed');$p->exec($sql[0]);$invoices=self::columns($p,'invoices');foreach(['document_id','planning_document_id']as $column)if(!isset($invoices[$column]))$p->exec('ALTER TABLE invoices ADD COLUMN '.$column.' BIGINT NULL');$p->exec($sql[2]);$p->exec($sql[3]);self::validate($p,false);}
+}

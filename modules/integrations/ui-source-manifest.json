@@ -1,0 +1,11 @@
+{
+  "source_commit": "b99cd29d5ee76a96c546aae51fe3f16a6d67b349",
+  "files": [
+    {
+      "source": "prototype/rental/notification-templates.js",
+      "target": "ui/notification-templates.js",
+      "source_sha256": "ef6c04b35cadf2a739a0943268ee560f36c44625687f323bd838ad03d7bed05d",
+      "copied_sha256": "ef6c04b35cadf2a739a0943268ee560f36c44625687f323bd838ad03d7bed05d"
+    }
+  ]
+}

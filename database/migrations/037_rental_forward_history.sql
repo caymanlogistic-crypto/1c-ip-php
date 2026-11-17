@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS rental_document_versions (document_id BIGINT NOT NULL, version INT NOT NULL, snapshot_json JSON NOT NULL, actor_id BIGINT UNSIGNED NOT NULL, recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(document_id,version), FOREIGN KEY(document_id) REFERENCES rental_documents(id));
+ALTER TABLE invoices ADD COLUMN document_id BIGINT NULL, ADD COLUMN planning_document_id BIGINT NULL;
+CREATE TABLE IF NOT EXISTS invoice_objects (invoice_id BIGINT NOT NULL, object_id BIGINT NOT NULL, PRIMARY KEY(invoice_id,object_id), FOREIGN KEY(invoice_id) REFERENCES invoices(id), FOREIGN KEY(object_id) REFERENCES rental_objects(id));
+CREATE TABLE IF NOT EXISTS invoice_coverage (id BIGINT AUTO_INCREMENT PRIMARY KEY, invoice_id BIGINT NOT NULL, object_id BIGINT NOT NULL, start_date DATE NOT NULL, end_date DATE NOT NULL, FOREIGN KEY(invoice_id) REFERENCES invoices(id), FOREIGN KEY(object_id) REFERENCES rental_objects(id));

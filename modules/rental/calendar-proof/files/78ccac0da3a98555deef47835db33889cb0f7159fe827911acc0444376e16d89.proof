@@ -1,0 +1,11 @@
+{
+  "files": {
+    "README.md": "05646f8fce7b84962c7799658c0a21a1be75e01c3665981b4cee6938c2a47ea0",
+    "comparison.json": "c2863cfca44e0a42b66636b39913604e23c5c054c7f533a3b68992059189b840",
+    "mintrud-20250701-2026-calendar-body.txt": "7770e10aeae379aa523162dbd3cdfc9efbe57ebbbf1145224b4839e7720da96e",
+    "mintrud-license-excerpt.txt": "0319c2112dd00bad7ec0baeb51c29dbb616856c15996dc519d5e14bf453028ca",
+    "proof-chain.json": "4b0dc4d50cb8164e5325d9087e2cd5a33e240a3d6d6ec23b172b87ba31ad4f42"
+  },
+  "receipt_kind": "SOURCEPROOF_REVIEW_PACKAGE_NOT_NATIVE_CALENDAR_RECEIPT",
+  "schema": "rental-calendar-sourceproof-manifest-v1"
+}

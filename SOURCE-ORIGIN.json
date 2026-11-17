@@ -1,0 +1,12 @@
+{
+  "project_id": "f6e21e3c-d974-4604-82fb-333da66559d2",
+  "origin_commit": "33947b5996ee225b4e78ed6d462b86546b39d48b",
+  "origin_tree": "af77da9fd02e02ab289828e14d74effebbabf2dc",
+  "installed_identity": "Independent runtime/source slice; edit these served files directly",
+  "packaging_delta": [
+    "Minimal source excludes tests/docs/deploy/hubs",
+    "Local start-stop adapted for explicit owned PHP/port/config; no Setup/reset",
+    "Private/data/vendor ignored by Git"
+  ],
+  "PHPbusinessCode": "origin339 unchanged"
+}

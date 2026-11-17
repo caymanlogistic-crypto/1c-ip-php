@@ -1,0 +1,214 @@
+{
+  "schema": 1,
+  "project_id": "f6e21e3c-d974-4604-82fb-333da66559d2",
+  "reviewer": "/root/renderer_release_check",
+  "created_at_utc": "2026-11-15T01:04:42.928900+00:00",
+  "verdict": "PASS_2026_SOURCE_SUFFICIENCY_RECOMMEND_BOUNDED_PROOF",
+  "source_provenance_score_out_of_10": 9.1,
+  "source_scope_blockers": 0,
+  "source_supported_years_after_this_assessment": [
+    2026
+  ],
+  "recommended_coverage": {
+    "valid_from": "2026-01-01",
+    "valid_to": "2026-12-31",
+    "inclusive": true
+  },
+  "component_worktree": "C:\\Users\\Vladimir\\Documents\\ChatGPT\\worktrees\\rental-calendar-data-20261115",
+  "sourceproof_commit": "3585106d86ccefc37c8ba30f7e35ea525ad02bc2",
+  "unchanged_candidate_commit": "527af5b0d4114f47e04c548fdd212a7a989dbb0b",
+  "initial_and_final_worktree_status": "CLEAN",
+  "diff_scope": [
+    "A\tapp/rental_scheduler/calendars/sourceproofs/2026-year-specific-20261115/README.md",
+    "A\tapp/rental_scheduler/calendars/sourceproofs/2026-year-specific-20261115/comparison.json",
+    "A\tapp/rental_scheduler/calendars/sourceproofs/2026-year-specific-20261115/manifest.json",
+    "A\tapp/rental_scheduler/calendars/sourceproofs/2026-year-specific-20261115/mintrud-20250701-2026-calendar-body.txt",
+    "A\tapp/rental_scheduler/calendars/sourceproofs/2026-year-specific-20261115/mintrud-license-excerpt.txt",
+    "A\tapp/rental_scheduler/calendars/sourceproofs/2026-year-specific-20261115/proof-chain.json"
+  ],
+  "sourceproof_files_sha256": {
+    "comparison.json": "c2863cfca44e0a42b66636b39913604e23c5c054c7f533a3b68992059189b840",
+    "manifest.json": "78ccac0da3a98555deef47835db33889cb0f7159fe827911acc0444376e16d89",
+    "mintrud-20250701-2026-calendar-body.txt": "7770e10aeae379aa523162dbd3cdfc9efbe57ebbbf1145224b4839e7720da96e",
+    "mintrud-license-excerpt.txt": "0319c2112dd00bad7ec0baeb51c29dbb616856c15996dc519d5e14bf453028ca",
+    "proof-chain.json": "4b0dc4d50cb8164e5325d9087e2cd5a33e240a3d6d6ec23b172b87ba31ad4f42",
+    "README.md": "05646f8fce7b84962c7799658c0a21a1be75e01c3665981b4cee6938c2a47ea0"
+  },
+  "protected_existing_dependency_sha256": {
+    "app/rental_scheduler/README.md": "bf195d7a9ba29477c1cdad487afe7d590b7643ce494777dbfbdaa59fec0cfa74",
+    "app/rental_scheduler/__init__.py": "8cdea5b800dd104fb727d7ba0ac7e5484a01ace816e60c6dd312223e2fa0ce4c",
+    "app/rental_scheduler/calendars/README.md": "2b2426993f3c1249b4ba950589585af2d551a5394ef7a726b1f3f520e40bcb8d",
+    "app/rental_scheduler/calendars/candidates/2026-review-20261115/README.md": "93f88213809d251f494b9400bdd5794b4967b4a02591e24b301c89e392f38c87",
+    "app/rental_scheduler/calendars/candidates/2026-review-20261115/candidate.json": "25e4192e8139bbd4c629cec070f18c85d185733c507ad55b8f71c5e1b64c33e5",
+    "app/rental_scheduler/calendars/candidates/2026-review-20261115/dates.csv": "63ef4a1d7b884f4f32b7fb50b848613974f5914bab72396c9c4e4b738804bfc4",
+    "app/rental_scheduler/calendars/candidates/2026-review-20261115/manifest.json": "3527de90551df4e3a17a01919fa3a0b3c7e7dd168f4474eddb5cd5625091288a",
+    "app/rental_scheduler/calendars/candidates/2026-review-20261115/provenance.json": "cf9ad95e15ff3dc3f84b3cdbd3aa6d3f6d6b389ea8c689221e12a335def827fd",
+    "app/rental_scheduler/calendars/candidates/2026-review-20261115/validation.json": "b57529b91005432306e330d79449e6e10b180243010e2f5c6602c14477c06f63",
+    "app/rental_scheduler/calendars/evidence/2026-transfer-act-extracted.txt": "0adcffc5c767a49cdb01b649d024d5425d9c5513651ffcda6895059a341da175",
+    "app/rental_scheduler/calendars/evidence/mintrud-20190531-article112-excerpt.txt": "fa625249a9c1da574a38e5414191e6fcae5cf4cee5ddea0fc2fb3403954b44e2",
+    "app/rental_scheduler/calendars/manifest.json": "6cb486daab35add24db2e412f21faa709f69ad49840ed751eb5169bd9c9be7cd",
+    "app/rental_scheduler/calendars/provenance.json": "54c2a3559bd58f84f9381b40698381b091d809686961df9e5b43b8ff57b11e02",
+    "app/rental_scheduler/calendars/status.json": "d3e59b1caaac396bf2e298b8cedfcfe788daa5cc72cba69fbc79f3279864a705",
+    "app/rental_scheduler/planner.py": "f0212681086ffdbf6f981b704508db362749d2e40d9f5ffc4eea67ec21d17f97",
+    "app/rental_scheduler/tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app/rental_scheduler/tests/test_planner.py": "6c5f439ca601bfdff844902c9894ce7fc5afcb8ce3b49f7153f0ac4d2a94e449"
+  },
+  "previous_assessment": {
+    "path": "C:\\Users\\Vladimir\\Documents\\ChatGPT\\1C-ИП v2\\.project-local\\calendar-provenance-independent-20261115\\assessment.json",
+    "sha256": "b1b64a8566e6b2e03c0303f980a9c4facb1b3db3321c82fe49ed2c25568fe90a",
+    "prior_score": 6.5,
+    "prior_material_gap": "Current applicability of Article112 standing list/substitution rules; not publication age2019 alone.",
+    "effect_of_new_evidence": "That source gap is closed for the bounded2026 federal five-day dataset by the official explicit2026 explanation plus later final annual act; priorassessment remains historical and was not rewritten."
+  },
+  "independent_primary_verification": {
+    "new_source": {
+      "url": "https://mintrud.gov.ru/social/social/1366",
+      "publisher": "Ministry of Labour and Social Protection of the Russian Federation",
+      "published": "2025-07-01",
+      "direct_official_web_open": "SUCCESS_THIS_REVIEW",
+      "observed_relevant_body": "Title/date and full body lines86-127 independently read; retained40line semantic representation agrees with official body.",
+      "retained_representation_sha256": "7770e10aeae379aa523162dbd3cdfc9efbe57ebbbf1145224b4839e7720da96e",
+      "original_html_bytes_sha256": null,
+      "license": "CC BY3.0, attributed toMintrud; official page notice195-196 and retained license excerpt"
+    },
+    "final_act": {
+      "url": "https://static.government.ru/media/files/4jeB8hNKm69ggOa9yDiYOli6YoAyM21i.pdf",
+      "publisher": "Government of the Russian Federation",
+      "act_number": "1466",
+      "act_date": "2025-09-24",
+      "calendar_year": 2026,
+      "source_kind": "FINAL_ANNUAL_ACT",
+      "retained_representation_sha256": "0adcffc5c767a49cdb01b649d024d5425d9c5513651ffcda6895059a341da175",
+      "reuse": "Same exact retained official full legal body already assessed in priorreceipt; no new PDFdownload needed.",
+      "original_pdf_bytes_sha256": null
+    },
+    "only_public_network_action": "One direct officialMintrud page open. No commercial source or server/private access."
+  },
+  "semantic_reasoning": [
+    "Unlike the2019 historical article, the new official labour-authority body expressly concerns2026 and states the complete14date statutory holiday list and automatic substitution rule in that specific annual explanation. It provides the missing year-specific applicability basis.",
+    "The July annual transfer clauses are explicitly draft/proposed. They are not promoted to final authority. The subsequent independently retained final decree1466 expressly covers2026 and adopts exactlyboth samepairs: Jan3→Jan9 and Jan4→Dec31. Finalact supplies the annual legally operative transfer facts for the compilation.",
+    "The eight published rest periods, clipped to2026 where necessary, plus ordinary agreedSat/Sun rest reproduce the candidate full nonworking set exactly. Automatic substitutesMar9 andMay11 are explained by the statedrule and independently appear in the explicit2026 ranges. No source-known contradictory date or missing working-weekend exception was found in this bounded chain.",
+    "A current consolidatedArticle112 body would be another usable path, but is not additionally required to retain the old blocker once the primary responsibleauthority explicitly applies the complete base/rule to2026 and the finalgovernmentact confirms the annual pairs. Requiring an annual re-enactment of standing holidays would confuse sourceage with validity.",
+    "This is acceptance of a transparent source-compiled bounded calendar snapshot, not a claim thatMintrud itself signed ourJSON, that drafttext is final, or that every lateramendment has been exhaustively audited. General source-update/versioning responsibilities remain; no newlyidentified material2026 sourcefact is missing in this scope."
+  ],
+  "independent_new_source_alignment": {
+    "retained_holiday_count": 14,
+    "official_2026_periods": [
+      {
+        "from": "2026-01-01",
+        "to": "2026-01-11"
+      },
+      {
+        "from": "2026-02-21",
+        "to": "2026-02-23"
+      },
+      {
+        "from": "2026-03-07",
+        "to": "2026-03-09"
+      },
+      {
+        "from": "2026-05-01",
+        "to": "2026-05-03"
+      },
+      {
+        "from": "2026-05-09",
+        "to": "2026-05-11"
+      },
+      {
+        "from": "2026-06-12",
+        "to": "2026-06-14"
+      },
+      {
+        "from": "2026-11-04",
+        "to": "2026-11-04"
+      },
+      {
+        "from": "2026-12-31",
+        "to": "2026-12-31"
+      }
+    ],
+    "ordinary_weekend_count": 104,
+    "derived_nonworking_count": 118,
+    "derived_working_count": 247,
+    "counts_are_derived_not_direct_ministry_quote": true,
+    "working_weekend_exceptions": [],
+    "candidate_all_nonworking_set_exact": true,
+    "candidate_csv365_dates_contiguous_and_new_source_set_exact": true,
+    "annual_draft_pairs_equal_final_pairs": true,
+    "prior_17files_match_parent_bytes": true
+  },
+  "prior_helper_validation_reuse": {
+    "path": "C:\\Users\\Vladimir\\Documents\\ChatGPT\\worktrees\\rental-calendar-data-20261115\\app\\rental_scheduler\\calendars\\candidates\\2026-review-20261115\\validation.json",
+    "sha256": "b57529b91005432306e330d79449e6e10b180243010e2f5c6602c14477c06f63",
+    "candidate_sha256": "25e4192e8139bbd4c629cec070f18c85d185733c507ad55b8f71c5e1b64c33e5",
+    "csv_sha256": "63ef4a1d7b884f4f32b7fb50b848613974f5914bab72396c9c4e4b738804bfc4",
+    "planner_sha256": "f0212681086ffdbf6f981b704508db362749d2e40d9f5ffc4eea67ec21d17f97",
+    "prior_all365_working_helper_parity": "PASS_REUSED_EXACT_HASHES",
+    "prior12_monthly_issue_helper_parity": "PASS_REUSED_EXACT_HASHES",
+    "helper_checks_rerun": false,
+    "plan_or_runtime_calls": 0,
+    "new_check_scope": "New official holiday/range/final-transfer alignment and exact candidate/source/dependency hashes only; calendar-set arithmetic is not a rerun of planner/helpertests."
+  },
+  "recommended_native_proof_contents": {
+    "proof_issued_here": false,
+    "verified_flag_changed_here": false,
+    "valid_from": "2026-01-01",
+    "valid_to": "2026-12-31",
+    "holidays": [
+      "2026-01-01",
+      "2026-01-02",
+      "2026-01-03",
+      "2026-01-04",
+      "2026-01-05",
+      "2026-01-06",
+      "2026-01-07",
+      "2026-01-08",
+      "2026-02-23",
+      "2026-03-08",
+      "2026-05-01",
+      "2026-05-09",
+      "2026-06-12",
+      "2026-11-04"
+    ],
+    "working": [],
+    "nonworking": [
+      "2026-01-09",
+      "2026-03-09",
+      "2026-05-11",
+      "2026-12-31"
+    ],
+    "required_receipt_binding": "Native internal verifier receipt should bind exactnewprimary representations, final1466 representation, explicitsourcecompiledderivation/scope, frozen candidate/CSV/planner validation hashes and this independentassessment SHA. Its verified flag must describecomplete bounded data authority, not arbitraryoperatorselection or a fileSHA alone.",
+    "operator_label": "Federal RU Saturday/Sunday five-day2026, source-compiled from Mintrud2025-07-01 and finalGovernment1466/2025-09-24, independently source-assessed2026-11-15. Shortenedworkingdays remain working; regional/employer/shift calendars excluded."
+  },
+  "boundary_and_authority_separation": {
+    "currently_persisted_supported_verified_years": [],
+    "calendar_proof_actual": null,
+    "runtime_verified_actual": false,
+    "owner_TEST_calendar_approval_received": false,
+    "operator_approval_inferred_from_silence": false,
+    "sourceproof_recommendation_vs_activation": "Sufficientsourceevidence supports subsequent boundednativeattestation; this review does not create/activate it, modifycandidate historicalUNVERIFIED labels, authorizeTEST selection or claimuserapproval. PendingTESTapproval is an authority/activation matter, not an unresolvedsourcefact.",
+    "unsupported_years": [
+      2025,
+      2027
+    ],
+    "adjacent_year_requirements": "No2025/2027 data needed to acceptcalendarclassificationwithin2026. Calculations that actually read adjacent-yeardates must stillreturnUNKNOWN withouttheirsnapshots. January2026 invoice issue requiresDecember2025. December2026 issue date forJanuary2027 may be known within2026 without asserting anyJanuary2027 workingday."
+  },
+  "limits": [
+    "Hashes bind retained official-web-extracted text representations, not unavailable originalHTML/PDFbytes. This is explicit provenance, not a forged binarysource receipt.",
+    "Source sufficiency is limited to agreed federalMon-Fri/Sat-Sun datepredicates and2026 inclusive; no hourlynorm, shortened-dayhourcount, regionalcalendar or businesspolicy is added.",
+    "2025 and2027 remainUNKNOWN; their discoveryURLs and a2025 boundarydate in theMintrudrange do not become complete yearproof.",
+    "No exhaustive absence-of-amendments certificate, legaladvice, ownerapproval, liveplanner/runtime readiness or serveractivation is claimed."
+  ],
+  "actions": {
+    "code_or_candidate_or_status_edits": 0,
+    "shared_ledger_writes": 0,
+    "server_or_SSH_actions": 0,
+    "secrets": 0,
+    "provider_calls": 0,
+    "business_database_access": 0,
+    "runtime_activation": 0,
+    "native_CalendarProof_created": 0,
+    "user_approval_changes": 0
+  },
+  "handoff": "The former current-applicability sourceblocker for exact2026candidate is resolved by3585106 chain. Recommend native bounded2026proof only through required internalauthority/receipt/approval workflow; leave actualruntime flags untouched here and2025/2027UNKNOWN."
+}

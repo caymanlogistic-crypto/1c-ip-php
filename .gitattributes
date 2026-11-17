@@ -1,0 +1,15 @@
+* text=auto
+public/design/** -text
+public/assets/source-*.js -text
+public/design/** whitespace=cr-at-eol
+public/assets/source-*.js whitespace=cr-at-eol
+modules/rental/templates/** -text
+database/migrations/** -text
+*.woff2 -text
+*.docx -text
+*.pdf -text
+modules/integrations/defaults/onec-write-profile.json -text
+modules/auxiliary/source-ui/** -text
+modules/auxiliary/source-ui/** whitespace=cr-at-eol,-blank-at-eof
+public/assets/source-premises.js whitespace=cr-at-eol,-blank-at-eof
+database/pending/** -text

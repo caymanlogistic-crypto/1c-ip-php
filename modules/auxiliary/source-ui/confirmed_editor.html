@@ -1,0 +1,7 @@
+<div data-editor-fragment data-editor-title="{{ selected }} · {{ edit_form.designation.value }}">
+<form method="post" id="confirmed-premise-form" class="registry-ui-modal-grid registry-ui-modal-grid--reading">{% csrf_token %}
+{% include 'core/form_errors.html' with errors=edit_form.non_field_errors %}
+{% for hidden in edit_form.hidden_fields %}{{ hidden }}{% for error in hidden.errors %}<span class="field-msg is-error" role="alert">{{ error }}</span>{% endfor %}{% endfor %}
+{% for field in edit_form.visible_fields %}<div class="field {% if field.errors or field.name in edit_disputed_fields %}is-error{% endif %}"><label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.name in edit_disputed_fields %}<span class="field-msg">Есть несостыковка</span>{% endif %}{% if field.help_text %}<span class="field-msg">{{ field.help_text }}</span>{% endif %}{% for error in field.errors %}<span class="field-msg is-error" role="alert">{{ error }}</span>{% endfor %}</div>{% endfor %}</form>
+<div class="modal-foot-actions" data-editor-actions><button type="button" class="btn btn-secondary" data-editor-close>Отмена</button><button type="submit" class="btn btn-primary" form="confirmed-premise-form">Сохранить</button></div>
+</div>

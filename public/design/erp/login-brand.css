@@ -1,0 +1,3 @@
+/* Explicit owner exception: login header colours only; not part of the demo. */
+.login-screen .modal-head{background:var(--p-nav)}
+.login-screen .modal-title{color:var(--p-inverse)}

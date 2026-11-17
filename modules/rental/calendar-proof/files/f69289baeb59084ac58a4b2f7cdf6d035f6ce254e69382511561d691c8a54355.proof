@@ -1,0 +1,241 @@
+{
+  "schema": 1,
+  "project_id": "f6e21e3c-d974-4604-82fb-333da66559d2",
+  "created_at_utc": "2026-11-16T01:05:57.997286+00:00",
+  "kind": "INDEPENDENT_DATA_ONLY_REVIEWED_2026_REFERENCE_COPY",
+  "status": "EXACT_SOURCE_COPY_PASS_PHP_REVIEW_PENDING_NOT_APPLIED",
+  "source_worktree": "E:/Codex-worktrees/1c-ip-v2-speed-release-20261115",
+  "source_head": "fa907cce3ea6722cb60bc8a7436750e509715c79",
+  "source_base": "E:/Codex-worktrees/1c-ip-v2-speed-release-20261115/app/rental_scheduler/calendars",
+  "source_data_sha256": "ade23a325efea62b753b16f840f31e3aa8215b570783c926328695be35e60b39",
+  "source_receipt_sha256": "b8a1bcf9cd0738e545465390a96e8e300421589c648f155c56201e8fcdaefcf0",
+  "source_independent_review_sha256": "d070ce5f535fdc60405b7327ed59679058c0d0a6248cfa5c9d3c46ee30ff53ec",
+  "native_source_review": "PASS_2026_SOURCE_SUFFICIENCY_RECOMMEND_BOUNDED_PROOF",
+  "owner_status": "TEST_USE_ONLY; Main RENTAL-BATCH-CURRENT.md:127; not legal/production approval",
+  "files": [
+    {
+      "path": "source-copy/candidates/2026-review-20261115/candidate.json",
+      "source_relative_path": "candidates/2026-review-20261115/candidate.json",
+      "bytes": 9596,
+      "sha256": "25e4192e8139bbd4c629cec070f18c85d185733c507ad55b8f71c5e1b64c33e5",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "source-copy/candidates/2026-review-20261115/dates.csv",
+      "source_relative_path": "candidates/2026-review-20261115/dates.csv",
+      "bytes": 50203,
+      "sha256": "63ef4a1d7b884f4f32b7fb50b848613974f5914bab72396c9c4e4b738804bfc4",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "source-copy/candidates/2026-review-20261115/provenance.json",
+      "source_relative_path": "candidates/2026-review-20261115/provenance.json",
+      "bytes": 6400,
+      "sha256": "cf9ad95e15ff3dc3f84b3cdbd3aa6d3f6d6b389ea8c689221e12a335def827fd",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "source-copy/candidates/2026-review-20261115/validation.json",
+      "source_relative_path": "candidates/2026-review-20261115/validation.json",
+      "bytes": 1947,
+      "sha256": "b57529b91005432306e330d79449e6e10b180243010e2f5c6602c14477c06f63",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "source-copy/compiled/ru-federal-2026-v1/source-review-receipt.json",
+      "source_relative_path": "compiled/ru-federal-2026-v1/source-review-receipt.json",
+      "bytes": 13991,
+      "sha256": "d070ce5f535fdc60405b7327ed59679058c0d0a6248cfa5c9d3c46ee30ff53ec",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "source-copy/evidence/2026-transfer-act-extracted.txt",
+      "source_relative_path": "evidence/2026-transfer-act-extracted.txt",
+      "bytes": 870,
+      "sha256": "0adcffc5c767a49cdb01b649d024d5425d9c5513651ffcda6895059a341da175",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "source-copy/sourceproofs/2026-year-specific-20261115/comparison.json",
+      "source_relative_path": "sourceproofs/2026-year-specific-20261115/comparison.json",
+      "bytes": 3031,
+      "sha256": "c2863cfca44e0a42b66636b39913604e23c5c054c7f533a3b68992059189b840",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "source-copy/sourceproofs/2026-year-specific-20261115/manifest.json",
+      "source_relative_path": "sourceproofs/2026-year-specific-20261115/manifest.json",
+      "bytes": 637,
+      "sha256": "78ccac0da3a98555deef47835db33889cb0f7159fe827911acc0444376e16d89",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "source-copy/sourceproofs/2026-year-specific-20261115/mintrud-20250701-2026-calendar-body.txt",
+      "source_relative_path": "sourceproofs/2026-year-specific-20261115/mintrud-20250701-2026-calendar-body.txt",
+      "bytes": 3286,
+      "sha256": "7770e10aeae379aa523162dbd3cdfc9efbe57ebbbf1145224b4839e7720da96e",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "source-copy/sourceproofs/2026-year-specific-20261115/mintrud-license-excerpt.txt",
+      "source_relative_path": "sourceproofs/2026-year-specific-20261115/mintrud-license-excerpt.txt",
+      "bytes": 163,
+      "sha256": "0319c2112dd00bad7ec0baeb51c29dbb616856c15996dc519d5e14bf453028ca",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "source-copy/sourceproofs/2026-year-specific-20261115/proof-chain.json",
+      "source_relative_path": "sourceproofs/2026-year-specific-20261115/proof-chain.json",
+      "bytes": 6961,
+      "sha256": "4b0dc4d50cb8164e5325d9087e2cd5a33e240a3d6d6ec23b172b87ba31ad4f42",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "source-copy/compiled/ru-federal-2026-v1/calendar.json",
+      "source_relative_path": "compiled/ru-federal-2026-v1/calendar.json",
+      "bytes": 585,
+      "sha256": "ade23a325efea62b753b16f840f31e3aa8215b570783c926328695be35e60b39",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "source-copy/compiled/ru-federal-2026-v1/verification-receipt.json",
+      "source_relative_path": "compiled/ru-federal-2026-v1/verification-receipt.json",
+      "bytes": 5875,
+      "sha256": "b8a1bcf9cd0738e545465390a96e8e300421589c648f155c56201e8fcdaefcf0",
+      "mode": "physical_byte_for_byte_copy"
+    },
+    {
+      "path": "php-calendar-adapter-candidate.json",
+      "bytes": 1462,
+      "sha256": "658177f7c3f40244832f8d57f652a3176547be4aea3961ca19faa86af8ca2e6d",
+      "mode": "new_data_only_projection_no_verified_flag"
+    }
+  ],
+  "source_dependency_checks": [
+    {
+      "source_relative_path": "../planner.py",
+      "sha256": "f0212681086ffdbf6f981b704508db362749d2e40d9f5ffc4eea67ec21d17f97",
+      "bytes": 13924,
+      "exact_expected_hash_match": true,
+      "copied": false
+    },
+    {
+      "source_relative_path": "candidates/2026-review-20261115/candidate.json",
+      "sha256": "25e4192e8139bbd4c629cec070f18c85d185733c507ad55b8f71c5e1b64c33e5",
+      "bytes": 9596,
+      "exact_expected_hash_match": true,
+      "copied": true
+    },
+    {
+      "source_relative_path": "candidates/2026-review-20261115/dates.csv",
+      "sha256": "63ef4a1d7b884f4f32b7fb50b848613974f5914bab72396c9c4e4b738804bfc4",
+      "bytes": 50203,
+      "exact_expected_hash_match": true,
+      "copied": true
+    },
+    {
+      "source_relative_path": "candidates/2026-review-20261115/provenance.json",
+      "sha256": "cf9ad95e15ff3dc3f84b3cdbd3aa6d3f6d6b389ea8c689221e12a335def827fd",
+      "bytes": 6400,
+      "exact_expected_hash_match": true,
+      "copied": true
+    },
+    {
+      "source_relative_path": "candidates/2026-review-20261115/validation.json",
+      "sha256": "b57529b91005432306e330d79449e6e10b180243010e2f5c6602c14477c06f63",
+      "bytes": 1947,
+      "exact_expected_hash_match": true,
+      "copied": true
+    },
+    {
+      "source_relative_path": "compiled/ru-federal-2026-v1/source-review-receipt.json",
+      "sha256": "d070ce5f535fdc60405b7327ed59679058c0d0a6248cfa5c9d3c46ee30ff53ec",
+      "bytes": 13991,
+      "exact_expected_hash_match": true,
+      "copied": true
+    },
+    {
+      "source_relative_path": "evidence/2026-transfer-act-extracted.txt",
+      "sha256": "0adcffc5c767a49cdb01b649d024d5425d9c5513651ffcda6895059a341da175",
+      "bytes": 870,
+      "exact_expected_hash_match": true,
+      "copied": true
+    },
+    {
+      "source_relative_path": "sourceproofs/2026-year-specific-20261115/comparison.json",
+      "sha256": "c2863cfca44e0a42b66636b39913604e23c5c054c7f533a3b68992059189b840",
+      "bytes": 3031,
+      "exact_expected_hash_match": true,
+      "copied": true
+    },
+    {
+      "source_relative_path": "sourceproofs/2026-year-specific-20261115/manifest.json",
+      "sha256": "78ccac0da3a98555deef47835db33889cb0f7159fe827911acc0444376e16d89",
+      "bytes": 637,
+      "exact_expected_hash_match": true,
+      "copied": true
+    },
+    {
+      "source_relative_path": "sourceproofs/2026-year-specific-20261115/mintrud-20250701-2026-calendar-body.txt",
+      "sha256": "7770e10aeae379aa523162dbd3cdfc9efbe57ebbbf1145224b4839e7720da96e",
+      "bytes": 3286,
+      "exact_expected_hash_match": true,
+      "copied": true
+    },
+    {
+      "source_relative_path": "sourceproofs/2026-year-specific-20261115/mintrud-license-excerpt.txt",
+      "sha256": "0319c2112dd00bad7ec0baeb51c29dbb616856c15996dc519d5e14bf453028ca",
+      "bytes": 163,
+      "exact_expected_hash_match": true,
+      "copied": true
+    },
+    {
+      "source_relative_path": "sourceproofs/2026-year-specific-20261115/proof-chain.json",
+      "sha256": "4b0dc4d50cb8164e5325d9087e2cd5a33e240a3d6d6ec23b172b87ba31ad4f42",
+      "bytes": 6961,
+      "exact_expected_hash_match": true,
+      "copied": true
+    }
+  ],
+  "all_12_dependency_checks_pass": true,
+  "old_python_runtime_copied": false,
+  "coverage": {
+    "valid_from": "2026-01-01",
+    "valid_to": "2026-12-31",
+    "runtime_msk_date_assertion": "2026-11-16",
+    "runtime_date_covered": true,
+    "current_and_next_month_billing_horizon_upper": "2026-12-31",
+    "horizon_upper_covered": true,
+    "historical_invoice_issued_lower_in_selected_state": "2023-04-20",
+    "historical_lower_covered": false,
+    "historical_or_cross_year_actual_workday_lookups": "UNKNOWN_UNLESS_SEPARATE_VERIFIED_CONTIGUOUS_COVERAGE",
+    "storing_contract_end_dates_through_2030": "ALLOWED_NOT_A_CALENDAR_LOOKUP",
+    "cbr_key_rates": "NOT_PART_OF_THIS_CALENDAR_NO_RATES_INVENTED"
+  },
+  "source_urls": [
+    {
+      "url": "https://mintrud.gov.ru/social/social/1366",
+      "publication_date": "2025-07-01",
+      "role": "year-specific statutory holiday list and proposed calendar periods; proposed transfers not final authority",
+      "retained_representation": "official-web-extracted-text",
+      "retained_representation_sha256": "7770e10aeae379aa523162dbd3cdfc9efbe57ebbbf1145224b4839e7720da96e",
+      "raw_http_response_sha256": null,
+      "fresh_web_read_20261116": "SUCCESS_SAME_SOURCE_PAGE; navigation may differ; no raw HTTP bytes were captured here"
+    },
+    {
+      "url": "https://static.government.ru/media/files/4jeB8hNKm69ggOa9yDiYOli6YoAyM21i.pdf",
+      "act_date": "2025-09-24",
+      "act_number": "1466",
+      "role": "final 2026 transfer act",
+      "retained_representation": "official-web-extracted-text from existing independently reviewed source chain",
+      "retained_representation_sha256": "0adcffc5c767a49cdb01b649d024d5425d9c5513651ffcda6895059a341da175",
+      "raw_http_response_sha256": null,
+      "fresh_web_read_20261116": "TIMEOUT; no replacement evidence or invented PDF-byte SHA"
+    }
+  ],
+  "checks_reused_not_rerun": "365-day and 12 issue-date semantic validation reused through exact candidate/CSV/validation/planner pins; original source review retained",
+  "application_code_changed": false,
+  "database_changed": false,
+  "runtime_activated": false,
+  "provider_io_or_send": false
+}

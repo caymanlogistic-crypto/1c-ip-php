@@ -1,0 +1,14 @@
+{
+  "package": "@tabler/icons",
+  "version": "3.48.0",
+  "variant": "outline",
+  "source_url": "https://registry.npmjs.org/@tabler/icons/-/icons-3.48.0.tgz",
+  "tarball_integrity": "sha512-lQk06gVHNVBnJp0UOgtth54mcZBJM7rdYKsAxKOProj1bbSAx+/xiuOWfHlyvgdL3M+Y+I0HINrjHa3ygp8eXQ==",
+  "approved_manifest": "design/planex/docs/ui/tabler-outline-3.48.0.json",
+  "icons": {
+    "circle-check": "321fb0a26939c8bb1674e8a62c90d0538db23cbb9c46d4c1cce25e0ea313d5bd",
+    "alert-triangle": "92a951d8e90c1b1d986449e74a8b2e1c52982dc3dbe09b141ac11990420408f4",
+    "circle-x": "b335229a55cd1029a3f6b320a24f40005985c912b5924e4330107fdec3d504a4"
+  },
+  "license": "MIT"
+}

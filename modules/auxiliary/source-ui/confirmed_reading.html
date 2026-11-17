@@ -1,0 +1,3 @@
+<div data-editor-fragment data-editor-title="{{ detail.3.1.value }} · {{ selected }}">
+<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">{% for label,cell in detail %}<label class="field {% if cell.disputed %}is-error{% endif %}"><span class="field-label">{{ label }}</span>{% if cell.multiline %}<textarea class="field-textarea" readonly rows="2">{{ cell.value|default:'—' }}</textarea>{% else %}<input class="field-input" readonly value="{{ cell.value|default:'—' }}">{% endif %}{% if cell.disputed %}<span class="field-msg">Есть несостыковка</span>{% endif %}</label>{% endfor %}</div>
+<div class="modal-foot-actions" data-editor-actions><button type="button" class="btn btn-secondary" data-editor-close>Закрыть</button></div></div>

@@ -1,0 +1,348 @@
+"""Pure, bounded occurrence planner; native code owns admission and execution.
+
+Scheduling predicates mirror b99 workflow-v2.js:25-29,37,75,238. Financial
+coverage, eligibility, recipient and amount decisions stay with native source
+adapters. A supplied proof is an internal server attestation, never an HTTP flag.
+"""
+from __future__ import annotations
+
+import calendar as month_calendar
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
+from hashlib import sha256
+import json
+import re
+from typing import Literal
+
+SOURCE_COMMIT = "b99cd29d5ee76a96c546aae51fe3f16a6d67b349"
+SOURCE_PATH = "prototype/rental/workflow-v2.js"
+SOURCE_SHA256 = "213de8b874100f2ff00251625e25113ed4e164a3f3cb7796e89573eccb3c6eac"
+MAX_TARGETS = 4096  # An input/output bound, not a business deadline.
+
+
+@dataclass(frozen=True)
+class ClockProof:
+    now: datetime
+    verified: bool
+    source: str
+
+
+@dataclass(frozen=True)
+class CalendarProof:
+    verified: bool
+    source: str
+    receipt_sha256: str
+    valid_from: date
+    valid_to: date
+    holidays: tuple[date, ...] = ()
+    working: tuple[date, ...] = ()
+    nonworking: tuple[date, ...] = ()
+
+    @property
+    def digest(self) -> str:
+        return _digest({"source": self.source, "receipt": self.receipt_sha256,
+                        "from": self.valid_from.isoformat(), "to": self.valid_to.isoformat(),
+                        "holidays": sorted(d.isoformat() for d in self.holidays),
+                        "working": sorted(d.isoformat() for d in self.working),
+                        "nonworking": sorted(d.isoformat() for d in self.nonworking)})
+
+
+@dataclass(frozen=True)
+class ActivationWatermark:
+    workspace_id: str
+    epoch: str
+    source_fingerprint: str
+    source_revision: int
+    activated_at: datetime
+
+
+@dataclass(frozen=True)
+class PlanningContext:
+    workspace_id: str
+    epoch: str
+    source_fingerprint: str
+    revision: int
+    activation: ActivationWatermark
+    clock: ClockProof
+    calendar: CalendarProof
+
+
+@dataclass(frozen=True)
+class Target:
+    resource_id: str
+    version: str
+    binding_sha256: str
+    eligible: bool  # Native authoritative source projection; default is forbidden.
+
+
+@dataclass(frozen=True)
+class MonthlyTarget(Target):
+    period: str  # Explicit one period; planner never enumerates contract history.
+
+
+@dataclass(frozen=True)
+class PaymentTarget(Target):
+    initial: bool
+    issued: date
+    due: date
+
+
+@dataclass(frozen=True)
+class LeaseTarget(Target):
+    end: date
+
+
+@dataclass(frozen=True)
+class BookingTarget(Target):
+    until: date
+    standalone: bool
+
+
+@dataclass(frozen=True)
+class PlanningTargets:
+    monthly: tuple[MonthlyTarget, ...] = ()
+    payments: tuple[PaymentTarget, ...] = ()
+    leases: tuple[LeaseTarget, ...] = ()
+    bookings: tuple[BookingTarget, ...] = ()
+
+
+Kind = Literal["monthly_invoice", "payment_warning", "lease_warning", "booking_expiry"]
+
+
+@dataclass(frozen=True)
+class Observation:
+    """Pure current warning. It does not grant permission to write or notify."""
+    kind: Kind
+    resource_id: str
+    version: str
+    severity: Literal["yellow", "red"]
+
+
+@dataclass(frozen=True)
+class Occurrence:
+    key: str
+    kind: Kind
+    effect: Literal["state_intent", "notification_intent"]
+    resource_id: str
+    version: str
+    period: str
+    severity: str
+    due_at: datetime
+    workspace_id: str
+    epoch: str
+    expected_revision: int
+    source_fingerprint: str
+    binding_sha256: str
+    calendar_digest: str
+    activation_digest: str
+    source_sha256: str = SOURCE_SHA256
+
+
+@dataclass(frozen=True)
+class Plan:
+    status: Literal["READY", "UNKNOWN"]
+    reasons: tuple[str, ...] = ()
+    observations: tuple[Observation, ...] = ()
+    occurrences: tuple[Occurrence, ...] = ()
+    payment_signals_deferred: bool = False
+
+
+class _Unknown(ValueError):
+    pass
+
+
+def _digest(value) -> str:
+    return sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                             ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+
+
+def _hash(value) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value) is not None
+
+
+def _day(value) -> bool:
+    return type(value) is date
+
+
+def _msk(value) -> bool:
+    # A fixed offset or naive local wall clock is not an IANA MSK clock proof.
+    return (isinstance(value, datetime) and value.tzinfo is not None
+            and getattr(value.tzinfo, "key", None) == "Europe/Moscow"
+            and value.utcoffset() is not None)
+
+
+def _validate(context: PlanningContext, targets: PlanningTargets) -> None:
+    a, clock, cal = context.activation, context.clock, context.calendar
+    if clock.verified is not True or not clock.source or not _msk(clock.now):
+        raise _Unknown("UNVERIFIED_MSK_CLOCK")
+    if not _msk(a.activated_at):
+        raise _Unknown("INVALID_ACTIVATION_CLOCK")
+    if (not isinstance(context.workspace_id, str) or not context.workspace_id
+            or not isinstance(context.epoch, str) or not context.epoch
+            or not _hash(context.source_fingerprint)
+            or type(context.revision) is not int or context.revision < 1
+            or type(a.source_revision) is not int or not 1 <= a.source_revision <= context.revision
+            or (a.workspace_id, a.epoch, a.source_fingerprint) !=
+            (context.workspace_id, context.epoch, context.source_fingerprint)):
+        raise _Unknown("ACTIVATION_BINDING")
+    if clock.now < a.activated_at:
+        raise _Unknown("BEFORE_ACTIVATION")
+    if (cal.verified is not True or not cal.source or not _hash(cal.receipt_sha256)
+            or not _day(cal.valid_from) or not _day(cal.valid_to)
+            or cal.valid_from > cal.valid_to):
+        raise _Unknown("UNVERIFIED_CALENDAR")
+    for dates in (cal.holidays, cal.working, cal.nonworking):
+        if (not isinstance(dates, tuple) or len(dates) > MAX_TARGETS
+                or any(not _day(d) or not cal.valid_from <= d <= cal.valid_to for d in dates)):
+            raise _Unknown("INVALID_CALENDAR")
+    if not cal.valid_from <= clock.now.date() <= cal.valid_to:
+        raise _Unknown("CALENDAR_COVERAGE")
+    expected = ((targets.monthly, MonthlyTarget), (targets.payments, PaymentTarget),
+                (targets.leases, LeaseTarget), (targets.bookings, BookingTarget))
+    if any(not isinstance(items, tuple) for items, _ in expected):
+        raise _Unknown("INVALID_TARGETS")
+    if sum(len(items) for items, _ in expected) > MAX_TARGETS:
+        raise _Unknown("TARGET_BOUND")
+    identities = set()
+    for items, cls in expected:
+        for target in items:
+            if (type(target) is not cls or not isinstance(target.resource_id, str)
+                    or not target.resource_id or len(target.resource_id) > 100
+                    or not isinstance(target.version, str) or not target.version
+                    or len(target.version) > 100 or not _hash(target.binding_sha256)
+                    or type(target.eligible) is not bool):
+                raise _Unknown("INVALID_TARGET")
+            identity = (cls.__name__, target.resource_id, getattr(target, "period", ""))
+            if identity in identities:
+                raise _Unknown("DUPLICATE_TARGET")
+            identities.add(identity)
+
+
+def _working(cal: CalendarProof, day: date) -> bool:
+    if not cal.valid_from <= day <= cal.valid_to:
+        raise _Unknown("CALENDAR_COVERAGE")
+    if day in cal.working:
+        return True
+    if day in cal.nonworking or day in cal.holidays:
+        return False
+    return day.weekday() < 5
+
+
+def _nth_workday(cal: CalendarProof, after: date, number: int) -> date:
+    if not _day(after):
+        raise _Unknown("INVALID_TARGET_DATE")
+    cursor = after
+    # Coverage bounds the search, including a calendar containing no workdays.
+    while number:
+        cursor += timedelta(days=1)
+        if _working(cal, cursor):
+            number -= 1
+    return cursor
+
+
+def _monthly_day(cal: CalendarProof, period: str) -> date:
+    if not isinstance(period, str) or not re.fullmatch(r"\d{4}-\d{2}", period):
+        raise _Unknown("INVALID_PERIOD")
+    try:
+        first = date.fromisoformat(period + "-01")
+    except ValueError as error:
+        raise _Unknown("INVALID_PERIOD") from error
+    previous = first - timedelta(days=1)
+    cursor = previous.replace(day=25)
+    while not _working(cal, cursor):
+        cursor -= timedelta(days=1)
+    return cursor
+
+
+def _previous_month(day: date) -> date:
+    if not _day(day):
+        raise _Unknown("INVALID_TARGET_DATE")
+    previous = day.replace(day=1) - timedelta(days=1)
+    return previous.replace(day=min(day.day, month_calendar.monthrange(previous.year, previous.month)[1]))
+
+
+def plan(targets: PlanningTargets, context: PlanningContext) -> Plan:
+    """Return observations and prospective intents; perform no side effects.
+
+    An eligible due instant before activation is never returned as an intent.
+    Missed *post-activation* explicit targets can still be admitted exactly once
+    by native durable occurrence-key uniqueness. No historical periods are scanned.
+    """
+    try:
+        _validate(context, targets)
+        now, cal = context.clock.now, context.calendar
+        observations, occurrences = [], []
+        calendar_digest = cal.digest
+        activation_digest = _digest({"workspace": context.activation.workspace_id,
+                                    "epoch": context.activation.epoch,
+                                    "source": context.activation.source_fingerprint,
+                                    "revision": context.activation.source_revision,
+                                    "at": context.activation.activated_at.isoformat()})
+
+        def add(kind: Kind, target: Target, due_day: date, period: str,
+                severity: str = "", at: time = time.min):
+            due = datetime.combine(due_day, at, tzinfo=now.tzinfo)
+            if not context.activation.activated_at <= due <= now:
+                return
+            identity = {"workspace": context.workspace_id, "epoch": context.epoch,
+                        "kind": kind, "resource": target.resource_id,
+                        "version": target.version, "period": period, "severity": severity}
+            occurrences.append(Occurrence(
+                key=_digest(identity), kind=kind,
+                effect="notification_intent" if severity else "state_intent",
+                resource_id=target.resource_id, version=target.version, period=period,
+                severity=severity, due_at=due, workspace_id=context.workspace_id,
+                epoch=context.epoch, expected_revision=context.revision,
+                source_fingerprint=context.source_fingerprint, binding_sha256=target.binding_sha256,
+                calendar_digest=calendar_digest, activation_digest=activation_digest))
+
+        for target in targets.monthly:
+            if target.eligible:
+                add("monthly_invoice", target, _monthly_day(cal, target.period), target.period)
+        for target in targets.payments:
+            if not target.eligible:
+                continue
+            if type(target.initial) is not bool or not _day(target.issued) or not _day(target.due):
+                raise _Unknown("INVALID_TARGET_DATE")
+            after = target.issued if target.initial else target.due - timedelta(days=1)
+            yellow = _nth_workday(cal, after, 2 if target.initial else 1)
+            red = _nth_workday(cal, after, 3)
+            # Before 13:00 native source must keep its persisted lastSeverity;
+            # planner neither fabricates that state nor writes a new signal.
+            if now.time().replace(tzinfo=None) < time(13):
+                continue
+            severity = "red" if now.date() >= red else "yellow" if now.date() >= yellow else ""
+            if severity:
+                observations.append(Observation("payment_warning", target.resource_id, target.version, severity))
+                add("payment_warning", target, red if severity == "red" else yellow,
+                    target.issued.isoformat() if target.initial else target.due.isoformat(), severity, time(13))
+        for target in targets.leases:
+            if not target.eligible:
+                continue
+            yellow, red = _previous_month(target.end), target.end - timedelta(days=7)
+            severity = "red" if now.date() >= red else "yellow" if now.date() >= yellow else ""
+            if severity:
+                observations.append(Observation("lease_warning", target.resource_id, target.version, severity))
+                add("lease_warning", target, red if severity == "red" else yellow,
+                    target.end.isoformat(), severity)
+        for target in targets.bookings:
+            if type(target.standalone) is not bool or not _day(target.until):
+                raise _Unknown("INVALID_TARGET_DATE")
+            if target.eligible and target.standalone:
+                add("booking_expiry", target, target.until + timedelta(days=1), target.until.isoformat())
+        return Plan("READY", observations=tuple(sorted(observations, key=lambda o: (o.kind, o.resource_id))),
+                    occurrences=tuple(sorted(occurrences, key=lambda o: (o.due_at, o.key))),
+                    payment_signals_deferred=now.time().replace(tzinfo=None) < time(13))
+    except (_Unknown, OverflowError) as error:
+        reason = str(error) if isinstance(error, _Unknown) else "DATE_RANGE"
+        return Plan("UNKNOWN", (reason,))
+
+
+def revalidate(occurrence: Occurrence, targets: PlanningTargets, context: PlanningContext) -> bool:
+    """Replan under the caller's native lock/CAS; no admission/write is done here.
+
+    Even unchanged keys do not authorize a stale revision, calendar, binding or
+    activation. Native code must also enforce durable uniqueness of the key.
+    """
+    result = plan(targets, context)
+    return result.status == "READY" and occurrence in result.occurrences

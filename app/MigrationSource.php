@@ -1,0 +1,13 @@
+<?php
+declare(strict_types=1);
+namespace App;
+final class MigrationSource {
+    public static function capture():array {
+        $expected=[];$git=false;$probe=proc_open(['git','-C',APP_ROOT,'rev-parse','--is-inside-work-tree','--show-toplevel'],[1=>['pipe','w'],2=>['pipe','w']],$probePipes);if(is_resource($probe)){$answer=stream_get_contents($probePipes[1]);stream_get_contents($probePipes[2]);fclose($probePipes[1]);fclose($probePipes[2]);$exit=proc_close($probe);$lines=preg_split('/\r?\n/',trim($answer));if($exit===0&&($lines[0]??'')==='true'){$top=realpath($lines[1]??'');$root=realpath(APP_ROOT);$normalize=static fn($p)=>strtolower(str_replace(chr(92),'/',$p?:''));if(!$top||$normalize($top)!==$normalize($root))throw new \RuntimeException('Migration Git worktree is not bound to this application root');$git=true;}}
+        if($git){$process=proc_open(['git','-C',APP_ROOT,'ls-tree','-r','-z','HEAD','--','database/migrations'],[1=>['pipe','w'],2=>['pipe','w']],$pipes);if(!is_resource($process))throw new \RuntimeException('Cannot verify committed migration inventory');$raw=stream_get_contents($pipes[1]);$error=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);if(proc_close($process)!==0)throw new \RuntimeException('Cannot verify committed migration inventory');foreach(explode("\0",$raw)as $entry){if($entry==='')continue;if(!preg_match('/^100644 blob ([a-f0-9]{40})\t(database\/migrations\/[^\/]+\.sql)$/D',$entry,$m))throw new \RuntimeException('Unexpected committed migration entry');$expected[basename($m[2])]=$m[1];}}
+        else{$manifest=APP_ROOT.'/RELEASE-MANIFEST.json';if(!is_file($manifest))throw new \RuntimeException('Verified release manifest is required before migrations');$release=json_decode(file_get_contents($manifest),true,512,JSON_THROW_ON_ERROR);foreach($release['files']??[]as $file=>$hash)if(preg_match('~^database/migrations/([^/]+\.sql)$~D',$file,$m))$expected[$m[1]]=$hash;}
+        if(!$expected)throw new \RuntimeException('Committed migration inventory is empty');$captured=[];
+        foreach(glob(APP_ROOT.'/database/migrations/*.sql')as $file){$name=basename($file);if(is_link($file)||!isset($expected[$name]))throw new \RuntimeException('Commit migration before applying: '.$name);$bytes=file_get_contents($file);$actual=$git?sha1('blob '.strlen($bytes)."\0".$bytes):hash('sha256',$bytes);if(!hash_equals($expected[$name],$actual))throw new \RuntimeException('Migration source differs from committed/release bytes: '.$name);$captured[$name]=['bytes'=>$bytes,'sha256'=>hash('sha256',$bytes)];}
+        foreach($expected as $name=>$hash)if(!isset($captured[$name]))throw new \RuntimeException('Committed migration source is missing: '.$name);ksort($captured);return $captured;
+    }
+}

@@ -1,0 +1,3 @@
+native/** -text whitespace=cr-at-eol
+certificates/** -text whitespace=cr-at-eol
+ui/** -text whitespace=cr-at-eol

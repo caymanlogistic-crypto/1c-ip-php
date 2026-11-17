@@ -1,0 +1,29 @@
+/* Tabler status icon spans the title and description as one32px symbol. */
+.toast.toast--system .toast-icon{width:32px;height:32px;align-self:center;flex:none}
+.toast.toast--system .toast-icon>svg{display:block;width:100%;height:100%}
+
+/* Owner requested a clearer system-notification outline. */
+.toast.toast--system{border-width:2px}
+
+/* Status surfaces and outlines share the editable semantic palette. */
+:root{
+ --notification-success-bg:var(--p-success-fill);
+ --notification-warning-bg:var(--p-warning-fill);
+ --notification-danger-bg:var(--p-error-fill);
+ --badge-ok-bg:var(--p-success-fill);--badge-ok-edge:var(--p-success);
+ --badge-warning-bg:var(--p-warning-fill);--badge-warning-edge:var(--p-warning);
+ --badge-danger-bg:var(--p-error-fill);--badge-danger-edge:var(--p-error);
+ --badge-neutral-bg:var(--p-info-fill);--badge-neutral-edge:var(--p-info);
+}
+.toast--system.is-success{--status-toast-ink:var(--p-success);--status-toast-fill:var(--p-success-fill)}
+.toast--system.is-warning{--status-toast-ink:var(--p-warning);--status-toast-fill:var(--p-warning-fill)}
+.toast--system.is-danger{--status-toast-ink:var(--p-error);--status-toast-fill:var(--p-error-fill)}
+.toast.toast--system:is(.is-success,.is-warning,.is-danger){background:var(--status-toast-fill);border-color:var(--status-toast-ink);color:var(--status-toast-ink)}
+.toast.toast--system :is(.toast-icon,.toast-title,.toast-desc,.toast-close){color:inherit}
+.toast.toast--system .toast-close:hover{border-color:currentColor;color:inherit}
+.badge.badge-ok,.registry-ui-modal .badge.badge-ok,.registry-ui-modal .badge.badge-ok:hover{background:var(--badge-ok-bg);color:var(--badge-ok-edge);border-color:var(--badge-ok-edge)}
+.badge.badge-warning,.registry-ui-modal .badge.badge-warning,.registry-ui-modal .badge.badge-warning:hover{background:var(--badge-warning-bg);color:var(--badge-warning-edge);border-color:var(--badge-warning-edge)}
+.badge.badge-danger,.registry-ui-modal .badge.badge-danger,.registry-ui-modal .badge.badge-danger:hover{background:var(--badge-danger-bg);color:var(--badge-danger-edge);border-color:var(--badge-danger-edge)}
+/* The informational border uses its blue role; small text uses the stronger existing text role. */
+.badge.badge-neutral,.registry-ui-modal .badge.badge-neutral,.registry-ui-modal .badge.badge-neutral:hover{background:var(--badge-neutral-bg);color:var(--p-secondary);border-color:var(--badge-neutral-edge)}
+.doc-status.doc-pending{color:var(--p-secondary)}

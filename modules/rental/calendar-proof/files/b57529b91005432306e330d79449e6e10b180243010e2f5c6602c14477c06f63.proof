@@ -1,0 +1,39 @@
+{
+  "artifact_sha256": {
+    "README.md": "93f88213809d251f494b9400bdd5794b4967b4a02591e24b301c89e392f38c87",
+    "candidate.json": "25e4192e8139bbd4c629cec070f18c85d185733c507ad55b8f71c5e1b64c33e5",
+    "dates.csv": "63ef4a1d7b884f4f32b7fb50b848613974f5914bab72396c9c4e4b738804bfc4",
+    "provenance.json": "cf9ad95e15ff3dc3f84b3cdbd3aa6d3f6d6b389ea8c689221e12a335def827fd"
+  },
+  "calendar_proof": null,
+  "calendar_status": "UNVERIFIED",
+  "checks": {
+    "0_working_weekends": "PASS",
+    "11_existing_files_byte_identical_to_parent": "PASS",
+    "12_issue_dates_parity_with_existing_monthly_day_helper": "PASS",
+    "14_historical_holidays_parsed_from_retained_source": "PASS",
+    "2_annual_decree_transfers_parsed_from_retained_source": "PASS",
+    "2_conditional_automatic_rest_dates": "PASS",
+    "365_contiguous_unique_dates_2026_only": "PASS",
+    "all_365_statuses_parity_with_existing_working_helper": "PASS",
+    "annual_act_facts_separate_from_conditional_working_weekends": "PASS",
+    "canonical_json_utf8_lf": "PASS",
+    "coverage_rejects_2025_and_2027_dates": "PASS",
+    "january_2026_invoice_issue_requires_missing_december_2025": "PASS_UNKNOWN_EXPECTED",
+    "json_csv_nonworking_sets": "PASS",
+    "monthly_and_annual_counts_247_working_118_nonworking": "PASS",
+    "source_representation_hashes_original_bytes_null": "PASS"
+  },
+  "current_applicability_confirmed": false,
+  "helper_validation_context": {
+    "receipt_sha256": "",
+    "scope": "Temporary in-memory object used only by pure helpers; no plan/admission/runtime.",
+    "verified": false
+  },
+  "remaining_blocker": "Current applicability of retained historical Article112 text is not confirmed; this data consistency PASS does not verify the calendar.",
+  "result": "PASS_DATA_CONSISTENCY_ONLY",
+  "runtime_or_plan_calls": 0,
+  "runtime_readiness": "NOT_ESTABLISHED",
+  "schema": "rental-calendar-candidate-validation-v1",
+  "supported_verified_years": []
+}

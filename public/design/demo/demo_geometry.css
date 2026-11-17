@@ -1,0 +1,41 @@
+/* Preview geometry only. Visual component rules belong to the shared system. */
+[hidden]{display:none!important}
+main.content{min-width:0;padding:12px;overflow:auto}
+.demo-page{min-width:0}
+.demo-page>.registry-ui-head{margin-bottom:12px}
+.demo-page>.registry-ui-tabs{margin-top:0}
+.demo-page>.panel-section{margin-bottom:12px}
+.demo-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.demo-stack{display:grid;gap:12px}
+.demo-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
+.demo-utility{display:grid;gap:6px;padding:12px}
+.demo-dialog{padding:0}
+.demo-dialog .modal-body{min-height:0}
+.demo-dialog .modal-foot-actions{display:flex;gap:8px;margin-left:auto}
+.demo-fieldset{margin:0;padding:0;border:0;min-width:0}
+.demo-fieldset legend{margin-bottom:10px}
+.demo-guide{position:fixed;right:18px;bottom:18px;z-index:5000;max-width:440px;max-height:70vh;overflow:auto}
+.demo-guide .panel-section{display:grid;gap:8px}
+.demo-palette-row{display:grid;grid-template-columns:42px minmax(160px,1fr) minmax(130px,220px);gap:10px;align-items:center}
+.demo-palette-swatch{height:30px;border:1px solid var(--line);background:var(--surface)}
+.demo-palette-list{display:grid;gap:10px;margin-top:12px}
+.demo-inline{display:flex;align-items:center;gap:8px}
+.demo-file-list .file-item{margin-top:6px}
+.demo-form-width{max-width:1050px}
+.demo-ctx-anchor{position:fixed;z-index:1500}
+.demo-value-pair{display:grid;grid-template-columns:minmax(100px,1fr) 2fr;gap:6px 12px}
+.demo-card-columns{display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:12px}
+.demo-screen-badge{margin-left:auto}
+.demo-source-links{padding:10px 12px}
+.demo-table-state{min-height:200px}
+.demo-guide-list{display:grid;gap:5px}
+.demo-state-options{display:grid;gap:8px}
+a.nav-sub-item{text-decoration:none}
+.demo-page .registry-ui-table tbody tr[data-open]{cursor:pointer}
+input[type=color].field-input{width:50px;height:32px;padding:2px}
+@media(max-width:1023px){body{overflow:auto}.demo-columns,.demo-card-columns{grid-template-columns:1fr}}
+
+.demo-object-table :is(th,td):nth-child(2){width:32%}
+.demo-object-table :is(th,td):last-child{width:40px}
+
+@media(max-width:640px){.demo-palette-row{grid-template-columns:34px minmax(100px,1fr)}.demo-palette-row input{grid-column:1/-1}}
