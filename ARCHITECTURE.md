@@ -1,5 +1,7 @@
 # Карта текущего приложения для ИИ-агента
 
+Коррекция нулевой точки: `bin/zero-point-correction.php plan/apply/recover` → `ZeroPointCorrection` → `Service::command(zero-point.correct)`. CLI/admin-only, доказательства книги, CAS текущего графа, rental_number_guard. Меняются только16 free_since, продолжение33 и датированное условие/происхождение. Предыдущий JSON/pin сохраняются. `revision-pending.json` блокирует ZeroPoint::load/restore до сверки committed rental_commands receipt; recover сериализуется тем же guard, неизвестную команду не повторяет. Подготовленный файл сам по себе не доказывает commit. DDL, admission, внешние отправки не меняются.
+
 Снимок анализа: 1C-IP-PHP-CURRENT.zip от 17.11.2026, SHA256 e4224741a30c75c3d86272fe92b5106bd56b482c8372a090d660207bead73b84.
 
 Документ описывает код этого снимка. Изменения, которые ещё нужно сделать, отмечены отдельно. Фактическую среду нового проекта бери из START-HERE.md после локального подтверждения. Не выдавай наличие класса за работоспособность функции.
@@ -284,6 +286,14 @@ FROZEN в FrozenPacketWire относится к содержимому утве
 Если ответ требует долгой археологии, уточни этот раздел карты в рамках задачи. Не создавай новый слой отчётности.
 
 
+
+## Нулевая точка: граница восстановления
+
+`/administration/zero-point` → `ZeroPointController` (admin, POST/CSRF для плана и применения) → `ZeroPoint` → whitelist коммерческого графа и выбранных rental_facts. Частные снимки и SHA-квитанции — `private/zero-point`, вне Git/public. `bin/zero-point.php reference` снимает источник только чтением; `bin/prepare-zero-point.py` независимо сверяет source pins, GUID/PK, физические объекты и 255+295→224 по полной аналитике, готовит снимок без подключения к БД; `bin/zero-point.php install` устанавливает неизменяемую точку без применения её бизнес-строк.
+
+Файлы точки/резервы расположены в `private/zero-point` на сохраняемом writable mount; `.local` общего сайта read-only. `ZeroPoint::restore` использует rental_number_guard и блокировки графа, сохраняет fsync/SHA-проверенный резерв, проверяет CAS и актуальную схему, заменяет строки в порядке реальных FK, проверяет денежные инварианты и меняет runtime epoch. Истории rental_commands/rental_events/audit и внешних попыток не удаляются. `zero_point_sequence` в rental_facts хранит верхние границы ID/номеров; `BusinessIds` используется существующими создателями записей. `zero_point_runtime.active.event_floor` отделяет журнал текущей работы от архива. Идемпотентность восстановления — `zero_point_operation` и command_key. Подписанные blob-файлы и настройки подключений не копируются/не откатываются этим механизмом.
+
+`zero_point_data.last_occupant:<object_id>` — исходная историческая проекция; `ObjectFacts` сверяет её дату с более поздней историей приложения. `PartyOrigin` читает доказанный source GUID/код или сохранённую source binding; оба отделены от PK. UI использует существующие DirectoryUi/RentalUI/toolbar-select и общие стили; новая дизайн-система не создаётся.
 ### Локальный кандидат: редактор и общие состояния формы
 
 WorkRegistry ведёт редактируемый проект прямо в ContractForm; SourceCards сохраняет совместимость старых ссылок тем же редактором. contract.delete проходит Service::command → ContractDraft; ContractDraft::visibleSql/deleted задают исключение удалённого проекта из реестров и Access без удаления бизнес-истории. Контрагенты сохраняются прежним путём ExtraService → DirectoryRules с проверкой занятого ИНН под блокировкой.
