@@ -55,7 +55,7 @@ final class Controller {
         return $h?:'—';
     }
 
-    public static function tabs(array $items, string $current, bool $preserveQuery=false,array $context=[]): string {
+    public static function tabs(array $items, string $current, bool $preserveQuery=false,array $context=[],string $countPage=''): string {
         $h = '<form method="get" class="registry-ui-tabs" role="group" aria-label="Разделы списка">';
         if ($preserveQuery && !empty($_GET['q'])) $context['q']=(string)$_GET['q'];
         foreach ($context as $key=>$value) $h.='<input type="hidden" name="'.self::e($key).'" value="'.self::e($value).'">';
@@ -71,7 +71,7 @@ final class Controller {
         . self::e($label)
         . ' <b>'
         . $count
-        . '</b>'.(isset($spec[2])?DirectoryUi::counts($spec[2]):'').'</button>';
+        . '</b>'.(isset($spec[2])?DirectoryUi::counts($spec[2],$countPage):'').'</button>';
         }
         return $h
         . '</form>';

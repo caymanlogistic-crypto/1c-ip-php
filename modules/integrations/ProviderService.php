@@ -30,7 +30,7 @@ final class ProviderService {
             $secret,
             $params);
         \App\NativePlatform::requireOwnerChecks();
-        if (!Config::liveAllowed())throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
+        if (!Config::liveAllowed() && !OnecReadAdmission::allows($this->db,$provider,$operation,$secret))throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
         $devContext=null;
         if(in_array($provider,['onec','bank'],true)&&($devSettings=OnecDevSshTransport::settings())!==null){
             $devContext=OnecReaderFactory::selectedContext($this->db,$secret,$devSettings);
@@ -268,7 +268,7 @@ final class ProviderService {
         $coverage = ['command_context' => $safeParams]+($bankIdentity === null?[]:['bank_auth_identity' => $bankIdentity]);
         if(in_array($provider,['onec','bank'],true)&&OnecDevSshTransport::settings()!==null)$coverage['transport']=OnecDevSshTransport::identity();
         try{
-            if (!is_callable($this->native) && !Config::liveAllowed())throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
+            if (!is_callable($this->native) && !Config::liveAllowed() && !OnecReadAdmission::allows($this->db,$provider,$operation))throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
             if ($provider === 'mosenergo'){
                 $client = new MesClient($secret['session']??[],
                     is_callable($this->native)?$this->native:null);
