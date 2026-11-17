@@ -30,6 +30,15 @@ class ReleasePolicyTest(unittest.TestCase):
     def test_exact_main_release(self):
         self.validate(self.claims, self.sha, self.run_id)
 
+    def test_queue_can_dispatch_only_the_exact_main_release(self):
+        self.validate({**self.claims, 'event_name': 'workflow_dispatch'}, self.sha, self.run_id)
+        for ref in ('refs/heads/task/example', 'refs/pull/1/merge'):
+            with self.assertRaisesRegex(RuntimeError, 'OIDC_SCOPE_REJECTED'):
+                self.validate({**self.claims, 'event_name': 'workflow_dispatch', 'ref': ref}, self.sha, self.run_id)
+        for event in ('pull_request', 'workflow_run', 'repository_dispatch', 'schedule'):
+            with self.assertRaisesRegex(RuntimeError, 'OIDC_SCOPE_REJECTED'):
+                self.validate({**self.claims, 'event_name': event}, self.sha, self.run_id)
+
     def test_other_branches_and_pr_cannot_deploy(self):
         for ref in ('refs/heads/staging-ui', 'refs/heads/staging-integrations',
                     'refs/heads/task/example', 'refs/pull/1/merge'):

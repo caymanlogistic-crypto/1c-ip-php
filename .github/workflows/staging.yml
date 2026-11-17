@@ -1,5 +1,14 @@
 name: PHP build and main site
+run-name: ${{ inputs.queue_ticket || github.workflow }}
 on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: 'Exact candidate commit requested by the publication queue'
+        required: true
+      queue_ticket:
+        description: 'Unique queue ticket and phase'
+        required: true
   push:
     branches: [main, 'task/**', 'codex/**']
   pull_request:
@@ -18,11 +27,18 @@ jobs:
       id-token: write
       packages: write
     environment:
-      name: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'ui' || 'build' }}
+      name: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && 'ui' || 'build' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Bind queue dispatch to the requested commit
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: test "$GITHUB_SHA" = "$EXPECTED_SHA"
       - name: Verify main-only deployment policy
         run: python3 -m unittest discover -s deploy/server -p 'test_*.py'
+      - name: Verify merge queue boundaries
+        run: python3 -m unittest discover -s deploy/tests -p 'test_*.py'
       - name: Build exact commit with reusable layers
         env:
           REGISTRY_TOKEN: ${{ github.token }}
@@ -33,14 +49,14 @@ jobs:
           printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
           docker buildx create --name ipphp-builder --driver docker-container --use
           cache_args=(--cache-from "type=registry,ref=$registry:buildcache")
-          if test "$GITHUB_EVENT_NAME" = push && test "$GITHUB_REF" = refs/heads/main; then
+          if { test "$GITHUB_EVENT_NAME" = push || test "$GITHUB_EVENT_NAME" = workflow_dispatch; } && test "$GITHUB_REF" = refs/heads/main; then
             cache_args+=(--cache-to "type=registry,ref=$registry:buildcache,mode=max,image-manifest=true,oci-mediatypes=true")
           fi
           docker buildx build --load "${cache_args[@]}" --build-arg SOURCE_COMMIT="$GITHUB_SHA" -t "ipphp:$GITHUB_SHA" -f deploy/container/Dockerfile .
           docker image inspect "ipphp:$GITHUB_SHA" --format '{{.Id}}' > image-id.txt
           docker run --rm --entrypoint php "ipphp:$GITHUB_SHA" -r 'foreach(["pdo_mysql","bcmath","gd","intl","zip","mbstring"] as $e)if(!extension_loaded($e))exit(1); echo PHP_VERSION,"\n";'
       - name: Publish tested main image to private registry
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
           registry="ghcr.io/$GITHUB_REPOSITORY"
@@ -48,7 +64,7 @@ jobs:
           docker push "$registry:sha-$GITHUB_SHA"
           docker image inspect "$registry:sha-$GITHUB_SHA" --format '{{index .RepoDigests 0}}' > registry-ref.txt
       - name: Deploy the common site from main only
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           UI_KEY: ${{ secrets.UI_DEPLOY_SSH_KEY }}

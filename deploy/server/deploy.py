@@ -44,8 +44,8 @@ def pull_registry_image(header):
 def validate_claims(claims, sha, run_id):
     expected = {'repository': REPO, 'repository_owner_id': '251781345',
                 'ref': 'refs/heads/main', 'sha': sha, 'run_id': str(run_id),
-                'event_name': 'push', 'workflow_ref': WORKFLOW}
-    if any(str(claims.get(k)) != v for k, v in expected.items()):
+                'workflow_ref': WORKFLOW}
+    if claims.get('event_name') not in ('push', 'workflow_dispatch') or any(str(claims.get(k)) != v for k, v in expected.items()):
         raise RuntimeError('OIDC_SCOPE_REJECTED')
 
 def run(*args, **kwargs):

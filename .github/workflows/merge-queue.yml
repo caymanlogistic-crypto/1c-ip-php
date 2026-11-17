@@ -1,0 +1,62 @@
+name: Merge and deploy queue
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'Approved PR number (empty = resume queue)'
+        required: false
+        default: ''
+      head:
+        description: 'Exact approved PR head SHA'
+        required: false
+        default: ''
+  workflow_run:
+    workflows: ['PHP build and main site']
+    types: [completed]
+permissions:
+  contents: read
+jobs:
+  enqueue:
+    if: github.event_name == 'workflow_dispatch' && inputs.pr != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: ipphp-queue-intake-${{ inputs.pr }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Store the approved candidate before waiting for the worker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUEUE_PR: ${{ inputs.pr }}
+          QUEUE_HEAD: ${{ inputs.head }}
+        run: python3 deploy/merge_queue.py enqueue
+  publish:
+    needs: enqueue
+    if: always() && (needs.enqueue.result == 'success' || needs.enqueue.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    concurrency:
+      group: ipphp-merge-deploy-queue
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Update, check, merge and verify one publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 deploy/merge_queue.py drain

@@ -12,6 +12,8 @@
 
 Доставка: `.github/workflows/staging.yml` сохраняет registry build cache и публикует main в приватный GHCR; `deploy/server/deploy.py` получает immutable digest через OIDC/SSH, загружает недостающие слои, проверяет image_id/commit и пересоздаёт только app. SOURCE_COMMIT после runtime/vendor сохраняет кеш между правками. SQL/миграций и переноса документов в этом пути нет; прежний image_id остаётся локально для отката. Порядок внедрения — deploy/README.md, проверенный статус — WORK.md.
 
+Автоматическая очередь: `Queue-PR.ps1` → `merge-queue.yml` → `deploy/merge_queue.py`. Ticket head/статус хранятся в PR, один Actions worker проводит update/check/merge/deploy и проверяет квитанцию фактической версии. `staging.yml` принимает точный workflow_dispatch на ветку кандидата (build) или main (deploy); OIDC receiver разрешает только push/dispatch main. Внешних БД/процессов очереди нет. Бесплатный GitHub не даёт защитить main; инструкции запрещают агентам обход, controller обнаруживает постороннее изменение main.
+
 ## 1. Форма системы
 
 Это модульный PHP/MySQL-монолит. В архиве 271 PHP-файл, примерно 31,4 тысячи строк PHP. Основные модули — аренда, подключения и вспомогательные источники.
