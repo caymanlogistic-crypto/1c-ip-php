@@ -86,6 +86,18 @@ source_json и fact_json сейчас содержат смешанные ист
 
 Обнаружено расхождение: RegistryState::managed учитывает imported/workflowTouched/servicing_document_id; SourceCards::show учитывает только imported. Оно не считается исправленным этим документом.
 
+### Неполный черновик договора
+
+`Service::command(contract.create/contract.edit, intent=draft)` → `ContractDraft::save`: права, версия, блокировка номера, транзакция, история и событие остаются в Service. `source_json.draft_input` — авторитетное состояние незавершённого редактора; nullable колонки — только пригодная для реестра проекция. Сохранение не изменяет contract_objects/contract_terms и не потребляет бронь. ContractForm восстанавливает форму, WorkRegistry/карточка/условия/реестр согласований читают тот же draft_input. `intent=submit` и команда `contract.submit` проходят полный прежний путь Service с материализацией условий и удалением draft_input. Миграция 052 отдельно разрешает NULL party_id только для draft/returned/cancelled; порядок и ограничения возврата — database/052-contract-drafts.md. Автодеплой миграцию не применяет.
+
+Общий поисковый picker rental-pickers.js открывает cs-dropdown как fixed popover верхнего слоя с учётом границ окна, прокрутки и resize. Пример того же компонента: Витрина → Создать объект → Помещение. Формы создания документа, брони и договора используют существующий registry-ui-modal-grid для межполевого интервала.
+
+### Общие редакторы и клиентские брони
+
+ContractForm и AddendumController::editor используют один ContractObjectEditor: метаданные помещения, стоимость с НДС, состав, итог, поисковый picker и шаблон добавления. Допсоглашение явно показывает базовый договор/контрагента и сохраняет term_start/term_end каждого помещения. Общие границы формы меняют только совпадающие/пустые индивидуальные границы; отличающиеся сроки сохраняются. PartyDirectory::editor — последовательные группы в одном попапе без вкладок; общие form-grid-3/4 складываются на ширине до 700 px. Пример сеток — /design/demo/layout-rules.html → Показать компактную форму; пример общего поискового picker — /design/demo/index.html → Создать объект → Помещение. Поиск учитывает весь отображаемый текст и все слова запроса, точку/запятую площади.
+
+Service::available имеет явный режим sharedCustomerBookings: допускает пересечение только клиентских заявок document_id=NULL, сохраняя физические guards и эксклюзивность документных резервов. Availability использует тот же смысл для mode=booking/contract; обычная проекция занятости объектов продолжает показывать брони. CustomerBookings::checkActivation повторно проверяет физические периоды перед фактической активацией, cancelOthers архивирует конкурирующие заявки отменой с причиной/audit/version в той же транзакции. Подключено к contract.sign, Evidence::activation (оплачены первоначальные счета), Addenda::apply. Смена схемы не нужна. Эти методы не запускают сеть или workers.
+
 ## 4. Витрина и общая UI-база
 
 ### Витрина текущего проекта
@@ -257,3 +269,17 @@ FROZEN в FrozenPacketWire относится к содержимому утве
 
 Если ответ требует долгой археологии, уточни этот раздел карты в рамках задачи. Не создавай новый слой отчётности.
 
+
+### Локальный кандидат: редактор и общие состояния формы
+
+WorkRegistry ведёт редактируемый проект прямо в ContractForm; SourceCards сохраняет совместимость старых ссылок тем же редактором. contract.delete проходит Service::command → ContractDraft; ContractDraft::visibleSql/deleted задают исключение удалённого проекта из реестров и Access без удаления бизнес-истории. Контрагенты сохраняются прежним путём ExtraService → DirectoryRules с проверкой занятого ИНН под блокировкой.
+
+Общий opt-in public/assets/source-form-validation.js подключён приложением и витриной layout-rules.html: form[data-source-validation] с novalidate получает системные is-error/aria-invalid и верхний PlanexNotifications toast; formnovalidate сохраняет черновик. data-required-items объявляет наличие выбранных строк. DirectoryUi::inputWithOption использует общий field-label-row и checkbox-inline. Пример композиции, удаления и ошибок — /design/demo/layout-rules.html → «Показать компактную форму». Никаких локальных копий стилей формы не добавлено.
+
+### Секционная форма контрагента (локальный кандидат)
+
+PartyDirectory::editor использует общий registry-ui-form-sections/section/row из registry-components.css; вариант row--wide-code даёт тексту 3 доли, коду 1. Дополнительный контакт — native details[data-form-disclosure], заполненные данные/recipient flag задают open на сервере. Общий source-form-disclosure.js раскрывает invalid/aria-invalid до существующего обработчика фокуса и не меняет payload, required или значения. Источник семантики «Получает документы» — RecipientContext; прежняя rental-party-ui.js управляет адресом и обязательностью email. Полный пример — /design/demo/layout-rules.html → «Показать форму контрагента», общие CSS/JS те же, что в приложении.
+
+### Полная форма без внутренней прокрутки
+
+Текущий PartyDirectory::editor использует RentalUI::modal(canvas:true): общий registry-ui-modal--form-canvas содержит панель до1200px с естественной высотой и overflow:visible у modal-body. В низком/узком окне перемещается весь внешний canvas, не тело попапа. Обычные модальные вызовы без флага не изменены. Общий registry-ui-form-composition располагает адреса и два контакта рядом, ниже — банковские реквизиты и ЭДО; до700px — один столбец. Та же композиция/вариант есть в полном примере контрагента на layout-rules.html.

@@ -73,7 +73,7 @@ final class Service {
     }
 
     private static function cancelBlockedProjects(PDO $p,array $actor,int $partyId,string $reason):array {
-        $q=$p->prepare("SELECT * FROM contracts WHERE party_id=? AND status IN ('draft','legal','accounting','returned','approved','sent') ORDER BY id FOR UPDATE");
+        $q=$p->prepare("SELECT * FROM contracts WHERE party_id=? AND status IN ('draft','legal','accounting','returned','approved','sent') AND ".ContractDraft::visibleSql('contracts')." ORDER BY id FOR UPDATE");
         $q->execute([$partyId]);$projects=[];
         foreach($q->fetchAll(PDO::FETCH_ASSOC) as $contract){
             if((int)$contract['party_id']!==$partyId||!in_array($contract['status'],self::BLOCK_PROJECT_STATUSES,true)||!RegistryState::managed($contract))continue;
@@ -148,7 +148,7 @@ final class Service {
         return $result;
     }
 
-    public static function available(PDO $p, array $ids, string $start, string $end, ?int $except = null, ?int $partyId = null, bool $consume = false, ?int $bookingId = null): void {
+    public static function available(PDO $p, array $ids, string $start, string $end, ?int $except = null, ?int $partyId = null, bool $consume = false, ?int $bookingId = null, bool $sharedCustomerBookings = false): void {
         sort($ids, SORT_NUMERIC);
         foreach ($ids as $id) {
             $o = self::get($p, 'rental_objects', (int)$id);
@@ -183,6 +183,7 @@ final class Service {
                 $start
             ]);
             foreach ($q->fetchAll() as $booking) {
+                if ($sharedCustomerBookings && $booking['document_id']===null && (!$consume || $bookingId!==(int)$booking['id']))continue;
                 if ($booking['document_id'] !== null || $partyId === null || ((int)$booking['party_id'] !== $partyId && !($bookingId === (int)$booking['id'] && $booking['party_id'] === null)))throw new RuntimeException('Объект забронирован.');
                 if ($consume)$p->prepare("UPDATE reservations SET status='consumed',version=version+1 WHERE id=?")->execute([
                     $booking['id']
@@ -240,7 +241,7 @@ final class Service {
         foreach ($terms as $term)$p->prepare("INSERT INTO contract_terms(contract_id,object_id,start_date,end_date,amount,source_json) VALUES(?,?,?,?,?,'{}')")->execute($term);
     }
 
-    private static function execute(PDO $p, array $u, string $action, array $in): array {
+    private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
         $id = (int)($in['id'] ?? 0);
         if ($action === 'contract.create' || $action === 'contract.edit') {
             self::roles([
@@ -248,6 +249,7 @@ final class Service {
             ]);
             $old = $action === 'contract.edit'?self::get($p, 'contracts', $id):null;
             if ($old) {
+                if(ContractDraft::deleted($old))throw new RuntimeException('Договор не найден.',404);
                 self::version($old, $in);
                 if (!in_array($old['status'], [
                     'draft',
@@ -266,7 +268,8 @@ final class Service {
             if ($old) {
                 $source = json_decode($old['source_json'], true);
                 if (!empty($source['imported']))throw new RuntimeException('Исходный договор доступен только для чтения; изменения оформляются ДС.');
-                if ($number !== $old['number'])throw new RuntimeException('Номер существующего договора не изменяется.');
+                if ($number !== $old['number'] && $old['status']!=='draft')throw new RuntimeException('Номер существующего договора не изменяется.');
+                if ($number==='')throw new RuntimeException('Укажите номер договора.',422);
             }
             elseif($number === '') {
                 $numbers = $p->query('SELECT number FROM contracts')->fetchAll(PDO::FETCH_COLUMN);
@@ -276,7 +279,7 @@ final class Service {
             }
             $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
             if (!$old || $number !== $old['number']) {
-                $q = $p->prepare('SELECT id FROM contracts WHERE number=? AND id<>? LIMIT 1 FOR UPDATE');
+                $q = $p->prepare('SELECT id FROM contracts WHERE number=? AND id<>? AND '.ContractDraft::visibleSql('contracts').' LIMIT 1 FOR UPDATE');
                 $q->execute([
                     $number,
                     $id
@@ -289,6 +292,9 @@ final class Service {
                     $number,
                     $id
                 ]);
+            }
+            elseif (($in['intent'] ?? 'draft') !== 'submit') {
+                $id = ContractDraft::save($p, $in, $old, $number);
             }
             else {
                 $party = (int)($in['party_id'] ?? $old['party_id'] ?? 0);
@@ -315,7 +321,7 @@ final class Service {
                 $priorRelations=$old?Occupancy::relations($p,$id):[];
                 $booking = null;
                 if (!empty($in['booking_id'])) {
-                    if ($old)throw new RuntimeException('Бронь используется только при создании договора.');
+                    if ($old && (int)(ContractDraft::input($old)['booking_id'] ?? 0)!==(int)$in['booking_id'])throw new RuntimeException('Бронь используется только при создании договора.');
                     $booking = self::get($p, 'reservations', (int)$in['booking_id']);
                     self::version($booking, [
                         'version' => $in['booking_version'] ?? 0
@@ -324,7 +330,7 @@ final class Service {
                     if (!in_array((int)$booking['object_id'], $ids, true))throw new RuntimeException('В договор не включено забронированное помещение.');
                 }
                 $physicalIds=array_values(array_filter($ids,static fn($oid)=>Occupancy::physical($priorRelations[(int)$oid] ?? null)));
-                self::available($p, $physicalIds, $start, $end, $old?$id:null, $party, true, $booking?(int)$booking['id']:null);
+                self::available($p, $physicalIds, $start, $end, $old?$id:null, $party, true, $booking?(int)$booking['id']:null, true);
                 if ($old)$p->prepare('UPDATE contracts SET number=?,party_id=?,start_date=?,end_date=?,amount=?,version=version+1 WHERE id=?')->execute([
                     $number,
                     $party,
@@ -379,11 +385,12 @@ final class Service {
                     $party,
                     $booking['id']
                 ]);
+                $p->prepare("UPDATE contracts SET source_json=JSON_REMOVE(source_json,'$.draft_input') WHERE id=?")->execute([$id]);
                 if (($in['intent'] ?? '') === 'submit')$p->prepare("UPDATE contracts SET status='legal',return_to=NULL,reason=NULL WHERE id=?")->execute([
                     $id
                 ]);
             }
-            self::event($p, $u, $action, 'Сохранён договор №'
+            self::event($p, $u, $eventAction ?? $action, 'Сохранён договор №'
             . $number, $id);
             return [
                 'id' => $id,
@@ -392,7 +399,9 @@ final class Service {
         }
         if (str_starts_with($action, 'contract.')) {
             $c = self::get($p, 'contracts', $id);
+            if(ContractDraft::deleted($c))throw new RuntimeException('Договор не найден.',404);
             self::version($c, $in);
+            if($action==='contract.delete'){self::roles(['manager']);return ContractDraft::delete($p,$c,$u,(string)$in['command_key']);}
             $status = $c['status'];
             $next = $status;
             $return = null;
@@ -415,11 +424,14 @@ final class Service {
                     'draft',
                     'returned'
                 ], true) || ($status === 'returned' && $c['return_to'] === 'lawyer'))throw new RuntimeException('Договор не готов к отправке юристу.');
+                if (($draft = ContractDraft::input($c)) !== null) {
+                    return self::execute($p, $u, 'contract.edit', array_merge($draft, ['id'=>$id,'version'=>$c['version'],'number'=>$c['number'],'command_key'=>$in['command_key'],'intent'=>'submit']), 'contract.submit');
+                }
                 $q = $p->prepare('SELECT object_id FROM contract_objects WHERE '.\App\ContractOccupancy::physicalPredicate('contract_objects').' AND contract_id=?');
                 $q->execute([
                     $id
                 ]);
-                self::available($p, $q->fetchAll(PDO::FETCH_COLUMN), $c['start_date'], $c['end_date'], $id);
+                self::available($p, $q->fetchAll(PDO::FETCH_COLUMN), $c['start_date'], $c['end_date'], $id, null, false, null, true);
                 $next = 'legal';
                 break;
                 case 'contract.legal':self::roles([
@@ -488,6 +500,7 @@ final class Service {
                 ], true))throw new RuntimeException('Подпись сейчас не ожидается.');
                 if (empty($in['both_signed']))throw new RuntimeException('Подтвердите подписи обеих сторон.');
                 Evidence::latest($p, 'contract', $id, 'signed-contract', (int)$c['version']);
+                if($status!=='active')CustomerBookings::checkActivation($p,$c);
                 $p->prepare('UPDATE contracts SET signed=1 WHERE id=?')->execute([
                     $id
                 ]);
@@ -510,6 +523,7 @@ final class Service {
                     'ended',
                     'closed'
                 ], true))throw new RuntimeException('Действующий договор завершается через сверку.');
+                if($status==='draft')throw new RuntimeException('Черновик нужно удалить, а не аннулировать.',409);
                 $reason = trim($in['reason'] ?? '');
                 if (!$reason)throw new RuntimeException('Укажите причину.');
                 $next = 'cancelled';
@@ -574,6 +588,7 @@ final class Service {
                 $next === 'closed' ? 0 : 1,
                 $id
             ]);
+            if ($next==='active' && $status!=='active')CustomerBookings::cancelOthers($p,$id);
             self::event($p, $u, $action, 'Договор №'
             . $c['number']
             . ': '

@@ -64,9 +64,10 @@ final class ObjectFacts
             .'WHERE '.ContractOccupancy::physicalPredicate('co')." AND co.object_id=? AND c.status IN ('active','reconciling') ORDER BY c.id DESC LIMIT 1",[$today,$object['id']])[0] ?? null;
         if ($free) $lease=null;
         if ($lease && $lease['status']==='reconciling') $status='Финальная сверка договора '.$lease['number'].'; возврат ещё не завершён';
-        $booking=Controller::query('SELECT r.id,r.until_date,r.comment,COALESCE(NULLIF(r.client_name,\'\'),p.name) client_name '
+        $bookings=Controller::query('SELECT r.id,r.until_date,r.comment,COALESCE(NULLIF(r.client_name,\'\'),p.name) client_name '
             .'FROM reservations r LEFT JOIN parties p ON p.id=r.party_id WHERE '.Occupancy::reservationPredicate('r')
-            ." AND r.object_id=? AND r.status='active' AND r.until_date>=? ORDER BY r.id DESC LIMIT 1",[$object['id'],$today])[0] ?? null;
+            ." AND r.object_id=? AND r.status='active' AND r.until_date>=? ORDER BY r.id DESC",[$object['id'],$today]);
+        $booking=$bookings[0] ?? null;
         $days=self::idleDays($object,$free,$today);
         $previous=Controller::query('SELECT p.name FROM contract_terms t JOIN contracts c ON c.id=t.contract_id JOIN parties p ON p.id=c.party_id '
             .'LEFT JOIN contract_objects co ON co.contract_id=c.id AND co.object_id=t.object_id '
@@ -109,7 +110,7 @@ final class ObjectFacts
                 }
             }
         }
-        return compact('eligible','free','status','lease','document','booking','days','previous','severity','recent','deadline');
+        return compact('eligible','free','status','lease','document','booking','bookings','days','previous','severity','recent','deadline');
     }
 
     public static function days(int $days): string
