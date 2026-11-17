@@ -1,11 +1,18 @@
 #!/usr/bin/python3
-"""Root-owned receiver. CI can deploy only an OIDC-attested staging commit."""
+"""Root-owned receiver. CI can deploy only an OIDC-attested main commit for the one existing site."""
 import datetime, fcntl, gzip, hashlib, json, os, pathlib, re, shutil, subprocess, sys, tempfile
 import jwt
 
 BASE = pathlib.Path('/srv/1c-ip-php')
 REPO = 'caymanlogistic-crypto/1c-ip-php'
-WORKFLOW = REPO + '/.github/workflows/staging.yml@refs/heads/staging-'
+WORKFLOW = REPO + '/.github/workflows/staging.yml@refs/heads/main'
+
+def validate_claims(claims, sha, run_id):
+    expected = {'repository': REPO, 'repository_owner_id': '251781345',
+                'ref': 'refs/heads/main', 'sha': sha, 'run_id': str(run_id),
+                'event_name': 'push', 'workflow_ref': WORKFLOW}
+    if any(str(claims.get(k)) != v for k, v in expected.items()):
+        raise RuntimeError('OIDC_SCOPE_REJECTED')
 
 def run(*args, **kwargs):
     return subprocess.run(args, check=True, text=True, **kwargs)
@@ -48,7 +55,7 @@ def activate(root, receipt):
     raise RuntimeError('APP_NOT_READY_'+str(error))
 
 def main():
-    if os.geteuid()!=0 or len(sys.argv)!=3 or sys.argv[1] not in ('ui','integrations'):
+    if os.geteuid()!=0 or len(sys.argv)!=3 or sys.argv[1] != 'ui':
         raise RuntimeError('INVALID_INVOCATION')
     stand,operation=sys.argv[1:];root=BASE/stand
     if not (root/'state/INITIAL_IMPORT_COMPLETE').is_file():raise RuntimeError('INITIAL_IMPORT_REQUIRED')
@@ -75,9 +82,7 @@ def main():
         signing_key=jwt.PyJWKClient('https://token.actions.githubusercontent.com/.well-known/jwks').get_signing_key_from_jwt(token)
         claims=jwt.decode(token,signing_key.key,algorithms=['RS256'],audience='ipphp-deploy',
                           issuer='https://token.actions.githubusercontent.com')
-        expected={'repository':REPO,'repository_owner_id':'251781345','ref':'refs/heads/staging-'+stand,
-                  'sha':sha,'run_id':run_id,'event_name':'push','workflow_ref':WORKFLOW+stand}
-        if any(str(claims.get(k))!=v for k,v in expected.items()):raise RuntimeError('OIDC_SCOPE_REJECTED')
+        validate_claims(claims, sha, run_id)
         highest_file=root/'state/highest-run.json'
         highest=json.loads(highest_file.read_text()) if highest_file.exists() else {'run_id':'0','commit':''}
         if int(run_id)<int(highest['run_id']) or (run_id==highest['run_id'] and sha!=highest['commit']):
