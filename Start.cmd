@@ -1,2 +1,2 @@
 @echo off
-"C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -WindowStyle Hidden -File "%~dp0Start-Local.ps1"
+"C:\Users\Vladimir\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\powershell\pwsh.exe" -NoProfile -WindowStyle Hidden -File "%~dp0Start-Local.ps1" %*
