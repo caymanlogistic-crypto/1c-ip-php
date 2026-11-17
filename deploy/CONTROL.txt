@@ -1,0 +1,1 @@
+Infrastructure control commit: task pushes do not deploy; staging branches select one stand.

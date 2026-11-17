@@ -51,7 +51,7 @@ jobs:
             'image_id':os.environ['IMAGE_ID'],'archive_sha256':os.environ['ARCHIVE_SHA'],'oidc':os.environ['OIDC_TOKEN']}))
           PY
           unset OIDC_TOKEN UI_KEY INTEGRATIONS_KEY
-          { cat header.json; cat image.tar.gz; } | ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -i ~/.ssh/deploy "ipphp-ci-$stand@$DEPLOY_HOST" release | tee deployment.json
+          { cat header.json; cat image.tar.gz; } | ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ConnectionAttempts=2 -o ServerAliveInterval=30 -i ~/.ssh/deploy "ipphp-ci-$stand@$DEPLOY_HOST" release | tee deployment.json
           rm -f ~/.ssh/deploy header.json image.tar.gz
           printf '### %s deployed\nCommit: `%s`\nImage config digest: `%s`\n' "$stand" "$GITHUB_SHA" "$IMAGE_ID" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

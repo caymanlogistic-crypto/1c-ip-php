@@ -38,9 +38,9 @@ def activate(root, receipt):
             if data['commit']!=receipt['commit'] or data['image_id']!=receipt['image_id']:
                 raise RuntimeError('RUNNING_VERSION_MISMATCH')
             import urllib.request
-            port=next(l.split('=',1)[1] for l in lines if l.startswith('WEB_PORT='))
+            app_ip=next(l.split('=',1)[1] for l in lines if l.startswith('APP_IP='))
             for route in ('/health','/login'):
-                with urllib.request.urlopen('http://127.0.0.1:'+port+route,timeout=5) as response:
+                with urllib.request.urlopen('http://'+app_ip+route,timeout=5) as response:
                     if response.status!=200: raise RuntimeError('HTTP_NOT_READY')
             return data
         except Exception as exc:
