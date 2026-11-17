@@ -59,7 +59,13 @@ Workflow публикует образ только для main (push или wor
 
 ## Диагностика и возврат
 
-### Ручная SMTP-почта
+### MAX — события активности объектов только в ТЕСТОВАЯ
+
+Отдельно разрешённый владельцем Linux opt-in: приватный `ui/data/local/object-max-admission.json` содержит schema=1, enabled=true, project_id проекта, scope=object-activity, stand=ui, database=ipphp_ui, revision профиля, group_id, group_name=ТЕСТОВАЯ, chat_id, vault_sha256 и event_floor. Настройки и токен MAX остаются вне образа; encrypted max.enc шифруется существующим серверным ключом, ключ/Email/1С не заменяются. `ServerObjectMax` разрешает только свежий committed переход активности, точный текст события и один POST сообщения; чужие группы, изменение профиля/версии/квитанции и pending/uncertain другой операции закрывают отправку. Общий gate, ручные MAX-рассылки, WorkflowMaxEvent и RentalOutbox не включаются. /_ops.php отражает object_activity_max отдельно.
+
+Сеть: текущий подтверждённый pin platform-api2.max.ru → 155.212.204.149 в compose; TLS проверяет исходное имя. Root-owned `object-max-network.py` устанавливается как `/usr/local/sbin/ipphp-object-max-network`, соответствующие service/timer — в `/etc/systemd/system/`. Timer поддерживает только /32 TCP/443 в существующей internal-сети приложения, без default route; чужой маршрут отвергается. Перед включением проверяются актуальный DNS и pin. При изменении адреса требуется новая сверка, не общий egress. Compose дополняется до штатного обновления app через очередь; receiver и доставка образа не меняются. Старые события ниже event_floor не воспроизводятся.
+
+### Ручная SMTP-почта — настройки
 
 Публикуется тем же main workflow. Серверный opt-in — приватный `ui/data/local/email-admission.json`:
 

@@ -46,7 +46,9 @@ final class ObjectActivityMax
         $groups=$this->db->query("SELECT id FROM messaging_groups WHERE provider='max' AND enabled=1 AND name='ТЕСТОВАЯ'")->fetchAll(PDO::FETCH_COLUMN);
         if (count($groups)!==1) throw new RuntimeException('Object MAX needs one TEST group.');
         $key=self::requestKey($event);
-        if (LocalMaxReadCheck::configured()) {
+        if (ServerObjectMax::settings()!==null) {
+            $attempts=(new ServerObjectMax($this->db))->dispatch($event);
+        } elseif (LocalMaxReadCheck::configured()) {
             $attempts=(new LocalMaxReadCheck($this->db))->dispatchObjectActivity($event,$groups);
         } else {
             if (!Config::liveAllowed()) return ['status'=>'unavailable'];
