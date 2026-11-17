@@ -48,3 +48,16 @@ Transport for 1C is explicitly `direct` in each stand's private config. Server D
 Host network preflight checked DNS/TCP/TLS and anonymous HEAD for 1C/bank, Diadoc/auth, Mosenergo, Mosvodokanal, PIK, MAX, CIAN, Yandex Realty, Morrow and Fortex; SMTP greeting/TLS was checked on the configured imap.spaceweb.ru:465. DNS/TCP succeeded for all. Default Linux trust rejected Mosvodokanal and MAX certificate chains; resolve the approved CA chain in their specific tasks, without disabling verification. HTTP 405/302 are connectivity observations, not authentication success. Report: `/srv/1c-ip-php/network-preflight.json`. No provider authentication, exchange, send or external write occurred.
 
 Automatic Word→PDF, historical guards and the actual accepted design gallery remain outside this infrastructure task.
+
+## Verified handoff
+
+Both stands run source commit `46bbca9f13706ef2d3c6272a12f18ee118283ccb`.
+
+| Stand | Immutable Docker image config digest | Successful Actions run |
+|---|---|---|
+| UI | sha256:13df53203397b93110b62bb8bbf83d9cc62b2a2508981f8ca49ba87d24f404ec | https://github.com/caymanlogistic-crypto/1c-ip-php/actions/runs/44112934353 |
+| INTEGRATIONS | sha256:b2c986d884d8dd385175522b9d2a49e42eaeea312aee42ee9a40841fc56894f3 | https://github.com/caymanlogistic-crypto/1c-ip-php/actions/runs/44112763217 |
+
+Verified: task push left both deployed versions unchanged; control UI push deployed 004b432 while INTEGRATIONS stayed on 022f46f. UI was switched to the previous 022f46f image and back to 004b432 with all 115 table hashes and 164 file hashes unchanged. Both stands were then deployed to 46bbca9. Queue/attempt/run hashes stayed equal to the initial source. Login, registry and new-contract form passed on both final stands; admin additionally passed on UI. No contract was created and no provider effect was sent. Server evidence: independent-deploy-proof.json and final-release-report.json under /srv/1c-ip-php.
+
+A documentation-only handoff commit in main may be newer than the running image commit; it does not replace the deployed images. No extra browser password is required. The service diagnostics require an authenticated application session. TLS hostnames use the public sslip.io DNS service; replace with owner-controlled DNS under a separate explicit change if needed.
