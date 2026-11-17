@@ -1,7 +1,6 @@
 ARG PHP_IMAGE=php:8.5.6-apache-bookworm@sha256:c7c967859d6c4e4d3d215e325048b0678d3a44441507bfb5dbdd6c4bcac7c442
 FROM ${PHP_IMAGE}
-ARG SOURCE_COMMIT
-LABEL org.opencontainers.image.revision=${SOURCE_COMMIT}
+LABEL org.opencontainers.image.source="https://github.com/caymanlogistic-crypto/1c-ip-php"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libicu-dev libzip-dev libpng-dev libjpeg62-turbo-dev libfreetype6-dev \
     ca-certificates curl unzip \
@@ -23,6 +22,8 @@ COPY SOURCE-ORIGIN.json CURRENT-SPEC.md ./
 COPY deploy/container/apache.conf /etc/apache2/sites-available/000-default.conf
 COPY deploy/container/php.ini /usr/local/etc/php/conf.d/zz-app.ini
 COPY deploy/container/entrypoint.sh /usr/local/bin/app-entrypoint
+ARG SOURCE_COMMIT
+LABEL org.opencontainers.image.revision=${SOURCE_COMMIT}
 RUN test -n "$SOURCE_COMMIT" \
  && printf '{"commit":"%s"}\n' "$SOURCE_COMMIT" > /opt/app/release.json \
  && chmod 0755 /usr/local/bin/app-entrypoint \
