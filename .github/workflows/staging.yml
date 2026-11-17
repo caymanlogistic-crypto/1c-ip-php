@@ -9,7 +9,7 @@ permissions:
 jobs:
   image:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     concurrency:
       group: ${{ github.ref == 'refs/heads/main' && 'ipphp-main-site' || format('ipphp-build-{0}', github.ref) }}
       cancel-in-progress: false
