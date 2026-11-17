@@ -47,7 +47,7 @@ final class Indicators {
         $reference = SourceCalendar::registered() ?? throw new \RuntimeException('CALENDAR_REFERENCE_UNAVAILABLE');
         return $reference->workdays($from, $to);
     }
-    public static function tasks(?string $today = null, ?string $time = null, ?array $allowedPages = null):array {
+    public static function tasks(?string $today = null, ?string $time = null, ?array $allowedPages = null, ?ObjectReadModel $objects = null):array {
         if (!\App\Auth::can('rental.read'))return [
         ];
         $allowedPages = self::scope($allowedPages);
@@ -231,12 +231,12 @@ final class Indicators {
                 $add('document',(int)$d['id'],$task['role'],$task['severity'],'approvals',$task['text'],(int)$d['contract_id'],['version'=>(int)$d['version'],'legal_sla'=>$sla]);
             }
         }
-        if ($allow('objects')) foreach (ObjectFacts::idleSignals($today) as $signal) {
+        if ($allow('objects')) foreach (ObjectFacts::idleSignals($today,$objects) as $signal) {
             $add('object',$signal['id'],$signal['role'],$signal['severity'],'objects',$signal['text']);
         }
         return $tasks;
     }
-    public static function counts(?array $user, ?array $allowedPages = null, ?array $computedTasks = null):array {
+    public static function counts(?array $user, ?array $allowedPages = null, ?array $computedTasks = null, ?ObjectReadModel $objects = null):array {
         $pages = [
         ];
         foreach (Controller::pages() as $page)$pages[$page] = [
@@ -293,7 +293,7 @@ final class Indicators {
             foreach ($all as $t)if ($t['severity'] === 'red' && ($t['entity'] !== 'object' || $t['role'] === 'manager'))$ids[$t['key']] = true;
             $pages['errors'][0] = count($ids);
         }
-        if ($allowedPages===null || in_array('objects',$allowedPages,true) || in_array('rental.objects',$allowedPages,true)) $pages['objects']=ObjectFacts::counts();
+        if ($allowedPages===null || in_array('objects',$allowedPages,true) || in_array('rental.objects',$allowedPages,true)) $pages['objects']=ObjectFacts::counts($objects);
         return $pages;
     }
 }

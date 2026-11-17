@@ -8,14 +8,14 @@ final class View {
         $css=self::fontPreloads();foreach(['system/palette.css','system/css/erp-ui.css','system/css/registry-components.css','system/css/ui-controls.css','system/css/time-picker.css','system/css/ui-shell.css','system/css/registry-viewport.css','system/css/notification-icons.css','demo/demo_geometry.css','erp/login-brand.css']as $asset)$css.='<link rel="stylesheet" href="/design/'.$asset.'">';
         $name='ИП Яковлев';return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>Вход в систему · '.self::e($name).'</title>'.$css.'</head><body><main class="modal-overlay is-open login-screen" aria-label="Вход в систему"><dialog open class="modal registry-ui-modal registry-ui-modal--confirmation" aria-labelledby="login-title"><form method="post" class="registry-ui-modal-form"><input type="hidden" name="_csrf" value="'.self::e(Http::csrf()).'"><div class="modal-head"><h1 class="modal-title" id="login-title">'.self::e($name).'</h1></div><div class="modal-body registry-ui-modal-grid"><p class="registry-ui-modal-text">Войдите в свою учётную запись</p>'.$error.'<div class="field"><label class="field-label" for="id_username">Логин</label><input type="text" name="username" autofocus autocapitalize="none" autocomplete="username" maxlength="150" class="field-input" required id="id_username"></div><div class="field"><label class="field-label" for="id_password">Пароль</label><input type="password" name="password" autocomplete="current-password" class="field-input" required id="id_password"></div></div><div class="modal-foot"><button class="btn btn-primary" type="submit">Войти в систему</button></div></form></dialog></main></body></html>';
     }
-    public static function page(string $title,string $body,string $active='',array $pageScripts=[]):string {
+    public static function page(string $title,string $body,string $active='',array $pageScripts=[],?\Modules\Rental\ObjectReadModel $objects=null):string {
         $extraScripts='';
         foreach($pageScripts as $script){
             if(!is_string($script)||!preg_match('~^[a-zA-Z0-9_-]+\.js$~D',$script))throw new \RuntimeException('Invalid local page script');
             $extraScripts.='<script defer src="/assets/'.self::e($script).'"></script>';
         }
         $e=self::e(...);try{$u=Auth::user();}catch(\Throwable){$u=null;}$nav='';
-        $rentalAllowed=$u&&Auth::can('rental.read');$groups=$rentalAllowed?Menu::GROUPS:[];$projected=$rentalAllowed?Menu::counts($u):['pages'=>[],'folders'=>[]];
+        $rentalAllowed=$u&&Auth::can('rental.read');$groups=$rentalAllowed?Menu::GROUPS:[];$projected=$rentalAllowed?Menu::counts($u,$objects):['pages'=>[],'folders'=>[]];
         $folder='<svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2H5a2 2 0 0 1 -2 -2V6a2 2 0 0 1 2 -2z"/></svg>';$folderIndex=0;
         foreach($groups as $name=>$items){$fid='menu-folder-'.$folderIndex++;$links='';foreach($items as $key=>$label){if($u&&!Menu::allowed($key,$u))continue;$links.='<a class="nav-sub-item'.($active===$key?' is-active':'').'" href="/rental/'.$e($key).'" data-page="'.$e($key).'"'.($active===$key?' aria-current="page"':'').'><span class="nav-label">'.$e($label).'</span>'.Menu::badges($projected['pages'][$key]??[0,0,0,0],true,$key).'</a>';}
           $nav.=self::navigationFolder($fid,$name,$links,$folder,Menu::badges($projected['folders'][$fid]??[0,0,0,0]));
@@ -47,6 +47,12 @@ final class View {
         if(!$u)$nav='';
         $css=self::fontPreloads();foreach(['system/palette.css','system/css/erp-ui.css','system/css/registry-components.css','system/css/ui-controls.css','system/css/ui-shell.css','system/css/registry-viewport.css','system/css/notification-icons.css','demo/demo_geometry.css'] as $asset)$css.='<link rel="stylesheet" href="/design/'.$asset.'">';
         ob_start();require APP_ROOT.'/app/views/workspace.php';return ob_get_clean();
+    }
+    public static function workspaceBody(string $body):string {
+        return '<section class="demo-page demo-stack">'.$body.'</section>';
+    }
+    public static function workspaceFragment(string $body):string {
+        return '<main id="workspace">'.self::workspaceBody($body).'</main>';
     }
     private static function fontPreloads():string {
         $html='';foreach(['Regular','Medium','SemiBold','Bold'] as $weight)$html.='<link rel="preload" href="/design/system/fonts/IBMPlexSans-'.$weight.'.woff2" as="font" type="font/woff2" crossorigin>';

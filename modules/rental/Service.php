@@ -136,6 +136,7 @@ final class Service {
                 return json_decode($r['result_json'], true);
             }
             $eventContext = WorkflowEvents::before($p, $action, $in);
+            $objectContext = ObjectActivity::before($p,$action,$in);
             $validatedPacket = NativePacket::validateBeforeB($p, $u, $action, $in);
             $r = self::execute($p, $u, $action, $in);
             $p->prepare('INSERT INTO rental_commands(command_key,action,fingerprint,result_json) VALUES(?,?,?,?)')->execute([
@@ -146,6 +147,7 @@ final class Service {
             ]);
             NativePacket::captureAfterB($p, $u, $action, $in, $r, $key, $validatedPacket);
             $pendingEventId=WorkflowEvents::record($p, $u, $action, $in, $r, $key, $eventContext);
+            if ($objectContext!==null) $pendingEventId=ObjectActivity::record($p,$u,$in,$r,$key,$objectContext);
             return $r;
         });
         // Only the transaction owner can publish a completed commit. Nested fixtures/callers

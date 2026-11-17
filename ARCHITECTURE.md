@@ -63,6 +63,10 @@
 
 Новая страница может затрагивать module.php, PagePolicy, Menu и View. Сверь все фактические места регистрации. Новый провайдер также затрагивает Support::PROVIDERS.
 
+Чтение объектов: `ObjectDirectory::page` создаёт явный `ObjectReadModel` на дату запроса. Он пакетно читает занятость/договоры/брони/историю и передаётся в `ObjectFacts`, `View::page` → `Menu::counts` → `Indicators`; правила подсветки остаются в `ObjectFacts::project`. `Availability::items` сохраняет прежние SQL predicates и приоритет hold → договор → бронь, загружая наборы объектов за четыре запроса. Снимок не хранится статически/между запросами; после команды нужен новый экземпляр.
+
+AJAX реестра `/rental/objects` посылает `X-Rental-Objects-Fragment: 1`: только GET после штатного `Access::pages` возвращает workspace с `Cache-Control: no-store`. Полная страница и фрагмент используют `View::workspaceBody`, прежние renderers и ресурсы. Фрагмент не пересчитывает отброшенную оболочку; меню обновляется прежним отдельным `/api/menu-counts`. Другие реестры сохраняют полный ответ. Регрессия — `tests/object-read-model.php` (роли/даты/свежесть/число запросов/равенство workspace/права).
+
 ## 3. Изменение бизнеса
 
 Основной вход команд аренды: Service::command.
@@ -205,6 +209,12 @@ $attempts = (new Messaging(DB::pdo(), Config::store()))->dispatchManualEmail(
 <a id="max-module"></a>
 
 ### MAX: общий модуль для других страниц
+
+По отдельному поручению владельца публикация объектов включает `ServerObjectMax`: Linux marker привязан к ui/ipphp_ui, revision, hash encrypted vault, единственной TEST-группе и event_floor. Новый тип readCheck в существующих MessageTransport/HttpTransport проверяет capability события, pending claim, точный POST/host/path/body и один сетевой запрос. Общий external gate, ручная рассылка и унаследованные guards не меняются. Сетевой helper/timer открывает лишь закреплённый /32:443; порядок — deploy/README.md. Проверки: tests/server-object-max.php и deploy/tests/test_object_max_network.py, затем реальные переходы после публикации.
+
+Смена активности объектов (поручение 18.11): `object.save` остаётся в `Service::command`/`ExtraService`; дата `active_on` записывается в существующие периоды. `ObjectActivity` связывает реальный переход с существующими rental_events/rental_commands, actor/auth_version, версией объекта, датой и checksum. Наружу Service выдаёт ID только своего свежего committed события; повтор/rollback не выдают его. Controller вызывает `ObjectActivityMax` после commit. Этот узкий потребитель проверяет POST, текущую роль M/admin, rental.read/write, уровень objects, receipt команды и текущую версию/состояние; текст берётся из события, адресат — единственная активная группа «ТЕСТОВАЯ», ключ доставки стабилен по событию/команде.
+
+В разрешённом Windows worktree он использует `LocalMaxReadCheck::dispatchObjectActivity` → общий `Messaging`/`MessageTransport`/HMAC receipt. Отдельная доменная capability подтверждённого события не выдаёт менеджеру права ручной рассылки: прежний `dispatchManual` продолжает требовать messaging.read/send и connections.max. Приватные root/DB/revision/vault/approved chat guards и provider lock сохраняются; перед транспортом событие проверяется заново. Вне такого допуска применяется только уже разрешённый общий транспорт; при выключенном external gate возвращается `unavailable`, а реестр показывает правдивый результат. Windows-допуск не работает на Linux и на общий сайт не переносится автоматически. `WorkflowMaxEvent`/`RentalOutbox` и прежние каталоги событий не менялись, очереди не сканируются и не повторяются. Проверки — `tests/object-activity.php`, прежние local-max tests и адресная живая проверка двух переходов.
 
 Модуль MAX можно использовать из других страниц этого PHP-приложения. Страница `/max` — один из его потребителей, а не отдельная реализация отправки. Новый экран использует существующие команды, настройки, группы и историю; собственный HTTP-клиент MAX, хранилище токенов и обходной endpoint не создаются. Доступность отправки проверяется в конкретной среде: наличие классов в образе её не включает.
 

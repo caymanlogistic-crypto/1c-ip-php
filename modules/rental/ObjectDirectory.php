@@ -40,13 +40,13 @@ final class ObjectDirectory
         $show=!isset($_GET['reset']) && !empty($_GET['inactive']);
         $flag=(string)($_GET['flag'] ?? 'all');
         if (!in_array($flag,['all','office','parking','free','work','inactive'],true)) $flag='all';
-        $availability=self::availability();$list=[];$floors=[];
-        foreach (Controller::query('SELECT o.*,c.number cadastral,c.area parent_area,c.type parent_type,c.rentable parent_rentable,c.source_json parent_source '
-            .'FROM rental_objects o JOIN cadastre c ON c.id=o.cadastre_id ORDER BY o.id') as $object) {
+        $read=new ObjectReadModel(date('Y-m-d'));
+        $availability=$read->availability;$list=[];$floors=[];
+        foreach ($read->objects as $object) {
             if (!DirectoryScope::realObject($object,self::parent($object))) continue;
             if ($object['floor']!==null && trim($object['floor'])!=='') $floors[(string)$object['floor']]=(string)$object['floor'];
             if ($floor!=='all' && $floor!==(string)$object['floor']) continue;
-            $facts=ObjectFacts::project($object,self::parent($object),$availability[$object['id']] ?? null,date('Y-m-d'));
+            $facts=ObjectFacts::project($object,self::parent($object),$availability[$object['id']] ?? null,$read->today,$read);
             $search=implode(' ',[$object['name'],$object['type'],$object['floor'],$object['area'],DirectoryUi::area($object['area']),$facts['status'],
                 $facts['lease']['number'] ?? '',$facts['lease']['tenant'] ?? '',$facts['lease']['end_date'] ?? '',$facts['deadline'],
                 $facts['days']===null?'':ObjectFacts::days($facts['days']),$facts['previous'],$facts['booking']['client_name'] ?? '',$facts['booking']['comment'] ?? '']);
@@ -108,10 +108,18 @@ final class ObjectDirectory
         foreach ($floors as $value) $controls.='<option value="'.View::e($value).'"'.($floor===$value?' selected':'').'>'.View::e($value).'</option>';
         $controls.='</select>'.DirectoryUi::search($query,true);
         $summary=' · Площадь: <b>'.DirectoryUi::area($area).'</b> м²'.($unknown?' · Не указана у '.$unknown:'');
-        $body=Controller::heading('Объекты аренды','Помещения и машиноместа: занятость, бронирование и контроль простоя',self::editable()?RentalUI::button('Добавить объект','/rental/edit-object',true):'')
+        $notice='';
+        if (isset($_SESSION['rental_notice'])) {
+            $notice=RentalUI::alert((string)$_SESSION['rental_notice']);unset($_SESSION['rental_notice']);
+        }
+        $body=Controller::heading('Объекты аренды','Помещения и машиноместа: занятость, бронирование и контроль простоя',self::editable()?RentalUI::button('Добавить объект','/rental/edit-object',true):'').$notice
             .Controller::tabs($tabs,$flag,false,['floor'=>$floor,'inactive'=>(int)$show,'q'=>$query],'objects')
             .DirectoryUi::registry('rental-contracts',['Объект аренды','Тип','Этаж','Площадь, м²','Занятость','Договор до','Комментарий'],$rows,['text','text','short','money','flex','code','flex'],$controls,$summary,filterForm:true);
-        return View::page('Объекты аренды',$body,'objects');
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET')==='GET' && ($_SERVER['HTTP_X_RENTAL_OBJECTS_FRAGMENT'] ?? '')==='1') {
+            if (PHP_SAPI!=='cli') header('Cache-Control: no-store');
+            return View::workspaceFragment($body);
+        }
+        return View::page('Объекты аренды',$body,'objects',[],$read);
     }
 
     private static function comment(array $facts): string
@@ -161,10 +169,12 @@ final class ObjectDirectory
             .DirectoryUi::select('type','Тип',array_combine($types,$types),$object['type'] ?? 'Офис')
             .'<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'.DirectoryUi::input('floor','Этаж',$object['floor'] ?? '','text',true)
             .DirectoryUi::input('area','Площадь сдачи, м²',$object['area'] ?? '','number',true).'</div>'
+            .'<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
             .DirectoryUi::select('active','Состояние',['1'=>'Активен','0'=>'Неактивен'],$object['active'] ?? 1)
+            .($object?DirectoryUi::input('active_on','Дата изменения состояния',date('Y-m-d'),'date',true):'').'</div>'
             .DirectoryUi::input('free_since','Дата освобождения / начала простоя',$object['free_since'] ?? ($object?'':date('Y-m-d')),'date');
         [$form,$actions]=DirectoryUi::form('object.save',$object,$body);
-        $form=str_replace('<form ', '<form data-rental-object-editor'.(!$object?' data-rental-new-object':'').' ', $form);
+        $form=str_replace('<form ', '<form class="registry-ui-modal-grid" data-rental-object-editor data-original-active="'.(int)($object['active'] ?? 1).'"'.(!$object?' data-rental-new-object':'').' ', $form);
         return RentalUI::modal($object?'Редактировать объект':'Создать объект аренды',$form,$actions,'objects');
     }
 }

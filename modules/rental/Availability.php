@@ -1,50 +1,30 @@
 <?php
 declare(strict_types = 1);
 namespace Modules\Rental;
-use App\{DB, Http};
+use App\Http;
 final class Availability {
 
     public static function items(string $start, string $end, ?int $except = null, ?int $booking = null, bool $sharedCustomerBookings = false): array {
         Service::date($start);
         Service::date($end);
         if ($start>$end)throw new \RuntimeException('Проверьте даты аренды.', 422);
-        $p = DB::pdo();
-        $rows = [
-        ];
+        // Load occupancy sets once; the predicates and precedence are shared by every object.
+        $busy=[];$held=[];$reserved=[];
+        foreach (Controller::query('SELECT DISTINCT co.object_id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE '
+            .\App\ContractOccupancy::physicalPredicate('co')." AND c.id<>? AND (c.status='reconciling' OR c.status='active' AND ".Occupancy::boundary('start_date')."<=? AND ".Occupancy::boundary('end_date').">=?)",[$except ?? 0,$end,$start]) as $row) $busy[$row['object_id']]=true;
+        foreach (Controller::query('SELECT DISTINCT h.object_id FROM rental_object_holds h JOIN contracts c ON c.id=h.contract_id WHERE '
+            .\App\ContractOccupancy::physicalPredicate('h')." AND h.contract_id<>? AND h.return_confirmed=0 AND c.status<>'closed'",[$except ?? 0]) as $row) $held[$row['object_id']]=true;
+        foreach (Controller::query('SELECT DISTINCT r.object_id FROM reservations r WHERE '.Occupancy::reservationPredicate('r')
+            ." AND r.id<>?".(($sharedCustomerBookings || $booking!==null)?" AND r.document_id IS NOT NULL":"")." AND r.status='active' AND (r.contract_id IS NULL OR r.contract_id<>?) AND ((r.document_id IS NULL AND r.until_date>=CURRENT_DATE) OR (r.document_id IS NOT NULL AND r.start_date<=? AND r.end_date>=?))",[$booking ?? 0,$except ?? 0,$end,$start]) as $row) $reserved[$row['object_id']]=true;
+        $bookingCounts=[];
+        if ($sharedCustomerBookings || $booking!==null) foreach (Controller::query("SELECT object_id,COUNT(*) n FROM reservations WHERE document_id IS NULL AND status='active' AND contract_id IS NULL AND until_date>=CURRENT_DATE AND id<>? GROUP BY object_id",[$booking ?? 0]) as $row) $bookingCounts[$row['object_id']]=(int)$row['n'];
+        $rows=[];
         foreach (Controller::query('SELECT o.*,c.number cadastre_number,c.type cadastre_type,c.rentable cadastre_rentable,c.source_json cadastre_source FROM rental_objects o JOIN cadastre c ON c.id=o.cadastre_id ORDER BY o.name,o.id') as $o) {
             if (!DirectoryScope::signals($o, [
-                'number' => $o['cadastre_number'],
-                'type' => $o['cadastre_type'],
-                'rentable' => $o['cadastre_rentable'],
-                'source_json' => $o['cadastre_source']
-            ]))continue;
-            $q = $p->prepare("SELECT 1 FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE ".\App\ContractOccupancy::physicalPredicate('co')." AND co.object_id=? AND c.id<>? AND (c.status='reconciling' OR c.status='active' AND ".Occupancy::boundary('start_date')."<=? AND ".Occupancy::boundary('end_date').">=?) LIMIT 1");
-            $q->execute([
-                $o['id'],
-                $except ?? 0,
-                $end,
-                $start
-            ]);
-            $reason = $q->fetchColumn()?'Занято договором или ожидается возврат':'';
-            $q = $p->prepare("SELECT 1 FROM rental_object_holds h JOIN contracts c ON c.id=h.contract_id WHERE ".\App\ContractOccupancy::physicalPredicate('h')." AND h.object_id=? AND h.contract_id<>? AND h.return_confirmed=0 AND c.status<>'closed' LIMIT 1");
-            $q->execute([
-                $o['id'],
-                $except ?? 0
-            ]);
-            if ($q->fetchColumn())$reason = 'Ожидается акт возврата';
-            $q = $p->prepare("SELECT 1 FROM reservations r WHERE ".Occupancy::reservationPredicate('r')." AND object_id=? AND id<>?".(($sharedCustomerBookings || $booking!==null)?" AND document_id IS NOT NULL":"")." AND status='active' AND (contract_id IS NULL OR contract_id<>?) AND ((document_id IS NULL AND until_date>=CURRENT_DATE) OR (document_id IS NOT NULL AND start_date<=? AND end_date>=?)) LIMIT 1");
-            $q->execute([
-                $o['id'],
-                $booking ?? 0,
-                $except ?? 0,
-                $end,
-                $start
-            ]);
-            if ($q->fetchColumn() && $reason==='')$reason = 'Забронировано';
-            $bookingCount=0;
-            if($sharedCustomerBookings || $booking!==null){
-                $count=DB::pdo()->prepare("SELECT COUNT(*) FROM reservations WHERE object_id=? AND document_id IS NULL AND status='active' AND contract_id IS NULL AND until_date>=CURRENT_DATE AND id<>?");$count->execute([$o['id'],$booking ?? 0]);$bookingCount=(int)$count->fetchColumn();
-            }
+                'number'=>$o['cadastre_number'],'type'=>$o['cadastre_type'],'rentable'=>$o['cadastre_rentable'],'source_json'=>$o['cadastre_source']
+            ])) continue;
+            $reason=isset($held[$o['id']])?'Ожидается акт возврата':(isset($busy[$o['id']])?'Занято договором или ожидается возврат':(isset($reserved[$o['id']])?'Забронировано':''));
+            $bookingCount=$bookingCounts[$o['id']] ?? 0;
             $area = $o['area'] === null?'—':rtrim(rtrim($o['area'], '0'), '.');
             $rows[] = [
                 'id' => (int)$o['id'],
