@@ -34,6 +34,7 @@ function serverDiagnostics(): array {
         'workers'=>'not configured','inherited_queue_replay'=>'not configured',
         'manual_email'=>$email!==null,
         'object_activity_max'=>\Modules\Integrations\ServerObjectMax::settings()!==null,
+        'contract_workflow_max'=>\Modules\Integrations\ServerWorkflowMax::settings()!==null,
         'onec_read_check'=>$onecRead!==null,'onec_prepared_write'=>$onecWrite,
         'onec_transport'=>$onecWrite?'direct (prepared OneC CREATE)':($onecRead!==null?'direct (bounded OneC check only)':'direct (external gate closed)'),'php'=>PHP_VERSION];
 }
