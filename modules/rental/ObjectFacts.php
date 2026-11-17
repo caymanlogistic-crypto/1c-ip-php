@@ -7,6 +7,35 @@ use App\{Auth,ContractOccupancy};
 /** Minimal object-directory projection, without exposing a counterparty bank or full contract. */
 final class ObjectFacts
 {
+    public static function idleDays(array $object,bool $free,string $today): ?int
+    {
+        if (!$free || empty($object['free_since']) || $object['free_since']>$today) return null;
+        return (int)(new \DateTimeImmutable($object['free_since']))->diff(new \DateTimeImmutable($today))->days;
+    }
+
+    public static function idleSeverity(?int $days,string $role): string
+    {
+        if ($days===null) return '';
+        if ($days>=30 && in_array($role,['manager','director','admin'],true)) return 'red';
+        return $days>=14 && in_array($role,['manager','admin'],true)?'yellow':'';
+    }
+
+    /** Use the directory's actual availability, including dates, holds and reservations. */
+    public static function idleSignals(string $today): array
+    {
+        $available=[];
+        foreach (Availability::items($today,$today) as $item) $available[$item['id']]=$item['available'];
+        $signals=[];
+        foreach (Controller::query('SELECT id,free_since FROM rental_objects WHERE active=1') as $object) {
+            $days=self::idleDays($object,$available[$object['id']] ?? false,$today);
+            foreach (['manager','director'] as $role) {
+                $severity=self::idleSeverity($days,$role);
+                if ($severity!=='') $signals[]=['id'=>(int)$object['id'],'role'=>$role,'severity'=>$severity,'text'=>'Простой '.self::days($days)];
+            }
+        }
+        return $signals;
+    }
+
     public static function counts(): array
     {
         $counts=[0,0,0,0];
@@ -39,13 +68,12 @@ final class ObjectFacts
             .'FROM reservations r LEFT JOIN parties p ON p.id=r.party_id WHERE '.Occupancy::reservationPredicate('r')
             ." AND r.object_id=? AND r.status='active' AND r.until_date>=? ORDER BY r.id DESC",[$object['id'],$today]);
         $booking=$bookings[0] ?? null;
-        $days=null;
-        if ($free && $object['free_since'] && $object['free_since']<=$today) $days=(int)(new \DateTimeImmutable($object['free_since']))->diff(new \DateTimeImmutable($today))->days;
+        $days=self::idleDays($object,$free,$today);
         $previous=Controller::query('SELECT p.name FROM contract_terms t JOIN contracts c ON c.id=t.contract_id JOIN parties p ON p.id=c.party_id '
             .'LEFT JOIN contract_objects co ON co.contract_id=c.id AND co.object_id=t.object_id '
             .'WHERE '.ContractOccupancy::physicalPredicate('co').' AND t.object_id=? AND c.status IN (\'active\',\'reconciling\',\'closed\',\'ended\') AND t.end_date<=? ORDER BY t.end_date DESC,c.id DESC LIMIT 1',[$object['id'],$today])[0]['name'] ?? null;
         $role=Auth::user()['role']; $severity=''; $recent=null;
-        if ($eligible && $days!==null) $severity=$days>=30 && in_array($role,['manager','director','admin'],true)?'red':($days>=14 && in_array($role,['manager','admin'],true)?'yellow':'');
+        if ($eligible) $severity=self::idleSeverity($days,$role);
         if ($eligible && !$free && $booking && str_contains($status,'бронир')) $severity='blue';
         if ($eligible && !$free && $lease && $lease['status']==='active' && !$booking && ($lease['term_start'] ?? $today)<=$today) {
             $event=Controller::query("SELECT DATE(MIN(created_at)) at FROM rental_events WHERE contract_id=? AND action IN ('contract.sign','contract.activated')",[$lease['id']])[0]['at'] ?? null;

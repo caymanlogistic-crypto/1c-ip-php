@@ -6,11 +6,12 @@
   const noticeBootstrap=document.getElementById('rental-notices-bootstrap');
   if(noticeBootstrap)notices?.update(JSON.parse(noticeBootstrap.textContent));
   window.addEventListener('rental:notices',event=>notices?.update(event.detail));
-  const tones=['is-alert','is-warning','is-success','is-info'],colors=['red','yellow','green','blue'],labels=['Ошибки / срочно','Требует внимания','Брони','Уведомления'];
+  const tones=['is-alert','is-warning','is-success','is-info'],colors=['red','yellow','green','blue'],labelSets=JSON.parse(navigation?.dataset.countLabels||'{}');
   function badges(link,counts,sub){
     link.querySelector(':scope > .nav-counts')?.remove();
     const box=document.createElement('span');
     box.className='nav-counts';
+    const labels=labelSets[link.dataset.page]||labelSets.default||[];
     for(let i=0;i<4;i++){
       const n=Number(counts?.[i]??0);
       if(!Number.isSafeInteger(n)||n<=0)continue;

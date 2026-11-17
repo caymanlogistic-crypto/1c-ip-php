@@ -9,30 +9,51 @@ permissions:
 jobs:
   image:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     concurrency:
       group: ${{ github.ref == 'refs/heads/main' && 'ipphp-main-site' || format('ipphp-build-{0}', github.ref) }}
       cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
+      packages: write
     environment:
       name: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'ui' || 'build' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Verify main-only deployment policy
         run: python3 -m unittest discover -s deploy/server -p 'test_*.py'
-      - name: Build exact commit with locked dependencies
+      - name: Build exact commit with reusable layers
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+          REGISTRY_USER: ${{ github.actor }}
         run: |
           set -euo pipefail
-          docker build --build-arg SOURCE_COMMIT="$GITHUB_SHA" -t "ipphp:$GITHUB_SHA" -f deploy/container/Dockerfile .
+          registry="ghcr.io/$GITHUB_REPOSITORY"
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
+          docker buildx create --name ipphp-builder --driver docker-container --use
+          cache_args=(--cache-from "type=registry,ref=$registry:buildcache")
+          if test "$GITHUB_EVENT_NAME" = push && test "$GITHUB_REF" = refs/heads/main; then
+            cache_args+=(--cache-to "type=registry,ref=$registry:buildcache,mode=max,image-manifest=true,oci-mediatypes=true")
+          fi
+          docker buildx build --load "${cache_args[@]}" --build-arg SOURCE_COMMIT="$GITHUB_SHA" -t "ipphp:$GITHUB_SHA" -f deploy/container/Dockerfile .
           docker image inspect "ipphp:$GITHUB_SHA" --format '{{.Id}}' > image-id.txt
           docker run --rm --entrypoint php "ipphp:$GITHUB_SHA" -r 'foreach(["pdo_mysql","bcmath","gd","intl","zip","mbstring"] as $e)if(!extension_loaded($e))exit(1); echo PHP_VERSION,"\n";'
+      - name: Publish tested main image to private registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          registry="ghcr.io/$GITHUB_REPOSITORY"
+          docker tag "ipphp:$GITHUB_SHA" "$registry:sha-$GITHUB_SHA"
+          docker push "$registry:sha-$GITHUB_SHA"
+          docker image inspect "$registry:sha-$GITHUB_SHA" --format '{{index .RepoDigests 0}}' > registry-ref.txt
       - name: Deploy the common site from main only
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           UI_KEY: ${{ secrets.UI_DEPLOY_SSH_KEY }}
+          REGISTRY_TOKEN: ${{ github.token }}
+          REGISTRY_USER: ${{ github.actor }}
           KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
         run: |
@@ -40,22 +61,24 @@ jobs:
           stand=ui
           latest=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
           test "$latest" = "$GITHUB_SHA" || { echo 'Stale build; skipped before deployment'; exit 0; }
+          umask 077
+          trap 'rm -f ~/.ssh/deploy header.json' EXIT
           mkdir -m 700 -p ~/.ssh
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           printf '%s\n' "$UI_KEY" > ~/.ssh/deploy
           chmod 600 ~/.ssh/deploy ~/.ssh/known_hosts
-          docker save "ipphp:$GITHUB_SHA" | gzip -1 > image.tar.gz
           export IMAGE_ID=$(cat image-id.txt)
-          export ARCHIVE_SHA=$(sha256sum image.tar.gz | cut -d' ' -f1)
+          export REGISTRY_REF=$(cat registry-ref.txt)
           export OIDC_TOKEN=$(curl --fail --silent --show-error -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=ipphp-deploy" | jq -r .value)
           python3 - <<'PY' > header.json
           import json,os
           print(json.dumps({'commit':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],
-            'image_id':os.environ['IMAGE_ID'],'archive_sha256':os.environ['ARCHIVE_SHA'],'oidc':os.environ['OIDC_TOKEN']}))
+            'image_id':os.environ['IMAGE_ID'],'transport':'registry','registry_ref':os.environ['REGISTRY_REF'],
+            'registry_user':os.environ['REGISTRY_USER'],'registry_token':os.environ['REGISTRY_TOKEN'],'oidc':os.environ['OIDC_TOKEN']}))
           PY
-          unset OIDC_TOKEN UI_KEY
-          { cat header.json; cat image.tar.gz; } | ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ConnectionAttempts=2 -o ServerAliveInterval=30 -i ~/.ssh/deploy "ipphp-ci-$stand@$DEPLOY_HOST" release | tee deployment.json
-          rm -f ~/.ssh/deploy header.json image.tar.gz
+          unset OIDC_TOKEN UI_KEY REGISTRY_TOKEN
+          cat header.json | ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ConnectionAttempts=2 -o ServerAliveInterval=30 -i ~/.ssh/deploy "ipphp-ci-$stand@$DEPLOY_HOST" release | tee deployment.json
+          rm -f ~/.ssh/deploy header.json
           printf '### %s deployed\nCommit: `%s`\nImage config digest: `%s`\n' "$stand" "$GITHUB_SHA" "$IMAGE_ID" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -63,5 +86,9 @@ jobs:
           name: release-${{ github.run_id }}
           path: |
             image-id.txt
+            registry-ref.txt
             deployment.json
           retention-days: 7
+      - name: Clear temporary registry login
+        if: always()
+        run: docker logout ghcr.io

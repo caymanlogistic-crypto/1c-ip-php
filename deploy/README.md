@@ -10,7 +10,17 @@
 
 Новая .github/workflows/staging.yml сохраняет имя файла, но публикует только push main через существующий environment ui. Task/codex-ветки и PR собираются в build без деплоя. Повторно используются UI_DEPLOY_SSH_KEY и DEPLOY_HOST/DEPLOY_KNOWN_HOSTS. Интеграционный ключ workflow не использует.
 
-Receiver допускает только ui release с GitHub OIDC: repository/owner, refs/heads/main, точный commit/run_id, event=push и .github/workflows/staging.yml@refs/heads/main. Staging/task/PR и второй target отвергаются. Сохранены SHA256 архива, OCI commit, точный image_id, server flock, highest-run и возврат предыдущего образа. Main concurrency group не отменяет выполняющийся деплой; перед отправкой проверяется актуальный main. Следующая задача не сливается до проверки предыдущей публикации; локальная работа остальных продолжается.
+Receiver допускает только ui release с GitHub OIDC: repository/owner, refs/heads/main, точный commit/run_id, event=push и .github/workflows/staging.yml@refs/heads/main. Staging/task/PR и второй target отвергаются. Сохранены проверка digest (SHA256 архива для старого протокола), OCI commit, точный image_id, server flock, highest-run и возврат предыдущего образа. Main concurrency group не отменяет выполняющийся деплой; перед отправкой проверяется актуальный main. Следующая задача не сливается до проверки предыдущей публикации; локальная работа остальных продолжается.
+
+## Доставка слоёв через приватный GHCR
+
+Workflow публикует образ только для push main в `ghcr.io/caymanlogistic-crypto/1c-ip-php`. Task/PR проверяют сборку, но не публикуют образ, build cache или сайт. Main сохраняет registry build cache; метка SOURCE_COMMIT находится после runtime/vendor, поэтому они повторно используются при обычной правке кода.
+
+Вместо полного tar.gz по SSH идёт только короткий JSON-заголовок: OIDC, commit/run, точный config image_id и `registry_ref` с manifest digest. Receiver разрешает только фиксированный GHCR repository и digest, получает недостающие Docker-слои и сверяет config image_id/OCI revision до запуска. Пакет остаётся приватным (настройку видимости не менять). GITHUB_TOKEN ограничен сроком job; на сервере docker login использует отдельный временный DOCKER_CONFIG с удалением при успехе/ошибке. В state/artifact попадают только публичные реквизиты и метрики delivery, без токенов.
+
+Однократное внедрение: дождаться отсутствия активной публикации, сохранить установленный receiver и атомарно установить проверенный `deploy/server/deploy.py` root:root 0755 под существующим deploy.lock. Затем merge через GitHub и проверка main workflow, `/_ops.php`, входа и delivery в state/current.json. Старый archive-протокол совместим с уже начатыми workflow; новые сборки никогда не переключаются на него при ошибке registry. Откат приложения по-прежнему использует локальный предыдущий image_id без registry и не затрагивает БД/документы.
+
+Первый запуск заполняет registry/cache; на последующих сервер получает только новые слои. `delivery.pull_seconds`, `layers_downloaded` и `layers_already_present` позволяют проверить это фактически. Ошибка загрузки/проверки digest не переключает работающий app. Пересоздаётся только app (`--no-deps`), DB и data mounts сохраняются; SQL/миграции не выполняются.
 
 ## Выполненный одноразовый переход
 
@@ -40,5 +50,13 @@ sudo /usr/local/sbin/ipphp-deploy ui rollback
 ## Сохраняемые ограничения
 
 Остаются PHP 8.5.6 Apache, MySQL 8.4.9, lock-зависимости, internal network общего сайта, данные и TLS. Не включать внешнюю сеть, admission, профили отправок и workers/outbox при смене процесса. Pending/attempts/outbox сохраняются и не проигрываются. Чтение провайдера и внешняя запись требуют своих поручений; guards сохраняются.
+
+### Явно разрешённая проверка 1С
+
+Для обычной кнопки «Проверить» предусмотрен отдельный `OnecReadAdmission`, а общий `IPPHP_ALLOW_EXTERNAL` остаётся выключенным. Операторский файл `/srv/1c-ip-php/ui/data/local/onec-read-admission.json` содержит только `enabled: true`, `project_id: f6e21e3c-d974-4604-82fb-333da66559d2`, `stand: ui`, `provider: onec`, `scope: bounded-check-only`, `profile_reference: working-mounted-main-20261116-v1`. Он разрешает только команду check и её authenticate/records; sync/import через native broker, банк, остальные провайдеры и запись в 1С допуск не получают. Смена выбранного профиля закрывает допуск. Права, CSRF, версия, блокировка провайдера и receipt сохраняются.
+
+Из принятого образа устанавливаются root-owned `/usr/local/sbin/ipphp-onec-network` (исходник `deploy/server/onec-network.py`) и `ipphp-onec-network.service`. Скрипт добавляет только `/32`-маршрут к `89.208.213.32` через существующий внутренний bridge, узкие FORWARD/обратный ESTABLISHED и MASQUERADE только TCP/443 от app `172.30.101.10`; default route, DNS, другие адреса и БД не открываются. Он отвергает чужой маршрут/другой контейнер/профиль. Повторный запуск не дублирует правила. Сервис восстанавливает маршрут после перезапуска Docker/хоста; установленный receiver из того же main вызывает его после пересоздания app при release/rollback. Образ не содержит секретов и не меняет бизнес-данные.
+
+Первое включение: опубликовать main; из проверенного образа установить сетевой скрипт и unit, обновить установленный receiver из `deploy/server/deploy.py` со сверкой его прежней версии и резервом; создать приватный marker; запустить/включить unit. Проверить обычную web-кнопку, receipt, `/_ops.php`, запреты sync/других провайдеров и отсутствие default route. Чтобы немедленно закрыть прикладной допуск, убрать marker; ранее загруженные записи и история сохраняются. Удаление собственных сетевых правил/маршрута выполняется оператором отдельно; без marker приложение уже не делает внешних запросов.
 
 Первичный snapshot/receipt и резервные документы находятся в /srv/1c-ip-php/initial-backup вне Git; повторный начальный импорт не нужен. Прежние хеши/runs доступны в Git-истории. Витрина публикуется с приложением из того же main без отдельного сервиса.

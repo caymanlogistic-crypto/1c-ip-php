@@ -134,6 +134,14 @@
     }
   });
   document.addEventListener('keydown', event=>{
+    const form = event.target.closest('form[data-rental-registry-filter]');
+    if (event.key==='Enter' && event.target.matches('.registry-ui-search') && form && !form.closest('dialog')) {
+      // Enter searches; it must not implicitly activate the first submit button (reset).
+      event.preventDefault();
+      clearTimeout(searchTimer);
+      fromForm(form);
+      return;
+    }
     const row = event.target.closest('[data-rental-employee-filter]');
     if (row && event.key==='Enter' && event.target===row) {
       event.preventDefault();

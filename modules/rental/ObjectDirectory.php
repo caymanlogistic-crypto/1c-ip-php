@@ -101,17 +101,16 @@ final class ObjectDirectory
                 View::e($object['name']),View::e($object['type']),View::e($object['floor']),DirectoryUi::area($object['area']),$status,$date,$comment];
         }
         natsort($floors);
-        $controls='<form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'.View::e($flag).'">'
-            .'<button class="registry-ui-reset" type="submit" name="reset" value="1"'.($query==='' && !$show && $floor==='all'?' hidden':'').'>Сбросить фильтр</button>'
-            .'<select class="toolbar-select" id="objects-floor-filter" name="floor"><option value="all">Все этажи</option>';
-        foreach ($floors as $value) $controls.='<option value="'.View::e($value).'"'.($floor===$value?' selected':'').'>'.View::e($value).'</option>';
-        $controls.='</select>'.DirectoryUi::search($query);
         $inactive=in_array($flag,['all','office','parking'],true)?DirectoryUi::checkbox('inactive','Показать неактивные',$show):'';
-        $controls.=$inactive.'</form>';
+        $controls='<input type="hidden" name="flag" value="'.View::e($flag).'">'.$inactive
+            .'<button class="registry-ui-reset" type="submit" name="reset" value="1"'.($query==='' && !$show && $floor==='all'?' hidden':'').'>Сбросить фильтр</button>'
+            .'<select class="toolbar-select" id="objects-floor-filter" name="floor" aria-label="Этаж"><option value="all">Все этажи</option>';
+        foreach ($floors as $value) $controls.='<option value="'.View::e($value).'"'.($floor===$value?' selected':'').'>'.View::e($value).'</option>';
+        $controls.='</select>'.DirectoryUi::search($query,true);
         $summary=' · Площадь: <b>'.DirectoryUi::area($area).'</b> м²'.($unknown?' · Не указана у '.$unknown:'');
         $body=Controller::heading('Объекты аренды','Помещения и машиноместа: занятость, бронирование и контроль простоя',self::editable()?RentalUI::button('Добавить объект','/rental/edit-object',true):'')
-            .Controller::tabs($tabs,$flag,true,['floor'=>$floor,'inactive'=>(int)$show])
-            .DirectoryUi::registry('rental-contracts',['Объект аренды','Тип','Этаж','Площадь, м²','Занятость','Договор до','Комментарий'],$rows,['text','text','short','money','flex','code','flex'],$controls,$summary);
+            .Controller::tabs($tabs,$flag,true,['floor'=>$floor,'inactive'=>(int)$show],'objects')
+            .DirectoryUi::registry('rental-contracts',['Объект аренды','Тип','Этаж','Площадь, м²','Занятость','Договор до','Комментарий'],$rows,['text','text','short','money','flex','code','flex'],$controls,$summary,filterForm:true);
         return View::page('Объекты аренды',$body,'objects');
     }
 

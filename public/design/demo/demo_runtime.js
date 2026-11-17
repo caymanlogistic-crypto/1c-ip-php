@@ -114,7 +114,7 @@ function issueCountsForPage(node){
  if(node.page==='validation')return {error:Number(checkState.error),warning:Number(checkState.warning)};
  return {error:0,warning:0};
 }
-const menuTones=['error','warning','success','info'],menuToneLabels={error:'Ошибки',warning:'Предупреждения',success:'Положительные события',info:'Уведомления'},menuToneClasses={error:'is-alert',warning:'is-warning',success:'is-success',info:'is-info'};
+const menuTones=['error','warning','success','info'],menuToneLabels={error:'Ошибки / срочно',warning:'Требует внимания',success:'Положительные события',info:'Ожидание / наблюдение'},menuToneClasses={error:'is-alert',warning:'is-warning',success:'is-success',info:'is-info'};
 function menuBadges(sub){const klass=sub?'sub-count':'nav-count';return '<span class="nav-counts">'+menuTones.map(tone=>'<span class="'+klass+' '+menuToneClasses[tone]+'" data-menu-severity="'+tone+'" aria-label="'+menuToneLabels[tone]+': 0" hidden>0</span>').join('')+'</span>'; }
 function renderMenuNode(node,sub=false){
  if(node.section)return '<div class="nav-group"><div class="nav-section-label">'+E(node.label)+'</div>'+node.children.map(child=>renderMenuNode(child)).join('')+'</div>';
