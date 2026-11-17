@@ -48,10 +48,11 @@ if (onecBody) {
       if (!incoming || !incoming.rows.length || incoming.dataset.onecNext === onecBody.dataset.onecNext) {
         throw new Error('Invalid page');
       }
-      const existing = new Set([...onecBody.rows].map(row => row.dataset.connectionDocument));
+      const rowKey = row => row.dataset.onecRowKey || row.dataset.connectionDocument;
+      const existing = new Set([...onecBody.rows].map(rowKey));
       for (const row of incoming.rows) {
-        if (!row.dataset.connectionDocument || existing.has(row.dataset.connectionDocument)) continue;
-        existing.add(row.dataset.connectionDocument);
+        if (!rowKey(row) || existing.has(rowKey(row))) continue;
+        existing.add(rowKey(row));
         onecBody.append(document.importNode(row, true));
       }
       onecBody.dataset.onecNext = incoming.dataset.onecNext || '';

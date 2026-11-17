@@ -135,6 +135,8 @@ Service::available имеет явный режим sharedCustomerBookings: до
 
 ## 5. Подключения — отдельные сценарии
 
+Три операции общего подключения 1С: `/connections/onec-counterparty`, `/connections/onec-invoice`, `/connections/onec-print` → `OnecOperationsController` → общий `OnecOperations` → прежние OnecOwnerFacade/OnecNativeService. Другие страницы используют тот же PHP entry point либо `/integrations/onec-actions/<ключ>/<действие>` с общим клиентом `public/assets/onec-operations.js`. Настройки/профиль/транспорт 1С не дублируются. Режим печати ждёт образца и возвращает awaiting_template. Контракт и ограничения — docs/onec-operations.md.
+
 Разрешённая web-проверка 1С использует `OnecReadAdmission`: приватный marker привязан к проекту/общему ui/выбранному профилю и открывает только `ProviderService::execute(..., 'check', ...)` и подчинённые authenticate/records. Общий внешний допуск и пути записи не открываются. `deploy/server/onec-network.py` обеспечивает только pinned HTTPS `/32` без default route; receiver восстанавливает его при пересоздании app. Подробности установки — deploy/README.md. Проверка/история не означают импорт или полноту архива.
 
 Перечень восьми основных провайдеров: Support::PROVIDERS. Рынок: Auxiliary\Market::SOURCES.
