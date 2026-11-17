@@ -56,4 +56,3 @@ try {
 } catch (Throwable $failure) { fwrite(STDERR,get_class($failure).': '.$failure->getMessage().' at '.$failure->getFile().':'.$failure->getLine().PHP_EOL); $failed=true; } finally {if($p->inTransaction())$p->rollBack();}
 
 if (!empty($failed)) exit(1);
-
