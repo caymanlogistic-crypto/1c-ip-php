@@ -12,7 +12,7 @@ final class MaxTemplateAdmin
         foreach(['plain'=>'Обычный текст','markdown'=>'Markdown — выделение и ссылки','html'=>'HTML — теги форматирования'] as $format=>$label) {
             $html.='<option value="'.$format.'"'.(($entry['format']??'plain')===$format?' selected':'').'>'.$e($label).'</option>';
         }
-        $html.='</select><span class="registry-ui-modal-help" id="template-format-help">Для простого сообщения выберите обычный текст. Markdown и HTML сохраняют разметку выбранного формата; при переключении проверьте результат в предпросмотре.</span></label>';
+        $html.='</select><span class="registry-ui-modal-help" id="template-format-help">Для текущей отправки без служебных знаков выберите обычный текст. Markdown и HTML показывают оформление в редакторе, но текущий путь отправки передаёт разметку как текст.</span></label>';
         $html.='<label class="field"><span class="field-label">Текст сообщения <span class="req">*</span></span><textarea class="field-textarea" id="template-body" name="body" rows="6" maxlength="4000" aria-describedby="template-body-help" required>'.$e($entry['body_text']??'').'</textarea><span class="registry-ui-modal-help" id="template-body-help">До 4000 символов после подстановки данных. Поля в фигурных скобках, например {number}, заменяются данными события.</span></label>';
         return $html;
     }
@@ -48,8 +48,23 @@ final class MaxTemplateAdmin
         ];
     }
 
-    public static function help(): string
+    public static function help(array $entry=[]): string
     {
-        return 'Предпросмотр использует условные данные. В реальном сообщении подставляются данные события; отсутствующие значения могут быть пустыми. Сохранение меняет текст будущих сообщений и не отправляет их. Получатели и правила отправки задаются отдельно. После изменения шаблона ранее согласованный допуск отправки может потребовать повторной проверки.';
+        return 'Предпросмотр использует условные данные. В реальном сообщении подставляются данные события; отсутствующие значения могут быть пустыми. Сохранение обновляет шаблон и не отправляет сообщения. Для подключённых событий новая версия применяется только при действующем допуске отправки; после изменения он может потребовать повторной проверки. Для надёжного отображения текущим отправителем используйте обычный текст: оформление Markdown и HTML при доставке не поддерживается.';
+    }
+
+    /** Current server producer: Controller -> ServerWorkflowMax -> CurrentContractMaxProof. */
+    public static function usage(array $entry): array
+    {
+        $key=(string)($entry['source_key']??'');
+        // ServerWorkflowMax::KINDS is the exact list admitted by the current server path.
+        if(in_array($key,['submit','resubmit','legalApprove','lawyerReturn','accountantReturn','package','signed','cancelled'],true)) {
+            return ['active'=>true,'text'=>'Подключён к событиям договора. Отправка зависит от действующего допуска MAX и версии шаблона.'];
+        }
+        // These keys are recognized only by the retained, separately guarded R2 rollout path.
+        if(in_array($key,['addendum','activated','block','unblock'],true)) {
+            return ['active'=>false,'text'=>'Сохранён для прежнего сценария. В текущей серверной отправке по событиям договора не используется.'];
+        }
+        return ['active'=>false,'text'=>'Сохранён в каталоге. В текущем приложении отправка по этому шаблону не подключена.'];
     }
 }
