@@ -7,7 +7,7 @@ import subprocess
 import time
 
 ROOT = pathlib.Path('/srv/1c-ip-php/ui')
-TARGETS = ('77.222.41.51', '77.222.41.127', '77.222.41.136')
+TARGETS = ('77.222.41.51',)
 SOURCE = '172.30.101.10'
 GATEWAY = '172.30.101.1'
 CHAIN = 'IPPHP-EMAIL'

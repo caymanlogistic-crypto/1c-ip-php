@@ -6,6 +6,8 @@ services:
       APP_STAND: ${STAND:?}
       APP_DB_CONFIG_FILE: /opt/app/.local/database.php
       APP_ARTIFACTS_ROOT: /opt/app/artifacts
+    extra_hosts:
+      - "smtp.spaceweb.ru:77.222.41.51"
     volumes:
       - ./data/local:/opt/app/.local:ro
       - ./data/private:/opt/app/private
