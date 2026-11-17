@@ -48,10 +48,7 @@ final class Auth {
     }
     public static function landing():string {
         if (!self::can('rental.read'))return '/profile';
-        return in_array(self::user()['role'] ?? null, [
-            'admin',
-            'manager'
-        ], true)?'/rental/contracts':'/rental/contracts-active';
+        return '/rental/objects';
     }
     public static function login(string $name, string $password):bool {
         $q = DB::pdo()->prepare('SELECT * FROM users WHERE username=? AND active=1');
