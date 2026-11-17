@@ -703,3 +703,18 @@
 .registry-ui-form-disclosure[open]>.registry-ui-form-section{margin-top:16px}
 .registry-ui-form-disclosure:not([open]) [data-disclosure-expanded],.registry-ui-form-disclosure[open] [data-disclosure-collapsed]{display:none}
 @media(max-width:700px){.registry-ui-form-row{grid-template-columns:minmax(0,1fr)}}
+
+/* Complete form panel: the viewport, rather than the form body, handles small screens. */
+.registry-ui-form-sections--compact{gap:16px}
+.registry-ui-form-sections--compact .registry-ui-form-disclosure[open]>.registry-ui-form-section{margin-top:8px}
+.registry-ui-form-composition{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(2,minmax(0,1fr));gap:16px;align-items:start;min-width:0}
+.registry-ui-modal.registry-ui-modal--form-canvas{position:fixed;inset:0;margin:0;padding:16px;width:100vw;min-width:0;max-width:none;height:100dvh;max-height:none;overflow:auto;background:transparent;border:0;box-shadow:none}
+.registry-ui-modal--form-canvas[open]{display:grid;justify-items:center;align-items:safe center}
+.registry-ui-modal--form-canvas>.registry-ui-modal-form{box-sizing:border-box;width:min(1200px,100%);flex:none;min-height:auto;background:var(--surface-strong);border:1px solid var(--line-strong);border-radius:2px;box-shadow:0 18px 60px rgb(from var(--tone-000000) r g b / 0.28)}
+.registry-ui-modal.registry-ui-modal--form-canvas .modal-body{overflow:visible;flex:none;min-height:auto}
+@media(max-width:700px){.registry-ui-form-composition{grid-template-columns:minmax(0,1fr)}.registry-ui-modal.registry-ui-modal--form-canvas{padding:8px}}
+
+.registry-ui-form-composition>.registry-ui-form-section>.registry-ui-modal-summary{display:flex;align-items:center;min-height:32px;margin:0}
+.registry-ui-form-composition>.registry-ui-form-disclosure>.registry-ui-form-section>.registry-ui-modal-summary{display:none}
+
+.registry-ui-form-composition>.registry-ui-form-disclosure>summary{box-sizing:border-box;min-height:32px}

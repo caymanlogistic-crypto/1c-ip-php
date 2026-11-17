@@ -210,3 +210,7 @@ WorkRegistry ведёт редактируемый проект прямо в Co
 ### Секционная форма контрагента (локальный кандидат)
 
 PartyDirectory::editor использует общий registry-ui-form-sections/section/row из registry-components.css; вариант row--wide-code даёт тексту 3 доли, коду 1. Дополнительный контакт — native details[data-form-disclosure], заполненные данные/recipient flag задают open на сервере. Общий source-form-disclosure.js раскрывает invalid/aria-invalid до существующего обработчика фокуса и не меняет payload, required или значения. Источник семантики «Получает документы» — RecipientContext; прежняя rental-party-ui.js управляет адресом и обязательностью email. Полный пример — /design/demo/layout-rules.html → «Показать форму контрагента», общие CSS/JS те же, что в приложении.
+
+### Полная форма без внутренней прокрутки
+
+Текущий PartyDirectory::editor использует RentalUI::modal(canvas:true): общий registry-ui-modal--form-canvas содержит панель до1200px с естественной высотой и overflow:visible у modal-body. В низком/узком окне перемещается весь внешний canvas, не тело попапа. Обычные модальные вызовы без флага не изменены. Общий registry-ui-form-composition располагает адреса и два контакта рядом, ниже — банковские реквизиты и ЭДО; до700px — один столбец. Та же композиция/вариант есть в полном примере контрагента на layout-rules.html.
