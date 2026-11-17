@@ -12,9 +12,9 @@
 
 Receiver допускает только ui release с GitHub OIDC: repository/owner, refs/heads/main, точный commit/run_id, event=push и .github/workflows/staging.yml@refs/heads/main. Staging/task/PR и второй target отвергаются. Сохранены SHA256 архива, OCI commit, точный image_id, server flock, highest-run и возврат предыдущего образа. Main concurrency group не отменяет выполняющийся деплой; перед отправкой проверяется актуальный main. Следующая задача не сливается до проверки предыдущей публикации; локальная работа остальных продолжается.
 
-## Одноразовый переход
+## Выполненный одноразовый переход
 
-Подготовлено в task/simple-workflow, ещё не применено. Старый серверный receiver принимает staging, поэтому одного merge YAML недостаточно. После «выкладывай», до первого merge этой задачи:
+Выполнено 17.11.2026 по «выкладывай»: GitHub PR #1, main 3a77e2dae48069279a3d1b4df885501fc060b567, успешный workflow 44126518499. /_ops.php и docker inspect подтвердили image_id sha256:d04e94389c87cea2d902e36b8a3afbafb6da7d02fce86242fe36c873983b5e8f; manager/admin вход, форма и реестр проверены. Резерв настроек и проверка сохранности второго экземпляра — /srv/1c-ip-php/transition-main-20261117. Ниже сохранён выполненный порядок, повторять его для обычной задачи не нужно:
 
 1. Проверить отсутствие выполняющихся публикаций и чужого владельца. Сохранить текущие commit/image_id, root-owned receiver/ci-entry, Apache proxy config и GitHub environment policies. БД/документы не менять.
 2. В существующем GitHub environment ui заменить deployment branch policy staging-ui на только main, type=branch. Секреты/vars сохранить, значения не выводить. Build оставить для сборок. Убрать прежний допуск staging-integrations в его environment. Проверить policies через GitHub API.
@@ -23,7 +23,7 @@ Receiver допускает только ui release с GitHub OIDC: repository/o
 5. Получить свежий main, объединить/проверить эту ветку, создать PR и слить через GitHub. Дождаться workflow и сверить artifact/summary с /_ops.php, проверить вход и адресный сценарий. Проверить, что integrations URL перенаправляет, а второго app-процесса нет.
 6. Записать фактический результат в START-HERE.md/WORK.md. После перехода общий сайт обновляется только из main. Удалять исторические staging-ветки и данные не требуется.
 
-До этих шагов сервер работает по прежней конфигурации. Сборка task-ветки не означает переключение. При сбое до merge сохрани работающий образ, сообщи блокер; восстановление сохранённых настроек — явный возврат процесса, не обход новой политики push в staging.
+Сейчас receiver/entry установлены, environment ui содержит только main, старый environment не допускает staging-integrations; прежний SSH-ключ отключён. Активны только ipphp-ui-app-1 и ipphp-ui-db-1; integrations-контейнеры остановлены и сохранены, их data-каталоги на месте. /login и /health прежнего URL отвечают 301 на соответствующий путь общего сайта. При сбое будущей публикации сохрани работающий образ и сообщи блокер; возврат настроек — явный возврат процесса, не обход main push в staging.
 
 ## Диагностика и возврат
 
