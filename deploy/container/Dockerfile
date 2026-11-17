@@ -1,6 +1,5 @@
-ARG PHP_IMAGE=php:8.5.6-apache-bookworm
+ARG PHP_IMAGE=php:8.5.6-apache-bookworm@sha256:c7c967859d6c4e4d3d215e325048b0678d3a44441507bfb5dbdd6c4bcac7c442
 FROM ${PHP_IMAGE}
-ARG COMPOSER_IMAGE=composer:2.8.9
 ARG SOURCE_COMMIT
 LABEL org.opencontainers.image.revision=${SOURCE_COMMIT}
 RUN apt-get update && apt-get install -y --no-install-recommends \

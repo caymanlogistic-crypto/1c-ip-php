@@ -12,6 +12,9 @@ function serverDiagnostics(): array {
         throw new RuntimeException('SERVER_SETTINGS_BINDING');
     if(Modules\Integrations\Config::liveAllowed()||getenv('IPPHP_RENTAL_MAX_POSTCOMMIT')
         ||getenv('APP_BILLING_PART_ADMISSION_SHA256'))throw new RuntimeException('EXTERNAL_ADMISSION_UNEXPECTED');
+    $transportFile=APP_ROOT.'/.local/onec-dev-transport.json';
+    if(!is_file($transportFile)||json_decode(file_get_contents($transportFile),true)['mode']!=='direct')
+        throw new RuntimeException('ONEC_EXPLICIT_TRANSPORT_REQUIRED');
     $p=App\DB::pdo();$database=$p->query('SELECT DATABASE()')->fetchColumn();
     if($database!==$s['database']||$p->query('SELECT CURRENT_USER()')->fetchColumn()!==$s['db_user'].'@%')
         throw new RuntimeException('SERVER_DB_BINDING');
@@ -23,7 +26,7 @@ function serverDiagnostics(): array {
     return ['stand'=>$stand,'commit'=>$release['commit'],'image_id'=>$deployment['image_id'],
         'deployed_at'=>$deployment['deployed_at'],'database'=>$database,'database_ready'=>true,
         'project_id'=>$s['project_id'],'external_access'=>false,'automated_sends'=>false,
-        'workers'=>'not configured','inherited_queue_replay'=>'not configured','php'=>PHP_VERSION];
+        'workers'=>'not configured','inherited_queue_replay'=>'not configured','onec_transport'=>'direct (external gate closed)','php'=>PHP_VERSION];
 }
 if(PHP_SAPI==='cli'&&realpath($_SERVER['SCRIPT_FILENAME'])===__FILE__){
     try{$d=serverDiagnostics();echo json_encode($d,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR).PHP_EOL;}

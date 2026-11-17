@@ -13,3 +13,9 @@ modules/auxiliary/source-ui/** -text
 modules/auxiliary/source-ui/** whitespace=cr-at-eol,-blank-at-eof
 public/assets/source-premises.js whitespace=cr-at-eol,-blank-at-eof
 database/pending/** -text
+
+*.sh text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+deploy/container/Dockerfile text eol=lf
