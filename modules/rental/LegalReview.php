@@ -28,7 +28,6 @@ final class LegalReview
         ]).'<div class="demo-row">'
             .RentalUI::button('Контрагент','/rental/party?id='.$contract['party_id'])
             .RentalUI::button('Условия договора','/rental/conditions?id='.$contract['id'])
-            .RentalUI::button('История и сообщения','/rental/history?contract_id='.$contract['id'])
             .'</div>'
             .($contract['status']==='returned'?RentalUI::alert('Замечания бухгалтера',(string)$contract['reason'],'error'):'');
     }

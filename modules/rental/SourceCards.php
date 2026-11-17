@@ -139,8 +139,8 @@ final class SourceCards {
         $more = RentalUI::button('Условия договора', '/rental/conditions?id='
         . $id)
         . RentalUI::button('Контрагент', '/rental/party?id='
-        . $c['party_id'])
-        . RentalUI::button('Счета и оплаты', '/rental/invoice-list?contract_id='
+        . $c['party_id']);
+        if (!in_array($c['status'],['legal','accounting','returned','approved','sent'],true))$more.=RentalUI::button('Счета и оплаты', '/rental/invoice-list?contract_id='
         . $id)
         . RentalUI::button('Допсоглашения', '/rental/documents?contract_id='
         . $id)
@@ -250,8 +250,7 @@ final class SourceCards {
             'Конец',
             'В месяц с НДС, ₽',
             'ДС с даты'
-        ], $out), RentalUI::button('Вернуться к договору', '/rental/contract?id='
-        . $id), 'contracts-active', true);
+        ], $out), '', 'contracts-active', tableOnly:true);
     }
 
     public static function history(): string {

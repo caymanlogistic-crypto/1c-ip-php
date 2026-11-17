@@ -675,6 +675,11 @@
 
 .registry-ui-modal--probe .registry-ui-data{min-width:0;width:auto}
 
+/* Table-only viewers share the table surface with the dialog edges. */
+.registry-ui-modal--table .modal-body{padding:0}
+.registry-ui-modal--table .registry-ui-modal-grid{gap:0}
+.registry-ui-modal--table .registry-ui-data{width:100%;min-width:0;table-layout:auto}
+
 
 /* Owner-requested six-column invoice composition; inherited registry typography. */
 .registry-ui-card .registry-ui-data--invoices{width:100%;min-width:calc(116ch + 132px);table-layout:fixed}

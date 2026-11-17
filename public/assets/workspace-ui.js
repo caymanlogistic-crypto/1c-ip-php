@@ -102,6 +102,14 @@
     lastFocus=opener?.isConnected?opener:document.activeElement;
     document.getElementById('dialog-root').append(dialog);
     activeRental=dialog;
+    if(rentalStack.length){
+      const dismiss=dialog.querySelector('[data-rental-dismiss]');
+      if(dismiss)dismiss.textContent='Вернуться';
+      dialog.querySelector('.modal-close[data-rental-close]')?.setAttribute('aria-label','Вернуться');
+      for(const button of dialog.querySelectorAll('.modal-foot [data-rental-open]')){
+        if(button.textContent.trim().startsWith('Вернуться'))button.hidden=true;
+      }
+    }
     dialog.addEventListener('cancel',event=>{
       event.preventDefault();
       closeRental(dialog);
@@ -110,7 +118,7 @@
     window.RentalPickers?.enhance(dialog);
     window.RentalPartyUI?.enhance(dialog);
   }
-  async function openRental(value,opener,preserveParent=false){
+  async function openRental(value,opener,preserveParent=!!opener?.closest('dialog[data-rental-dialog]')){
     try{
       const response=await fetch(localURL(value),{
         headers:{
@@ -278,6 +286,9 @@
       const replacement=doc.querySelector('dialog[data-rental-dialog]');
       if(replacement){
         if(refresh) await window.RentalRegistry.load(refresh,{completion:true,preserve:true,savedInvoice});
+        // A committed command replaces its obsolete navigation context.
+        // Pure reads keep the original DOM, including unsaved fields, in rentalStack.
+        while(rentalStack.length)disposeRental(rentalStack.pop().dialog);
         mountRental(replacement,lastFocus);
         menu?.requestRefresh();
         return;
