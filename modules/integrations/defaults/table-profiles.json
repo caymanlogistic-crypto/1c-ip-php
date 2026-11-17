@@ -26,7 +26,7 @@
       {
         "key": "file_status",
         "type": "text",
-        "size": "short"
+        "size": "text"
       },
       {
         "key": "key",
