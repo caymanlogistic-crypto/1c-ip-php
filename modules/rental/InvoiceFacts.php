@@ -5,6 +5,22 @@ namespace Modules\Rental;
 /** Read-only registry facts; money and unknown values retain their SQL precision. */
 final class InvoiceFacts
 {
+    public static function overdueDays(array $invoice, ?string $today = null): int
+    {
+        $today ??= date('Y-m-d');
+        $remaining = self::remaining($invoice);
+        if ($invoice['status'] !== 'active' || !empty($invoice['control_closed'])
+            || $remaining === null || bccomp($remaining,'0',2) <= 0
+            || empty($invoice['due']) || $invoice['due'] >= $today) return 0;
+        return (int)(new \DateTimeImmutable($invoice['due']))->diff(new \DateTimeImmutable($today))->days;
+    }
+
+    public static function overdueSeverity(array $invoice, ?string $today = null): string
+    {
+        $days = self::overdueDays($invoice,$today);
+        return $days > 5 ? 'red' : ($days > 0 ? 'yellow' : '');
+    }
+
     public static function remaining(array $invoice): ?string
     {
         if ($invoice['amount'] === null || $invoice['paid'] === null) return null;
@@ -19,6 +35,7 @@ final class InvoiceFacts
         $sendError=empty($delivery['handed']) && (!empty($raw['sendError'])
             || in_array($delivery['intent']['status'] ?? '',['blocked','failed','unknown'],true));
         $remaining = self::remaining($invoice);
+        $overdueDays = self::overdueDays($invoice);
         $unpaid = $invoice['status'] !== 'revoked' && $remaining !== null && bccomp($remaining, '0', 2) > 0;
         $state = match (true) {
             !empty($raw['issueError']) => 'Счёт не сформирован',
@@ -46,14 +63,14 @@ final class InvoiceFacts
                     : 'Письмо клиенту не отправлено. Повторите отправку или подтвердите передачу документов.'),
             !empty($invoice['manual_review']) => 'После изменения финансовых данных требуется ручная повторная проверка.',
             $remaining === null => 'Исходные данные не подтверждают сумму или оплату.',
-            $unpaid && $severity !== '' => 'Остаток '.strip_tags(Controller::money($remaining)).' · контроль оплаты по рабочему календарю.',
+            $overdueDays > 0 => 'Остаток '.strip_tags(Controller::money($remaining)).' · просрочка: '.$overdueDays.' календ. дн.',
             $unpaid => 'Ожидается оплата за указанный период.',
             default => 'Оплата учтена, задолженности нет.',
         };
         return [
             'remaining'=>$remaining, 'unpaid'=>$unpaid, 'severity'=>$severity,
             'attention'=>$severity !== '',
-            'overdue'=>$invoice['status'] === 'active' && empty($invoice['control_closed']) && $unpaid && !empty($invoice['due']) && $invoice['due'] < date('Y-m-d'),
+            'overdue'=>$overdueDays > 0, 'overdue_days'=>$overdueDays,
             'paid'=>$invoice['status'] === 'active' && $remaining !== null && bccomp($remaining,'0',2) === 0,
             'state'=>$state, 'explanation'=>$explanation,
             'send_error'=>$sendError,

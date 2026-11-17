@@ -178,20 +178,7 @@ final class Indicators {
                 || ($i['manual_review'] && !empty($contractSource['financialReview']))) continue;
             $error = $i['manual_review'] || !empty($raw['issueError']) || !empty($raw['mismatch']) || $sendError;
             $severity = $error?'red':'';
-            if (!$error && $i['status']==='active' && !$i['control_closed'] && $i['amount'] !== null && $i['paid'] !== null && bccomp($i['amount'], $i['paid'], 2)>0 && $time >= '13:00') {
-                $from = $i['initial_invoice']?$i['issued']:$i['due'];
-                if ($from && $from <= $today) {
-                    try {
-                        $n = self::workdays($i['initial_invoice']?$from:(new \DateTimeImmutable($from
-                        . ' -1 day'))->format('Y-m-d'), $today, $calendar);
-                        $severity = $n >= 3?'red':($n >= ($i['initial_invoice']?2:1)?'yellow':'');
-                    }
-                    catch (\RuntimeException $e) {
-                        if ($e instanceof \PDOException)throw $e;
-                        $severity = '';
-                    }
-                }
-            }
+            if (!$error && $time >= '13:00') $severity = InvoiceFacts::overdueSeverity($i,$today);
             if (!$error && $i['status']==='active' && !$i['control_closed'] && $i['amount'] !== null && $i['paid'] !== null && bccomp($i['amount'], $i['paid'], 2)>0 && $time<'13:00')$severity = InvoiceSignals::cached(DB::pdo(), $i);
             $owners = !empty($raw['issueError']) ? ['accountant']
                 : (!empty($raw['mismatch']) ? ['manager','accountant','director'] : ['manager','accountant']);

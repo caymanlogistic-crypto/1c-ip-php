@@ -247,7 +247,7 @@
 .registry-ui-nested-table-scroll .registry-ui-table > thead {position:static;top:auto;z-index:auto}
 /* Shared group details, including the showcase example. */
 .registry-ui-disclosure-column {width:52px}
-.registry-ui-card .registry-ui-table .registry-ui-disclosure-cell {width:52px;text-align:center;vertical-align:middle}
+.registry-ui-card .registry-ui-table .registry-ui-disclosure-cell {width:52px;text-align:center;vertical-align:middle;overflow:visible;text-overflow:clip;white-space:normal}
 .registry-ui-disclosure.btn {display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;min-height:32px;padding:0;color:var(--p-secondary)}
 .registry-ui-disclosure svg {display:block;transition:transform .15s ease}
 .registry-ui-disclosure[aria-expanded="true"] svg {transform:rotate(180deg)}
