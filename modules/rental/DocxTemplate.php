@@ -87,6 +87,44 @@ final class DocxTemplate
         }
     }
 
+    /** Replace only token characters; surrounding runs retain their own formatting. */
+    private static function fillParagraph(DOMDocument $document,array $texts,string $text,array $values): bool
+    {
+        preg_match_all('/\{\{([^{}]+)\}\}/u',$text,$matches,PREG_OFFSET_CAPTURE);
+        if (!$matches[0]) return false;
+        $ranges=[];$offset=0;
+        foreach ($texts as $node) {
+            $length=mb_strlen($node->textContent);
+            $ranges[]=[$node,$offset,$offset+$length];$offset+=$length;
+        }
+        // Work right to left so earlier original offsets remain valid even in the same run.
+        foreach (array_reverse(array_keys($matches[0])) as $index) {
+            [$token,$byteOffset]=$matches[0][$index];$key=$matches[1][$index][0];
+            if (!array_key_exists($key,$values)) throw new RuntimeException('Не заполнено поле Word: '.$key);
+            $start=mb_strlen(substr($text,0,$byteOffset));$end=$start+mb_strlen($token);
+            $first=true;
+            foreach ($ranges as [$node,$from,$to]) {
+                if ($to<=$start || $from>=$end) continue;
+                $prefix=$from<$start?mb_substr($node->textContent,0,$start-$from):'';
+                $suffix=$to>$end?mb_substr($node->textContent,$end-$from):'';
+                $node->textContent=$prefix.($first?str_replace(["\r\n","\r"],"\n",$values[$key]):'').$suffix;
+                $node->setAttributeNS(self::XML,'xml:space','preserve');$first=false;
+            }
+        }
+        foreach ($texts as $node) {
+            if (!str_contains($node->textContent,"\n")) continue;
+            $lines=explode("\n",$node->textContent);$node->textContent=array_shift($lines);$cursor=$node;
+            foreach ($lines as $line) {
+                $break=$document->createElementNS(self::W,'w:br');
+                $node->parentNode->insertBefore($break,$cursor->nextSibling);
+                $next=$document->createElementNS(self::W,'w:t');$next->textContent=$line;
+                $next->setAttributeNS(self::XML,'xml:space','preserve');
+                $node->parentNode->insertBefore($next,$break->nextSibling);$cursor=$next;
+            }
+        }
+        return true;
+    }
+
     public static function build(string $source,array $values,string $kind,string $target): void
     {
         self::validate($source);
@@ -120,25 +158,7 @@ final class DocxTemplate
         foreach ($documents as $name=>$document) {
             $modified=false;
             foreach (self::paragraphs($document) as [$texts,$text]) {
-                if (!str_contains($text,'{{')) continue;
-                $replacement=$text;
-                foreach ($values as $key=>$value) $replacement=str_replace('{{'.$key.'}}',$value,$replacement);
-                if (preg_match('/\{\{[^{}]*\}\}/u',$replacement)) throw new RuntimeException('Не все поля Word заполнены.');
-                if (!$texts) continue;
-                $lines=explode("\n",str_replace(["\r\n","\r"],"\n",$replacement));
-                $first=array_shift($texts);
-                $first->textContent=array_shift($lines);
-                $first->setAttributeNS(self::XML,'xml:space','preserve');
-                foreach ($lines as $line) {
-                    $run=$first->parentNode;
-                    $run->appendChild($document->createElementNS(self::W,'w:br'));
-                    $node=$document->createElementNS(self::W,'w:t');
-                    $node->setAttributeNS(self::XML,'xml:space','preserve');
-                    $node->textContent=$line;
-                    $run->appendChild($node);
-                }
-                foreach ($texts as $node) $node->textContent='';
-                $modified=true;
+                $modified=self::fillParagraph($document,$texts,$text,$values)||$modified;
             }
             if ($modified) $changed[$name]=$document->saveXML();
         }
