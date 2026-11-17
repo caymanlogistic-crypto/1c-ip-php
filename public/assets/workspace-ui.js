@@ -2,12 +2,16 @@
 (() => {
   const navigation=document.getElementById('navigation');
   let menu=null;
+  let lastControlRefresh=0;
   const notices=window.RentalNotices?.create({storage:window.localStorage,component:window.PlanexNotifications});
   const noticeBootstrap=document.getElementById('rental-notices-bootstrap');
   if(noticeBootstrap)notices?.update(JSON.parse(noticeBootstrap.textContent));
   window.addEventListener('rental:notices',event=>notices?.update(event.detail));
   const tones=['is-alert','is-warning','is-success','is-info'],colors=['red','yellow','green','blue'],labelSets=JSON.parse(navigation?.dataset.countLabels||'{}');
+  const badgeValues=new WeakMap();
   function badges(link,counts,sub){
+    const signature=JSON.stringify(counts||[]);
+    if(badgeValues.get(link)===signature)return;
     link.querySelector(':scope > .nav-counts')?.remove();
     const box=document.createElement('span');
     box.className='nav-counts';
@@ -28,17 +32,24 @@
       if(chevron)link.insertBefore(box,chevron);
       else link.append(box);
     }
+    badgeValues.set(link,signature);
   }
   if(navigation?.dataset.userId&&window.UIMenuCounts){
     menu=window.UIMenuCounts.createController({
-      projectId:'f6e21e3c-d974-4604-82fb-333da66559d2',surface:'php-rental',identityProvider:()=>navigation.dataset.userId,folderIds:[...navigation.querySelectorAll('[data-folder]')].map(el=>el.dataset.folder),readCounts:async()=>{
-        const r=await fetch('/api/menu-counts',{
+      intervalMs:2000,
+      maxErrorIntervalMs:30000,
+      projectId:'f6e21e3c-d974-4604-82fb-333da66559d2',surface:'php-rental',identityProvider:()=>navigation.dataset.userId,folderIds:[...navigation.querySelectorAll('[data-folder]')].map(el=>el.dataset.folder),readCounts:async({periodic=false}={})=>{
+        // Frequent reads must not also run the payment-control write path every 2s.
+        const refreshControl=!periodic||Date.now()-lastControlRefresh>=30000;
+        const r=await fetch(refreshControl?'/api/menu-counts':'/api/menu-counts?control=read',{
+          signal:AbortSignal.timeout(10000),
           headers:{
             Accept:'application/json'
           }
         });
         if(!r.ok||!r.headers.get('content-type')?.includes('application/json'))return null;
         const value=await r.json();
+        if(refreshControl)lastControlRefresh=Date.now();
         notices?.update(value.notices);
         return value;
       },applyCounts:value=>{

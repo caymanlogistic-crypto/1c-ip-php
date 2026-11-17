@@ -1,0 +1,34 @@
+{
+    "submit": {
+        "format": "markdown",
+        "body": "📄 **Договор направлен юристу**\n{context}\n\n{manager} направил договор на юридическую проверку.\n{text}"
+    },
+    "resubmit": {
+        "format": "markdown",
+        "body": "🔄 **Документ повторно направлен юристу**\n{context}\n\n{text}\nВерсия: {version}. Ответственный за повторную проверку: {lawyer}."
+    },
+    "legalApprove": {
+        "format": "markdown",
+        "body": "✅ **Юридическая проверка завершена**\n{context}\n\n{text}\nАктуальный документ доступен в системе: Word или загруженный файл. Юрист: {lawyer}."
+    },
+    "lawyerReturn": {
+        "format": "markdown",
+        "body": "↩️ **Документ возвращён менеджеру**\n{context}\n\n{text}"
+    },
+    "accountantReturn": {
+        "format": "markdown",
+        "body": "↩️ **Документ возвращён юристу**\n{context}\n\n{text}"
+    },
+    "package": {
+        "format": "markdown",
+        "body": "📨 **Пакет документов подтверждён**\n{context}\n\n{text}\n{invoiceSummary}\nПодтверждённый файл и состав вложений зафиксированы в операции; принятие транспортом отражается отдельно."
+    },
+    "signed": {
+        "format": "markdown",
+        "body": "✍️ **Получен подписанный документ**\n{context}\n\n{text}"
+    },
+    "cancelled": {
+        "format": "markdown",
+        "body": "⛔ **Проект аннулирован**\n{context}\n\n{text}\n\nПродолжение согласования и отправка по этому проекту недоступны. Причина и история сохранены."
+    }
+}
