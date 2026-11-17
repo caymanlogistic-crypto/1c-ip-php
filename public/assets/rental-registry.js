@@ -14,9 +14,12 @@
   }
 
   function setGroup(button, expanded) {
+    if (button.hasAttribute('data-registry-disclosure')) {
+      window.PlanexRegistry.setDisclosure(button, expanded);
+    }
     button.setAttribute('aria-expanded', String(expanded));
-    if (button.dataset.groupName || ['+','−','–'].includes(button.textContent.trim())) button.textContent = expanded ? '−' : '+';
-    if (button.dataset.groupName) button.setAttribute('aria-label', (expanded ? 'Свернуть ' : 'Развернуть ')+button.dataset.groupName);
+    if (!button.hasAttribute('data-registry-disclosure') && (button.dataset.groupName || ['+','−','–'].includes(button.textContent.trim()))) button.textContent = expanded ? '−' : '+';
+    if (!button.hasAttribute('data-registry-disclosure') && button.dataset.groupName) button.setAttribute('aria-label', (expanded ? 'Свернуть ' : 'Развернуть ')+button.dataset.groupName);
     for (const row of document.querySelectorAll('[data-rental-invoice-group]')) {
       if (row.dataset.rentalInvoiceGroup === button.dataset.rentalToggleGroup) row.hidden = !expanded;
     }

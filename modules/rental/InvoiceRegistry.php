@@ -189,13 +189,13 @@ final class InvoiceRegistry
         if (count($group['reasons'])>2) $reason.=' · ещё '.(count($group['reasons'])-2).' — раскройте счета';
         $name=View::e($party['party_name']); $id=(int)$group['id'];
         $html='<tr class="'.self::CLASSES[$severity].'" data-row-key="invoice-group:'.$id.'" data-rental-parent-group="'.$id.'">';
-        $html.='<td colspan="5"><button class="btn btn-secondary" type="button" data-rental-toggle-group="'.$id.'" data-group-name="'.$name.'" aria-expanded="false" aria-label="Показать счета: '.$name.'">+</button> <strong>'.$name.'</strong>';
+        $html.='<td colspan="5"><strong>'.$name.'</strong>';
         if ($party['party_inn']) $html.=' · ИНН '.View::e($party['party_inn']);
         $html.='<div class="doc-meta">Счетов: '.$t['count'].' · Неоплаченных: '.$t['unpaid'].' · Просроченных: '.$t['overdue_count'];
         if ($t['overdue_count']) $html.=' · Просроченная сумма: '.Controller::money($t['overdue']);
         $html.=' · Ближайший срок: '.($group['nearest'] ? self::date($group['nearest']) : 'не указан').'</div></td>';
         foreach (['amount','paid','debt'] as $key) $html.='<td class="registry-ui-number">'.self::totalText($t,$key).'</td>';
-        return $html.'<td class="registry-column-text">'.View::e($status).Menu::badges(self::counts($group['items']),true).($reason ? '<div class="doc-meta">'.View::e($reason).'</div>' : '').'</td></tr>';
+        return $html.'<td class="registry-column-text">'.View::e($status).Menu::badges(self::counts($group['items']),true).($reason ? '<div class="doc-meta">'.View::e($reason).'</div>' : '').'</td><td class="registry-ui-disclosure-cell"><button class="btn btn-secondary registry-ui-disclosure" type="button" data-registry-disclosure data-rental-toggle-group="'.$id.'" data-group-name="'.$name.'" aria-controls="invoice-details-'.$id.'" aria-expanded="false" aria-label="Показать счета: '.$name.'"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button></td></tr>';
     }
 
     private static function invoiceRow(array $row, bool $grouped): string
@@ -243,22 +243,31 @@ final class InvoiceRegistry
         $html=self::controls($all,$query,$party,$flag,$cid);
         $t=self::totals($chosen);
         $registryId=$grouped ? 'rental-invoices-grouped' : 'rental-invoices-flat';
-        $html.='<section class="table-card registry-ui-card registry-ui-sticky-table registry-ui-scroll" data-rental-invoice-registry data-registry-id="'.$registryId.'" data-registry-managed-markup="true"><div class="table-toolbar registry-ui-toolbar"><div class="found-label">Найдено: <b>'.count($chosen).'</b> · Клиентов: <b>'.count($groups).'</b> · Сумма: <b>'.self::totalText($t,'amount').'</b> · Оплачено: <b>'.self::totalText($t,'paid').'</b> · Остаток: <b>'.self::totalText($t,'debt').'</b></div><div class="toolbar-right"><form method="get" data-rental-registry-filter>';
+        $html.='<section class="table-card registry-ui-card registry-ui-sticky-table registry-ui-scroll" data-rental-invoice-registry data-registry-id="'.$registryId.'" data-registry-managed-markup="true"><form method="get" data-rental-registry-filter class="table-toolbar registry-ui-toolbar"><div class="found-label registry-ui-toolbar-summary">Найдено: <b>'.count($chosen).'</b> · Клиентов: <b>'.count($groups).'</b> · Сумма: <b>'.self::totalText($t,'amount').'</b> · Оплачено: <b>'.self::totalText($t,'paid').'</b> · Остаток: <b>'.self::totalText($t,'debt').'</b></div><div class="toolbar-right">';
         if ($cid) $html.='<input type="hidden" name="contract_id" value="'.$cid.'">';
         $html.='<input type="hidden" name="flag" value="'.View::e($flag).'">';
         $html.='<button class="registry-ui-reset" type="submit" name="reset" value="1"'.($query === '' && $party === 'all' ? ' hidden' : '').'>Сбросить фильтры</button>';
-        $html.='<select id="party-filter" class="field-select toolbar-select" name="party" aria-label="Контрагент"><option value="all">Все контрагенты</option>';
+        $html.='<select id="party-filter" class="toolbar-select" name="party" aria-label="Контрагент"><option value="all">Все контрагенты</option>';
         foreach ($parties as $id=>$name) $html.='<option value="'.(int)$id.'"'.((string)$id === $party ? ' selected' : '').'>'.View::e($name).'</option>';
-        $html.='</select><input class="registry-ui-search" name="q" type="search" value="'.View::e($query).'" placeholder="Поиск по всем столбцам" aria-label="Поиск по реестру"></form></div></div><div class="table-scroll"><table class="table registry-ui-table registry-ui-data" data-column-profile="rental-contracts"><colgroup>';
+        $html.='</select>'.DirectoryUi::search($query,true).'</div></form><div class="table-scroll"><table class="table registry-ui-table registry-ui-data" data-column-profile="rental-contracts"><colgroup>';
         foreach (self::COLUMNS as $column) $html.='<col class="registry-column-'.$column.'">';
+        if ($grouped) $html.='<col class="registry-ui-disclosure-column">';
         $html.='</colgroup><thead><tr>';
         foreach (self::HEADERS as $i=>$header) $html.='<th'.(self::COLUMNS[$i] === 'money' ? ' class="registry-ui-number"' : '').'>'.$header.'</th>';
+        if ($grouped) $html.='<th aria-label="Раскрыть счета"></th>';
         $html.='</tr></thead><tbody>';
         foreach ($groups as $group) {
-            if ($grouped) $html.=self::groupHeader($group);
+            if ($grouped) {
+                $html.=self::groupHeader($group).'<tr id="invoice-details-'.(int)$group['id'].'" data-rental-invoice-group="'.(int)$group['id'].'" hidden><td colspan="10" class="registry-ui-disclosure-content"><div class="registry-ui-nested-table-scroll"><table class="table registry-ui-table registry-ui-data registry-ui-table--details" data-column-profile="rental-contracts" aria-label="Счета контрагента '.View::e($group['items'][0]['party_name']).'"><colgroup>';
+                foreach (self::COLUMNS as $column) $html.='<col class="registry-column-'.$column.'">';
+                $html.='</colgroup><thead><tr>';
+                foreach (self::HEADERS as $i=>$header) $html.='<th'.(self::COLUMNS[$i] === 'money' ? ' class="registry-ui-number"' : '').'>'.$header.'</th>';
+                $html.='</tr></thead><tbody>';
+            }
             foreach ($group['items'] as $row) $html.=self::invoiceRow($row,$grouped);
+            if ($grouped) $html.='</tbody></table></div></td></tr>';
         }
-        if (!$chosen) $html.='<tr><td colspan="9">По заданным условиям счета не найдены.</td></tr>';
+        if (!$chosen) $html.='<tr><td colspan="'.($grouped ? 10 : 9).'">По заданным условиям счета не найдены.</td></tr>';
         return $html.'</tbody></table></div></section>';
     }
 }

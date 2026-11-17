@@ -245,6 +245,16 @@
 .registry-ui-card .registry-ui-table-surface {min-width:0;max-width:100%}
 .registry-ui-card .registry-ui-nested-table-scroll {min-width:0;max-width:100%;overflow-x:auto;overflow-y:hidden}
 .registry-ui-nested-table-scroll .registry-ui-table > thead {position:static;top:auto;z-index:auto}
+/* Shared group details, including the showcase example. */
+.registry-ui-disclosure-column {width:52px}
+.registry-ui-card .registry-ui-table .registry-ui-disclosure-cell {width:52px;text-align:center;vertical-align:middle}
+.registry-ui-disclosure.btn {display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;min-height:32px;padding:0;color:var(--p-secondary)}
+.registry-ui-disclosure svg {display:block;transition:transform .15s ease}
+.registry-ui-disclosure[aria-expanded="true"] svg {transform:rotate(180deg)}
+.registry-ui-card .registry-ui-table tbody td.registry-ui-disclosure-content {padding:12px 16px 16px;background:var(--p-panel)}
+.registry-ui-disclosure-content > .registry-ui-nested-table-scroll {border:1px solid var(--tone-d5cec3);background:var(--p-surface)}
+.registry-ui-table--details {margin:0}
+@media(prefers-reduced-motion:reduce){.registry-ui-disclosure svg {transition:none}}
 .registry-ui-scroll > [data-registry-scroll-x="true"] {overflow-x:auto!important;overflow-y:auto!important}
 .registry-ui-scroll .registry-ui-scroll-native {position:sticky!important;top:calc(var(--registry-toolbar-height,49px) - 12px)!important;z-index:19}
 .registry-ui-scroll .registry-ui-scroll-translated {position:relative!important;top:0!important;z-index:19;will-change:transform}
