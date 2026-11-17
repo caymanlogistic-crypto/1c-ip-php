@@ -84,6 +84,10 @@ final class PagePolicy {
             'edit' => [
             ]
         ];
+        foreach(\Modules\Integrations\OnecOperations::CONNECTIONS as $key=>$definition)$pages['connections.'.$key]=[
+            'title'=>$definition['title'],'module'=>'Подключения','url'=>'/connections/'.$key,
+            'read'=>'integrations.read','edit'=>['integrations.write','finance.write'],
+        ];
         return $pages;
     }
     private static function coarse(string $roleId, string $permission):bool {
@@ -167,7 +171,8 @@ final class PagePolicy {
             $key = 'connections.'
             . $provider;
         }
-        elseif(preg_match('~^/(?:connections|external-documents)/([a-z]+)$~D', $path, $m))$key = 'connections.'
+        elseif(preg_match('~^/integrations/onec-actions/(onec-counterparty|onec-invoice|onec-print)/[a-z]+$~D',$path,$m))$key='connections.'.$m[1];
+        elseif(preg_match('~^/(?:connections|external-documents)/([a-z-]+)$~D', $path, $m))$key = 'connections.'
         . $m[1];
         elseif(in_array($path, [
             '/email',
