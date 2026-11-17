@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl unzip \
  && docker-php-ext-configure gd --with-freetype --with-jpeg \
  && docker-php-ext-install -j2 pdo_mysql bcmath intl zip gd \
+ && a2enmod rewrite \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=composer:2.8.9 /usr/bin/composer /usr/local/bin/composer
 WORKDIR /opt/app
@@ -26,7 +27,8 @@ RUN test -n "$SOURCE_COMMIT" \
  && printf '{"commit":"%s"}\n' "$SOURCE_COMMIT" > /opt/app/release.json \
  && chmod 0755 /usr/local/bin/app-entrypoint \
  && find app modules public bin -name '*.php' -print0 | xargs -0 -n1 php -l > /tmp/php-lint.log \
- && rm /tmp/php-lint.log
+ && rm /tmp/php-lint.log \
+ && apache2ctl -t
 EXPOSE 80
 ENTRYPOINT ["app-entrypoint"]
 CMD ["apache2-foreground"]

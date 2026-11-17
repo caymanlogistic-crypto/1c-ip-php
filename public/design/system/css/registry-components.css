@@ -682,3 +682,10 @@
 .registry-ui-data--invoices col:nth-child(2){width:calc(10ch + 22px)}
 .registry-ui-data--invoices col:nth-child(3),.registry-ui-data--invoices col:nth-child(4){width:calc(30ch + 22px)}
 .registry-ui-data--invoices col:nth-child(6){width:calc(13ch + 22px)}
+
+/* Component catalog: descriptions and selectors share the width; actions stay compact.
+   Optional composition shown by the showcase catalog; other compact tables are unchanged. */
+.registry-ui-modal .registry-ui-compact-table--catalog th:first-child{width:43%}
+.registry-ui-modal .registry-ui-compact-table--catalog th:nth-child(2){width:39%}
+.registry-ui-modal .registry-ui-compact-table--catalog th:nth-child(3){width:18%}
+.registry-ui-modal .registry-ui-compact-table--catalog td:nth-child(2){white-space:normal;overflow-wrap:anywhere}

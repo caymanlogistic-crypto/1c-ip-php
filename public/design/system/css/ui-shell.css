@@ -28,3 +28,6 @@
 .registry-ui-card-actions .btn{width:100%;justify-content:flex-start;text-align:left}
 .registry-ui-card-actions .btn-danger{margin-top:4px}
 @media(max-width:1023px){.ui-detail-card .registry-ui-card-layout{grid-template-columns:minmax(0,1fr)}}
+
+/* Restoring saved folders is initial layout, without the user-toggle animation. */
+[data-menu-initializing] .nav-sub{transition:none}
