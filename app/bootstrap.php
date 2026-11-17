@@ -18,7 +18,8 @@ if (!getenv('APP_INTEGRATION_CAFILE') && ($projectCa = \App\Runtime::localCaFile
 }
 if(PHP_SAPI!=='cli') {
     ini_set('session.save_path',APP_ROOT.'/runtime/sessions');
-    session_name('IPPHPSESSID');
+    $stand=getenv('APP_STAND');
+    session_name(in_array($stand,['ui','integrations'],true)?'IPPHPSESSID_'.$stand:'IPPHPSESSID');
     session_set_cookie_params(['httponly'=>true,'samesite'=>'Strict','path'=>'/','secure'=>!empty($_SERVER['HTTPS'])]);
     session_start();
 }

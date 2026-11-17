@@ -1,0 +1,62 @@
+name: PHP image and isolated staging
+on:
+  push:
+    branches: [main, 'task/**', staging-ui, staging-integrations]
+permissions:
+  contents: read
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    concurrency:
+      group: ipphp-${{ github.ref_name }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Build exact commit with locked dependencies
+        run: |
+          set -euo pipefail
+          docker build --build-arg SOURCE_COMMIT="$GITHUB_SHA" -t "ipphp:$GITHUB_SHA" -f deploy/container/Dockerfile .
+          docker image inspect "ipphp:$GITHUB_SHA" --format '{{.Id}}' > image-id.txt
+          docker run --rm --entrypoint php "ipphp:$GITHUB_SHA" -r 'foreach(["pdo_mysql","bcmath","gd","intl","zip","mbstring"] as $e)if(!extension_loaded($e))exit(1); echo PHP_VERSION,"\n";'
+      - name: Deploy staging branch only
+        if: github.ref_name == 'staging-ui' || github.ref_name == 'staging-integrations'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UI_KEY: ${{ secrets.UI_DEPLOY_SSH_KEY }}
+          INTEGRATIONS_KEY: ${{ secrets.INTEGRATIONS_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+        run: |
+          set -euo pipefail
+          stand="${GITHUB_REF_NAME#staging-}"
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
+          test "$latest" = "$GITHUB_SHA" || { echo 'Stale build; skipped before deployment'; exit 0; }
+          mkdir -m 700 -p ~/.ssh
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          if [ "$stand" = ui ]; then printf '%s\n' "$UI_KEY" > ~/.ssh/deploy; else printf '%s\n' "$INTEGRATIONS_KEY" > ~/.ssh/deploy; fi
+          chmod 600 ~/.ssh/deploy ~/.ssh/known_hosts
+          docker save "ipphp:$GITHUB_SHA" | gzip -1 > image.tar.gz
+          export IMAGE_ID=$(cat image-id.txt)
+          export ARCHIVE_SHA=$(sha256sum image.tar.gz | cut -d' ' -f1)
+          export OIDC_TOKEN=$(curl --fail --silent --show-error -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=ipphp-deploy" | jq -r .value)
+          python3 - <<'PY' > header.json
+          import json,os
+          print(json.dumps({'commit':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],
+            'image_id':os.environ['IMAGE_ID'],'archive_sha256':os.environ['ARCHIVE_SHA'],'oidc':os.environ['OIDC_TOKEN']}))
+          PY
+          unset OIDC_TOKEN UI_KEY INTEGRATIONS_KEY
+          { cat header.json; cat image.tar.gz; } | ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -i ~/.ssh/deploy "ipphp-ci-$stand@$DEPLOY_HOST" release | tee deployment.json
+          rm -f ~/.ssh/deploy header.json image.tar.gz
+          printf '### %s deployed\nCommit: `%s`\nImage config digest: `%s`\n' "$stand" "$GITHUB_SHA" "$IMAGE_ID" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release-${{ github.ref_name }}-${{ github.run_id }}
+          path: |
+            image-id.txt
+            deployment.json
+          retention-days: 7
