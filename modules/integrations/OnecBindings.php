@@ -72,7 +72,7 @@ final class OnecBindings implements OnecReferenceSource {
             $r['evidence_sha256']);
         $facts = Support::decode($raw);
         $facts = $facts['d']??$facts;
-        if (!is_array($facts) || ($facts['Ref_Key']??null) !== $r['native_key'] || ($facts['DataVersion']??null) !== $r['native_version'] || ($facts['DeletionMark']??null) !== false || ($facts['IsFolder']??null) !== false)self::gap('native_refs.' . $field . '.observed_flags_version');
+        if (!is_array($facts) || ($facts['Ref_Key']??null) !== $r['native_key'] || ($facts['DataVersion']??null) !== $r['native_version'] || !OnecMapping::referenceFlags($r['native_type'],$facts))self::gap('native_refs.' . $field . '.observed_flags_version');
         OnecMapping::guid($r['native_key']);
         $result = ['type' => $r['native_type'],
             'key' => $r['native_key'],

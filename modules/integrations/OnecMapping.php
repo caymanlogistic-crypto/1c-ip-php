@@ -13,6 +13,18 @@ final class OnecMapping {
         'contract' => 'Catalog_ДоговорыКонтрагентов',
         'currency' => 'Catalog_Валюты',
         'item' => 'Catalog_Номенклатура'];
+    /** The reviewed metadata has no IsFolder on organizations/currencies. Never invent it. */
+    public static function referenceFlags(string $type,array $facts): bool {
+        if(!in_array($type,array_values(self::REFS),true)||($facts['DeletionMark']??null)!==false)return false;
+        if(array_key_exists('IsFolder',$facts))return $facts['IsFolder']===false;
+        return in_array($type,[self::REFS['organization'],self::REFS['currency']],true);
+    }
+    public static function customerContract(array $facts,string $organization,string $counterparty,string $currency): bool {
+        return ($facts['Организация_Key']??null)===$organization&&($facts['Owner_Key']??null)===$counterparty
+            &&($facts['ВалютаВзаиморасчетов_Key']??null)===$currency&&($facts['ВидДоговора']??null)==='СПокупателем'
+            // Закрыт is absent in the reviewed metadata. An explicit closed/null flag still denies.
+            &&(!array_key_exists('Закрыт',$facts)||$facts['Закрыт']===false);
+    }
     public static function guid(mixed $v): string {
         if (!is_string($v) || !preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D',
             $v) || $v === '00000000-0000-0000-0000-000000000000')throw new \InvalidArgumentException('ONEC_GUID_INVALID');

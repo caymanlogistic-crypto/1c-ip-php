@@ -40,8 +40,14 @@ API: `/integrations/onec-actions/<ключ>/<действие>`. `preview`/`stat
 
 `check` повторно использует штатную ограниченную проверку чтения 1С и её request_key/журнал. Он не подтверждает возможность CREATE. `dispatch` сохраняет прежние write gate, source policy, журнал, предзапрос и сверку результата OnecNativeService. Неизвестный исход не разрешает повторную запись. Наличие этих страниц не включает внешнюю запись, outbox или workers.
 
+Серверный `OnecWriteAdmission` открывает этот существующий journal без общего внешнего gate. Приватный `.local/onec-write-admission.json` задаётся оператором: enabled=true, project_id проекта, stand=ui, scope=prepared-counterparty-customer-invoice-create, source_instance, profile_reference, целочисленные connection_revision и source_revision. Проверяются текущие выбранные настройки и private write_policy, а также source binding. Изменение профиля/revision закрывает допуск. Сетевой доступ использует прежний pinned HTTPS /32; отдельный доступ к другим провайдерам не появляется.
+
+В pinned metadata организации и валюты не имеют IsFolder; отсутствие этого поля допустимо только для этих двух типов. У контрагентов, договоров и номенклатуры требуется явное false. Договор покупателя должен соответствовать организации, владельцу, RUB и виду СПокупателем. Отсутствующее в этой схеме поле Закрыт не изобретается; явное true/null отклоняется. DeletionMark всегда должен быть явным false. Эти проверки общие для сохранённого наблюдения и live preflight.
+
 `onec-print` не создаёт приблизительный файл: check/generate возвращают HTTP 409 `ONEC_PRINT_TEMPLATE_REQUIRED`. Формат и renderer будут добавлены по отдельному согласованному образцу.
 
 ## Проверка
 
 `APP_DB_CONFIG_FILE=<своя ipphp_task_* БД> php bin/test-onec-operations.php` проверяет реальный preview, блокировку неподтверждённого пакета при повторе, вид subject, лишний native body, права/page grants, чужой/отсутствующий intent и обязательность реального печатного образца. Тест не делает сетевых запросов; транзакционная проверка прав откатывается.
+
+`bin/test-onec-write-admission.php` на пустой конфигурации собственной task-БД проверяет scoped CREATE/GET, отсутствие общего доступа, revision/profile/source/private-policy guards и фактическую семантику флагов каталогов. Dummy marker/secret удаляются, SQL откатывается; сетевых вызовов нет.
