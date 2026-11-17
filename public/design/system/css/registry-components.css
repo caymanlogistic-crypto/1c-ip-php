@@ -685,7 +685,7 @@
 
 /* Component catalog: descriptions and selectors share the width; actions stay compact.
    Optional composition shown by the showcase catalog; other compact tables are unchanged. */
-.registry-ui-modal .registry-ui-compact-table--catalog th:first-child{width:45%}
-.registry-ui-modal .registry-ui-compact-table--catalog th:nth-child(2){width:40%}
-.registry-ui-modal .registry-ui-compact-table--catalog th:nth-child(3){width:15%}
+.registry-ui-modal .registry-ui-compact-table--catalog th:first-child{width:43%}
+.registry-ui-modal .registry-ui-compact-table--catalog th:nth-child(2){width:39%}
+.registry-ui-modal .registry-ui-compact-table--catalog th:nth-child(3){width:18%}
 .registry-ui-modal .registry-ui-compact-table--catalog td:nth-child(2){white-space:normal;overflow-wrap:anywhere}
