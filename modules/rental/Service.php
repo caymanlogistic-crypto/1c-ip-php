@@ -265,6 +265,7 @@ final class Service {
                     'returned',
                     'active'
                 ], true))throw new RuntimeException('Условия на согласовании менять нельзя.');
+                if ($old['status']==='returned' && $old['return_to']==='lawyer')throw new RuntimeException('Исправление назначено юристу. Дождитесь передачи замечаний менеджеру.',409);
                 if ($old['status'] === 'active' && array_diff(array_keys($in), [
                     'id',
                     'version',
@@ -446,9 +447,11 @@ final class Service {
                 case 'contract.legal':self::roles([
                     'lawyer'
                 ]);
-                if ($status !== 'legal')throw new RuntimeException('Договор не у юриста.');
+                if (!LegalReview::assigned($c))throw new RuntimeException('Договор не у юриста.');
                 if (empty($in['counterparty_confirmed']) || empty($in['financial_confirmed']))throw new RuntimeException('Подтвердите контрагента и финансовые условия.');
                 $legalFile = Evidence::latest($p, 'contract', $id, 'lawyer-file', (int)$c['version']);
+                if (empty($in['document_confirmed']))throw new RuntimeException('Подтвердите проверку актуального файла договора.');
+                if (($in['legal_file_id'] ?? '') !== $legalFile['id'])throw new RuntimeException('Файл договора изменился. Откройте проверку повторно и проверьте актуальный файл.',409);
                 $fileId = $legalFile['id'];
                 $signature = Evidence::approvalSignature($p, $id, $fileId);
                 $p->prepare("INSERT INTO rental_approvals(entity_type,entity_id,role,baseline_hash,file_id,actor_id) VALUES('contract',?,'lawyer',?,?,?) ON DUPLICATE KEY UPDATE baseline_hash=VALUES(baseline_hash),file_id=VALUES(file_id),actor_id=VALUES(actor_id)")->execute([
