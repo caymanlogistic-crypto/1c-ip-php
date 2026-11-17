@@ -143,7 +143,7 @@ input,select,textarea,button{font-family:var(--font)}
 .cs-room-picker{min-width:0;flex:1}
 .cs-room-picker .cs-trigger{width:100%;height:auto;min-height:var(--control-h);text-align:left}
 .cs-room-picker .cs-value{padding:5px 0;white-space:normal;overflow-wrap:anywhere}
-.cs-room-picker .cs-dropdown{position:static;margin-top:3px}
+.cs-room-picker .cs-dropdown{position:fixed;inset:auto;margin:0;box-sizing:border-box;overflow:hidden}
 .cs-room-picker .cs-options{max-height:min(200px,40vh)}
 .cs-room-picker .cs-option{height:auto;min-height:30px;display:block;padding:7px 10px;white-space:normal;overflow-wrap:anywhere}
 .cs-room-picker .cs-option.is-active{background:var(--surface-muted)}

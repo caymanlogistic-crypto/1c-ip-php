@@ -160,9 +160,11 @@ final class Evidence {
         ]);
         $kinds = $q->fetchAll(PDO::FETCH_COLUMN);
         if (!in_array('Обеспечительный платёж', $kinds, true) || !in_array('Первый период', $kinds, true))return false;
+        CustomerBookings::checkActivation($p,$c);
         $p->prepare("UPDATE contracts SET status='active',version=version+1 WHERE id=?")->execute([
             $id
         ]);
+        CustomerBookings::cancelOthers($p,$id);
         Service::event($p,\App\Auth::user(),'contract.activated','Договор '.$c['number'].' действует: оплачены обеспечение и первый период',$id);
         return true;
     }

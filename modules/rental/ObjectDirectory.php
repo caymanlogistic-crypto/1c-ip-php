@@ -118,7 +118,10 @@ final class ObjectDirectory
     {
         $comment='—';
         if ($facts['recent']) $comment='<strong class="registry-ui-success">'.ObjectFacts::days($facts['recent']['days']).'</strong><span class="registry-ui-secondary">Новый с '.Documents::dateText($facts['recent']['date']).': '.View::e($facts['lease']['tenant']).'</span>';
-        elseif ($facts['severity']==='blue') $comment=View::e(($facts['booking']['client_name'] ?: 'Клиент не указан').' до '.Documents::dateText($facts['booking']['until_date']).($facts['booking']['comment']?': '.$facts['booking']['comment']:''));
+        elseif ($facts['severity']==='blue') {
+            $comments=[];foreach($facts['bookings'] as $booking)$comments[]=View::e(($booking['client_name'] ?: 'Клиент не указан').' до '.Documents::dateText($booking['until_date']).($booking['comment']?': '.$booking['comment']:''));
+            $comment=(count($comments)>1?'<strong>Брони: '.count($comments).'</strong><br>':'').implode('<br>',$comments);
+        }
         elseif ($facts['free']) $comment='<strong class="registry-ui-error">'.($facts['days']===null?'Указать дату':ObjectFacts::days($facts['days'])).'</strong><span class="registry-ui-secondary">Последний арендатор: '.View::e($facts['previous'] ?: 'Не указан').'</span>';
         if ($facts['deadline']) $comment.='<div><strong class="registry-ui-error">'.View::e($facts['deadline']).'</strong></div><div class="doc-meta">Необходимо подписать допсоглашение о пролонгации или начать процедуру завершения договора</div>';
         return $comment;

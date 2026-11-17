@@ -46,7 +46,7 @@ final class WorkRegistry {
             'draft',
             'booking'
         ], true))$flag = 'all';
-        $contracts = Controller::query("SELECT c.*,p.name party_name FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status='draft' ORDER BY c.id DESC");
+        $contracts = Controller::query("SELECT c.*,COALESCE(p.name,'—') party_name FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.status='draft' AND ".ContractDraft::visibleSql()." ORDER BY c.id DESC");
         $documents = Controller::query("SELECT d.*,c.number base_number,c.document_date base_document_date,p.name party_name FROM rental_documents d JOIN contracts c ON c.id=d.contract_id JOIN parties p ON p.id=c.party_id WHERE d.status='draft' AND JSON_UNQUOTE(JSON_EXTRACT(d.source_json,'$.entryMode'))='current' ORDER BY d.id DESC");
         $bookings = [
         ];
@@ -78,7 +78,8 @@ final class WorkRegistry {
         $manager = People::label('manager');
         if ($flag !== 'booking') {
             foreach ($contracts as $c) {
-                $objects = Controller::objectNames((int)$c['id']);
+                $draft = ContractDraft::input($c);
+                $objects = $draft === null ? Controller::objectNames((int)$c['id']) : View::e(implode(', ', array_column(ContractDraft::objects(\App\DB::pdo(), $draft), 'name')));
                 if (!self::matches($query, [
                     $c['number'],
                     $c['party_name'],
@@ -92,7 +93,7 @@ final class WorkRegistry {
                     . $c['id']
                     . '" data-open="contract" data-id="'
                     . $c['id']
-                    . '" data-rental-url="/rental/contract?id='
+                    . '" data-rental-url="/rental/edit-contract?id='
                     . $c['id']
                     . '" tabindex="0"',
                     View::e($c['number']),
