@@ -82,6 +82,12 @@ source_json и fact_json сейчас содержат смешанные ист
 
 Обнаружено расхождение: RegistryState::managed учитывает imported/workflowTouched/servicing_document_id; SourceCards::show учитывает только imported. Оно не считается исправленным этим документом.
 
+### Неполный черновик договора
+
+`Service::command(contract.create/contract.edit, intent=draft)` → `ContractDraft::save`: права, версия, блокировка номера, транзакция, история и событие остаются в Service. `source_json.draft_input` — авторитетное состояние незавершённого редактора; nullable колонки — только пригодная для реестра проекция. Сохранение не изменяет contract_objects/contract_terms и не потребляет бронь. ContractForm восстанавливает форму, WorkRegistry/карточка/условия/реестр согласований читают тот же draft_input. `intent=submit` и команда `contract.submit` проходят полный прежний путь Service с материализацией условий и удалением draft_input. Миграция 052 отдельно разрешает NULL party_id только для draft/returned/cancelled; порядок и ограничения возврата — database/052-contract-drafts.md. Автодеплой миграцию не применяет.
+
+Общий поисковый picker rental-pickers.js открывает cs-dropdown как fixed popover верхнего слоя с учётом границ окна, прокрутки и resize. Пример того же компонента: Витрина → Создать объект → Помещение. Формы создания документа, брони и договора используют существующий registry-ui-modal-grid для межполевого интервала.
+
 ## 4. Витрина и общая UI-база
 
 ### Витрина текущего проекта

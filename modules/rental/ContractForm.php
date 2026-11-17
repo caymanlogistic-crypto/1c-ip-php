@@ -18,14 +18,17 @@ final class ContractForm {
             'draft',
             'returned'
         ], true) || $c['return_to'] === 'lawyer'))throw new RuntimeException('Проект не доступен для редактирования.', 403);
+        $draft = ContractDraft::input($c);
+        if ($draft !== null) foreach (['party_id','document_date','start_date','end_date'] as $field) $c[$field]=$draft[$field] ?? '';
         $booking = !$c && !empty($_GET['booking_id'])?BookingController::record((int)$_GET['booking_id']):null;
         if ($booking && ($booking['status'] !== 'active' || $booking['contract_id'] !== null || $booking['until_date']<date('Y-m-d')))throw new RuntimeException('Бронь уже изменена или истекла.', 409);
         $start = $c['start_date'] ?? $booking['start_date'] ?? '';
         $end = $c['end_date'] ?? '';
         // Undated drafts show today's availability only as a picker preview.
         // The required submitted boundaries remain empty until chosen.
-        $availabilityStart = $start ?: date('Y-m-d');
-        $availabilityEnd = $end ?: $availabilityStart;
+        try { $availabilityStart=Service::date($start); } catch (RuntimeException) { $availabilityStart=date('Y-m-d'); }
+        try { $availabilityEnd=Service::date($end); } catch (RuntimeException) { $availabilityEnd=$availabilityStart; }
+        if ($availabilityEnd<$availabilityStart) $availabilityEnd=$availabilityStart;
         $number = $c['number'] ?? '';
         if (!$c) {
             $max = 0;
@@ -51,7 +54,8 @@ final class ContractForm {
         . '</option>';
         $selected = [
         ];
-        if ($c)$selected = Controller::query('SELECT o.id,o.name,o.type,o.area,t.amount FROM contract_objects co JOIN rental_objects o ON o.id=co.object_id LEFT JOIN contract_terms t ON t.id=(SELECT MAX(t2.id) FROM contract_terms t2 WHERE t2.contract_id=co.contract_id AND t2.object_id=o.id) WHERE co.contract_id=? ORDER BY o.id', [
+        if ($draft !== null)$selected = ContractDraft::objects(\App\DB::pdo(), $draft);
+        elseif ($c)$selected = Controller::query('SELECT o.id,o.name,o.type,o.area,t.amount FROM contract_objects co JOIN rental_objects o ON o.id=co.object_id LEFT JOIN contract_terms t ON t.id=(SELECT MAX(t2.id) FROM contract_terms t2 WHERE t2.contract_id=co.contract_id AND t2.object_id=o.id) WHERE co.contract_id=? ORDER BY o.id', [
             $id
         ]);
         elseif($booking)$selected = Controller::query('SELECT id,name,type,area,NULL amount FROM rental_objects WHERE id=?', [
@@ -60,10 +64,16 @@ final class ContractForm {
         $sum = '0.00';
         $rows = '';
         foreach ($selected as $o) {
-            if ($o['amount'] !== null)$sum = bcadd($sum, $o['amount'], 2);
+            if ($o['amount'] !== null) {
+                try { $sum = bcadd($sum, Service::money($o['amount']), 2); } catch (RuntimeException) {}
+            }
             $rows.=self::row($o);
         }
-        foreach ($c?\App\BillingParts::terms(\App\DB::pdo(), 'contract', $id):[] as $part) {
+        if ($draft !== null) {
+            foreach ($draft['term_amount'] ?? [] as $slot=>$value) if (str_starts_with((string)$slot,'part_')) {
+                try { $sum=bcadd($sum,Service::money($value),2); } catch (RuntimeException) {}
+            }
+        } else foreach ($c?\App\BillingParts::terms(\App\DB::pdo(), 'contract', $id):[] as $part) {
             if ($part['amount'] !== null) $sum = bcadd($sum, $part['amount'], 2);
         }
         if (!$rows)$rows = '<tr data-rental-empty-terms><td colspan="3">Помещения пока не добавлены.</td></tr>';
@@ -130,8 +140,8 @@ final class ContractForm {
         . '<div class="field">'
         . '<label class="field-label" for="contract-object">Выбрать помещение</label>'
         . '<div class="registry-ui-modal-address-row">'
-        . '<select class="field-input field-select" id="contract-object" data-rental-object-picker data-rental-picker="room">'
-        . Availability::options(Availability::items($availabilityStart, $availabilityEnd, $c?(int)$c['id']:null, $booking?(int)$booking['id']:null))
+        . '<select class="field-input field-select" id="contract-object" name="draft_object_id" data-rental-object-picker data-rental-picker="room">'
+        . Availability::options(Availability::items($availabilityStart, $availabilityEnd, $c?(int)$c['id']:null, $booking?(int)$booking['id']:null), empty($draft['draft_object_id'])?null:(int)$draft['draft_object_id'])
         . '</select>'
         . '<button class="btn btn-secondary" type="button" data-rental-add-object>Добавить помещение</button>'
         . '</div>'
@@ -147,7 +157,7 @@ final class ContractForm {
             'amount' => null
         ], true)
         . '</template>'
-        . PartTerms::render(\App\DB::pdo(), 'contract', $id, $start, $end);
+        . PartTerms::render(\App\DB::pdo(), 'contract', $id, $start, $end, $draft);
         $availability = '/rental/availability'
         . ($c?'?contract_id='
         . $c['id']:($booking?'?booking_id='
@@ -168,9 +178,10 @@ final class ContractForm {
         . '"><input type="hidden" name="booking_version" value="'
         . $booking['version']
         . '">':'');
+        if (!$booking && !empty($draft['booking_id'])) $hidden.='<input type="hidden" name="booking_id" value="'.(int)$draft['booking_id'].'"><input type="hidden" name="booking_version" value="'.(int)($draft['booking_version'] ?? 0).'">';
         $body = '<form id="'
         . $fid
-        . '" data-rental-contract-form data-rental-availability-url="'
+        . '" class="registry-ui-modal-grid" data-rental-contract-form data-rental-availability-url="'
         . View::e($availability)
         . '" method="post" action="/rental/action">'
         . $hidden
@@ -178,7 +189,7 @@ final class ContractForm {
         . '</form>';
         $actions = '<button class="btn btn-secondary" type="submit" form="'
         . $fid
-        . '" name="intent" value="draft">Сохранить в черновиках</button><button class="btn btn-primary" type="submit" form="'
+        . '" name="intent" value="draft" formnovalidate>Сохранить в черновиках</button><button class="btn btn-primary" type="submit" form="'
         . $fid
         . '" name="intent" value="submit">'
         . ($c && $c['status'] === 'returned'?'Повторно согласовать':'Отправить на согласование')

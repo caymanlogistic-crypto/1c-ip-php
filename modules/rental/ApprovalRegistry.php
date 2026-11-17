@@ -15,11 +15,11 @@ final class ApprovalRegistry
         $flag=(string)($_GET['flag'] ?? 'all');
         if (!in_array($flag,['all','mine','returned','cancelled'],true)) $flag='all';
         $tasks=Indicators::tasks(null,null,['approvals']);$entries=[];$stages=[];
-        foreach (Controller::query("SELECT c.*,p.name party_name,p.inn party_inn FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status IN ('legal','accounting','returned','approved','sent','cancelled') ORDER BY c.id") as $contract) {
+        foreach (Controller::query("SELECT c.*,COALESCE(p.name,'—') party_name,p.inn party_inn FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.status IN ('legal','accounting','returned','approved','sent','cancelled') ORDER BY c.id") as $contract) {
             $entries[]=self::entry('contract',$contract,$contract,$role,$tasks);
         }
         foreach (Controller::query("SELECT d.* FROM rental_documents d WHERE d.status<>'draft' ORDER BY d.id") as $document) {
-            $contract=Controller::query('SELECT c.*,p.name party_name,p.inn party_inn FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.id=?',[$document['contract_id']])[0] ?? null;
+            $contract=Controller::query('SELECT c.*,COALESCE(p.name,\'—\') party_name,p.inn party_inn FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.id=?',[$document['contract_id']])[0] ?? null;
             if ($contract) $entries[]=self::entry('document',$document,$contract,$role,$tasks);
         }
         foreach ($entries as $entry) $stages[$entry['filter']]=$entry['view']['stage'];
@@ -64,6 +64,7 @@ final class ApprovalRegistry
         $view=RegistryState::approval($kind,$record,$contract,$role,$tasks);
         $objects=Controller::query($kind==='contract'?'SELECT o.name FROM contract_objects co JOIN rental_objects o ON o.id=co.object_id WHERE co.contract_id=? ORDER BY o.id'
             :'SELECT o.name FROM document_terms t JOIN rental_objects o ON o.id=t.object_id WHERE t.document_id=? ORDER BY o.id',[$record['id']]);
+        if ($kind==='contract' && ($draft=ContractDraft::input($record)) !== null) $objects=ContractDraft::objects(\App\DB::pdo(),$draft);
         return ['kind'=>$kind,'record'=>$record,'contract'=>$contract,'view'=>$view,'objects'=>implode(', ',array_column($objects,'name')),
             'filter'=>$view['source']?'source:'.$view['stage']:$record['status']];
     }

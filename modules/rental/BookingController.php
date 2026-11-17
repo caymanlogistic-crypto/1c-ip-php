@@ -23,7 +23,7 @@ final class BookingController {
         return [
             '<form id="'
             . $fid
-            . '" method="post" action="/rental/action" data-rental-availability-url="/rental/availability"><input type="hidden" name="_csrf" value="'
+            . '" class="registry-ui-modal-grid" method="post" action="/rental/action" data-rental-availability-url="/rental/availability"><input type="hidden" name="_csrf" value="'
             . View::e(Http::csrf())
             . '"><input type="hidden" name="action" value="'
             . $action

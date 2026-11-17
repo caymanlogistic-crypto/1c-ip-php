@@ -240,7 +240,7 @@ final class Service {
         foreach ($terms as $term)$p->prepare("INSERT INTO contract_terms(contract_id,object_id,start_date,end_date,amount,source_json) VALUES(?,?,?,?,?,'{}')")->execute($term);
     }
 
-    private static function execute(PDO $p, array $u, string $action, array $in): array {
+    private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
         $id = (int)($in['id'] ?? 0);
         if ($action === 'contract.create' || $action === 'contract.edit') {
             self::roles([
@@ -290,6 +290,9 @@ final class Service {
                     $id
                 ]);
             }
+            elseif (($in['intent'] ?? 'draft') !== 'submit') {
+                $id = ContractDraft::save($p, $in, $old, $number);
+            }
             else {
                 $party = (int)($in['party_id'] ?? $old['party_id'] ?? 0);
                 $pa = self::get($p, 'parties', $party);
@@ -315,7 +318,7 @@ final class Service {
                 $priorRelations=$old?Occupancy::relations($p,$id):[];
                 $booking = null;
                 if (!empty($in['booking_id'])) {
-                    if ($old)throw new RuntimeException('Бронь используется только при создании договора.');
+                    if ($old && (int)(ContractDraft::input($old)['booking_id'] ?? 0)!==(int)$in['booking_id'])throw new RuntimeException('Бронь используется только при создании договора.');
                     $booking = self::get($p, 'reservations', (int)$in['booking_id']);
                     self::version($booking, [
                         'version' => $in['booking_version'] ?? 0
@@ -379,11 +382,12 @@ final class Service {
                     $party,
                     $booking['id']
                 ]);
+                $p->prepare("UPDATE contracts SET source_json=JSON_REMOVE(source_json,'$.draft_input') WHERE id=?")->execute([$id]);
                 if (($in['intent'] ?? '') === 'submit')$p->prepare("UPDATE contracts SET status='legal',return_to=NULL,reason=NULL WHERE id=?")->execute([
                     $id
                 ]);
             }
-            self::event($p, $u, $action, 'Сохранён договор №'
+            self::event($p, $u, $eventAction ?? $action, 'Сохранён договор №'
             . $number, $id);
             return [
                 'id' => $id,
@@ -415,6 +419,9 @@ final class Service {
                     'draft',
                     'returned'
                 ], true) || ($status === 'returned' && $c['return_to'] === 'lawyer'))throw new RuntimeException('Договор не готов к отправке юристу.');
+                if (($draft = ContractDraft::input($c)) !== null) {
+                    return self::execute($p, $u, 'contract.edit', array_merge($draft, ['id'=>$id,'version'=>$c['version'],'number'=>$c['number'],'command_key'=>$in['command_key'],'intent'=>'submit']), 'contract.submit');
+                }
                 $q = $p->prepare('SELECT object_id FROM contract_objects WHERE '.\App\ContractOccupancy::physicalPredicate('contract_objects').' AND contract_id=?');
                 $q->execute([
                     $id

@@ -15,7 +15,7 @@ final class SourceCards {
 
     private static function contract(int $id): array {
         Access::contract($id);
-        return Controller::query('SELECT c.*,p.name party_name FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.id=?', [
+        return Controller::query('SELECT c.*,COALESCE(p.name,\'—\') party_name FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.id=?', [
             $id
         ])[0] ?? throw new RuntimeException('Договор не найден.', 404);
     }
@@ -33,6 +33,7 @@ final class SourceCards {
         $rows = Controller::query('SELECT o.* FROM rental_objects o JOIN contract_objects co ON co.object_id=o.id WHERE co.contract_id=? ORDER BY o.id', [
             $id
         ]);
+        if (($draft=ContractDraft::input($c)) !== null) $rows=ContractDraft::objects(\App\DB::pdo(),$draft);
         $objects = implode(', ', array_column($rows, 'name'));
         foreach (\App\BillingParts::terms(\App\DB::pdo(), 'contract', $id) as $part) {
             $objects .= ($objects!==''?', ':'').PartTerms::label($part);
@@ -138,8 +139,8 @@ final class SourceCards {
         $body.=RentalUI::pairs($pairs);
         $more = RentalUI::button('Условия договора', '/rental/conditions?id='
         . $id)
-        . RentalUI::button('Контрагент', '/rental/party?id='
-        . $c['party_id'])
+        . ($c['party_id']?RentalUI::button('Контрагент', '/rental/party?id='
+        . $c['party_id']):'')
         . RentalUI::button('Счета и оплаты', '/rental/invoice-list?contract_id='
         . $id)
         . RentalUI::button('Допсоглашения', '/rental/documents?contract_id='
@@ -225,9 +226,20 @@ final class SourceCards {
         Auth::requirePermission('rental.read');
         $id = (int)($_GET['id'] ?? 0);
         $c = self::contract($id);
-        $out = [
-        ];
-        foreach (Controller::query('SELECT o.name,o.area,t.start_date,t.end_date,t.amount,t.effective_date FROM contract_objects co JOIN rental_objects o ON o.id=co.object_id LEFT JOIN contract_terms t ON t.contract_id=co.contract_id AND t.object_id=o.id WHERE co.contract_id=? ORDER BY o.id,t.effective_date,t.id', [
+        $out = [];
+        $draft=ContractDraft::input($c);
+        if ($draft !== null) {
+            foreach (ContractDraft::objects(\App\DB::pdo(),$draft) as $object) {
+                $price=trim((string)($object['amount'] ?? ''));
+                $out[]=[View::e($object['name']),View::e($object['area']),View::e(self::date($c['start_date'])),View::e(self::date($c['end_date'])),View::e($price!==''?$price:'Не подтверждено'),'—'];
+            }
+            foreach (PartTerms::candidates(\App\DB::pdo(),'contract',$id) as $slot=>$candidate) {
+                $price=trim((string)($draft['term_amount'][$slot] ?? ''));
+                if ($price==='') continue;
+                $part=$candidate['part']['part'];
+                $out[]=[View::e('Часть '.$part['number'].' · юридический адрес'),'—',View::e($draft['part_terms'][$slot]['start_date'] ?? ''),View::e($draft['part_terms'][$slot]['end_date'] ?? ''),View::e($price),'—'];
+            }
+        } else foreach (Controller::query('SELECT o.name,o.area,t.start_date,t.end_date,t.amount,t.effective_date FROM contract_objects co JOIN rental_objects o ON o.id=co.object_id LEFT JOIN contract_terms t ON t.contract_id=co.contract_id AND t.object_id=o.id WHERE co.contract_id=? ORDER BY o.id,t.effective_date,t.id', [
             $id
         ]) as $t)$out[] = [
             View::e($t['name']),
@@ -237,7 +249,7 @@ final class SourceCards {
             Controller::money($t['amount']),
             View::e(self::date($t['effective_date']))
         ];
-        foreach (\App\BillingParts::terms(\App\DB::pdo(), 'contract', $id) as $part) $out[] = [
+        foreach ($draft===null?\App\BillingParts::terms(\App\DB::pdo(), 'contract', $id):[] as $part) $out[] = [
             View::e(PartTerms::label($part)), View::e($part['area'] ?? '—'),
             View::e(self::date($part['start_date'])), View::e(self::date($part['end_date'])),
             Controller::money($part['amount']), View::e(self::date($part['effective_date'])),
