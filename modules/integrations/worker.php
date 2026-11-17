@@ -58,7 +58,6 @@ function authReceipt(array $request):void {
     $GLOBALS['IPPHP_AUTH_DIAGNOSTIC']['requests'][]=['stage'=>$stage,'http_status'=>is_int($http)&&$http>=100&&$http<=599?$http:null,'curl_errno'=>is_int($errno)&&$errno>=0&&$errno<=9999?$errno:null];
 }
 function runInternal(array $input,array $factories=[]):array {
-    if(!$factories&&getenv('IPPHP_ALLOW_EXTERNAL')!=='owner-authorized-project-access')failure('ACCESS_DENIED');
     unset($GLOBALS['ONEC_DIAGNOSTIC']);
     if(array_diff(array_keys($input),['provider','operation','state','credentials','session','box_id','cursor','account','remaining_ms','force_login','document','receipt','ephemeral_probe','archive_period','include_metadata','check_probe','profile_reference','profile_revision']))failure('ACCESS_DENIED');
     $provider=$input['provider']??'';$operation=$input['operation']??'';$cursor=$input['cursor']??null;
@@ -77,6 +76,15 @@ function runInternal(array $input,array $factories=[]):array {
     if(!isset($extras[$provider])||!in_array($operation,array_merge(['authenticate','accounts','records'],$extras[$provider]),true))failure('ACCESS_DENIED');
     $budget=$input['remaining_ms']??null;
     if(!is_int($budget)||$budget<1||$budget>900000)failure('ACCESS_DENIED');
+    if(!$factories&&!\Modules\Integrations\Config::liveAllowed()){
+        if($provider!=='onec')failure('ACCESS_DENIED');
+        $credentials=$input['credentials']??[];
+        $secret=is_array($credentials)?[
+            'username'=>$credentials['username']??null,'password'=>$credentials['password']??null,
+            '_reference'=>$input['profile_reference']??null,
+        ]:[];
+        if(!\Modules\Integrations\OnecReadAdmission::allows(\App\DB::pdo(),$provider,$operation,$secret))failure('ACCESS_DENIED');
+    }
     $GLOBALS['ONLINE_DEADLINE']=hrtime(true)/1e9+$budget/1000;
     $state=\NativeClients\Portal::state($input['state']??'');
     $session=$input['session']??[];if(!is_array($session))failure('ACCESS_DENIED');
