@@ -20,6 +20,8 @@
 - На опубликованном сайте https://ui.89.208.213.14.sslip.io/email проверены реальный вход владельца/admin, отображение SMTP-настроек и штатная кнопка check через HTTP-форму: CHECKED_NO_SEND / success. Viewer POST check — 403. После приватной настройки /_ops.php: manual_email=true, external_access=false, automated_sends=false; существующий onec_read_check=true сохранён. Новое письмо с сервера не отправлялось. Серверные SQL-импорт/миграции/worker/queue replay не выполнялись.
 - Доказательства вне Git: .local/published-email-result.json, published-artifact/, send-evidence.json, copy-verification.json; серверный приватный резерв /srv/1c-ip-php/ui/mail-setup-*. Дальнейшая отправка пока ограничена подтверждённым ящиком. Автоматическая доставка документов аренды вне этой задачи. Итоговый отчёт меняет только WORK.md и не меняет проверенный прикладной код.
 
+- После следующего чужого автодеплоя MAX (c9d1dcd, workflow 44162897164 SUCCESS) без ручного восстановления повторно подтверждены SMTP /32 и отсутствие default route, timer Result=success, прежний hash общего receiver, вход/admin, SMTP check без письма и viewer 403. manual_email/onec_read_check=true, общие gates=false сохранены; почтовый маршрут пережил пересоздание app. Локальный PHP 8876 штатно остановлен, свои временные plaintext transfer-файлы удалены; БД/зашифрованный профиль/доказательства сохранены. Более новые принятые правки main 119df49 объединены только для отчёта; SMTP-путь ими не меняется.
+
 ## DEPLOY-LAYERS — доставка недостающих слоёв внедрена
 
 - Поручение владельца: исправить общий деплой без повторной передачи полного образа; БД и документы не менять. Один исполнитель, worktree `C:/Users/Vladimir/Documents/ChatGPT/1c-ip-deploy-layers`, `codex/deploy-layers` от `origin/main` afc384f.
