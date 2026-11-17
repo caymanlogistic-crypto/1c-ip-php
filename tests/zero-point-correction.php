@@ -16,6 +16,13 @@ $protected=['users','roles','permissions','role_permissions','role_profiles','ro
 $before=$hash($protected);$old=ZeroPoint::load();$dir=ZeroPoint::directory();$oldPin=json_decode(file_get_contents($dir.'/installed.json'),true);
 $login('manager');try{ZeroPointCorrection::prepare($evidence);throw new LogicException('Manager accepted');}catch(RuntimeException $e){$check($e->getCode()===403,'Manager denied');}
 $login('admin');$plan=ZeroPointCorrection::prepare($evidence);
+$db->beginTransaction();
+try {
+    $id=\App\BusinessIds::next($db,'reservations');$party=(int)$db->query('SELECT MIN(id) FROM parties')->fetchColumn();
+    $db->prepare("INSERT INTO reservations(id,object_id,party_id,start_date,end_date,until_date,status,source_json) VALUES(?,1044,?,'2026-11-01','2027-10-01','2027-10-01','active','{}')")->execute([$id,$party]);
+    try {Service::available($db,[1044],'2026-10-23','2027-10-01',1017);throw new LogicException('Conflicting booking accepted');}
+    catch(RuntimeException $e){$check(str_contains($e->getMessage(),'забронирован'),'Continuation refuses another reservation');}
+} finally {$db->rollBack();}
 $bad=$plan;$bad['document']['data']['tables']['contracts'][0]['amount']='1.00';$bad['next_sha256']=ZeroPoint::digest($bad['document']);
 try{ZeroPointCorrection::apply($bad);throw new LogicException('Tampered plan accepted');}catch(RuntimeException $e){$check(!is_file($dir.'/revision-pending.json'),'Tampered plan fails before changes');}
 $check($hash($protected)===$before,'Tamper preserves system and money');

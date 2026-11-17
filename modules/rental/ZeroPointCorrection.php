@@ -142,6 +142,8 @@ final class ZeroPointCorrection
         $live=ZeroPoint::capture($db,true);
         if (!hash_equals($plan['current_sha256'],ZeroPoint::digest($live))) throw new RuntimeException('Данные изменились после проверки.',409);
         $corrected=self::correct($live,$plan['evidence'],(int)$plan['term_id']);$dir=ZeroPoint::directory();
+        Service::available($db,[(int)$plan['evidence']['replacement']['to']],
+            '2026-10-23','2027-10-01',(int)$plan['evidence']['replacement']['contract_id']);
         $backup=['schema'=>1,'kind'=>'COMMERCIAL_BEFORE_RESTORE','project_id'=>ZeroPoint::PROJECT,
             'as_of'=>date('Y-m-d'),'table_schema'=>ZeroPoint::schema($db),'data'=>$live];
         $backupSha=ZeroPoint::digest($backup);ZeroPoint::write($dir.'/'.$backupSha.'.json',$backup);
