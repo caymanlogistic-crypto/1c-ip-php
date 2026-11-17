@@ -5,6 +5,13 @@ namespace Modules\Integrations;
 final class Messaging
 {
     public function __construct(private \PDO $db,private PrivateStore $store,private mixed $transport=null) {}
+    public static function exceptionResult(string $operation, string $stage, \Throwable $error): array {
+        // Before entering the transport no provider request can have happened.
+        if (in_array($stage, ['claim_spool_verify','secret_revision'], true)) {
+            return ['status'=>'failed','code'=>$error->getMessage()==='CREDENTIAL_REVISION_CONFLICT'?'CREDENTIAL_REVISION_CONFLICT':'MESSAGE_PREFLIGHT_FAILED'];
+        }
+        return ['status'=>$operation==='send'?'uncertain':'failed','code'=>'TRANSPORT_RESULT_UNKNOWN'];
+    }
     public function dispatch(string $provider,int $actor,string $requestKey,string $operation,array $targets,string $text='',string $subject='',array $attachments=[]): array {
         if(!in_array($provider,['email','max'],true)||!in_array($operation,['check','send'],true)||!preg_match('/^[A-Za-z0-9-]{16,100}$/D',$requestKey))throw new \InvalidArgumentException('INVALID_MESSAGE_COMMAND');
         if(mb_strlen($text)>4000||mb_strlen($subject)>200||preg_match('/[\r\n\x00]/',$subject)||$provider==='max'&&$subject!=='')throw new \InvalidArgumentException('MESSAGE_LIMIT');
@@ -21,7 +28,7 @@ final class Messaging
             $this->db->commit();
         }catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
         // Claim is committed before any side effect. A crash leaves pending, which is never auto-replayed.
-        foreach($attempts as $a){$stage='claim_spool_verify';try{$this->store->verifySpool($a['spool_path']);$stage='secret_revision';$secret=Config::secrets($provider);Config::assertSecretRevision($secret,$revision);$stage='transport_entry';$result=is_callable($this->transport)?($this->transport)($provider,$operation,$config,$secret,$a['target'],$a['raw'],$a['remote_id'],$groups):(new MessageTransport())->execute($provider,$operation,$config,$secret,$a['target'],$a['raw'],$a['remote_id'],$groups);if(!in_array($result['status']??'', $operation==='check'?['success','failed']:['accepted','failed','uncertain'],true))throw new \RuntimeException('INVALID_TRANSPORT_RESULT');}catch(\Throwable $e){$result=['status'=>$operation==='send'?'uncertain':'failed','code'=>'TRANSPORT_RESULT_UNKNOWN'];if($provider==='max')$result+=['transport_stage'=>$stage]+MessageTransport::safeException($e);}
+        foreach($attempts as $a){$stage='claim_spool_verify';try{$this->store->verifySpool($a['spool_path']);$stage='secret_revision';$secret=Config::secrets($provider);Config::assertSecretRevision($secret,$revision);$stage='transport_entry';$result=is_callable($this->transport)?($this->transport)($provider,$operation,$config,$secret,$a['target'],$a['raw'],$a['remote_id'],$groups):(new MessageTransport())->execute($provider,$operation,$config,$secret,$a['target'],$a['raw'],$a['remote_id'],$groups);if(!in_array($result['status']??'', $operation==='check'?['success','failed']:['accepted','failed','uncertain'],true))throw new \RuntimeException('INVALID_TRANSPORT_RESULT');}catch(\Throwable $e){$result=self::exceptionResult($operation,$stage,$e);if($provider==='max')$result+=['transport_stage'=>$stage]+MessageTransport::safeException($e);}
             // Immutable HMAC receipt remains separate from SQL's public delivery status.
             $receipt=$this->store->spool(['attempt_id'=>$a['id'],'kind'=>'transport_receipt','request_key'=>$requestKey],Support::json($result));
             $this->store->linkReceipt($a['id'],$receipt);
