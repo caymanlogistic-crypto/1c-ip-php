@@ -689,3 +689,17 @@
 .registry-ui-modal .registry-ui-compact-table--catalog th:nth-child(2){width:39%}
 .registry-ui-modal .registry-ui-compact-table--catalog th:nth-child(3){width:18%}
 .registry-ui-modal .registry-ui-compact-table--catalog td:nth-child(2){white-space:normal;overflow-wrap:anywhere}
+
+/* Sectioned forms: shared grid and optional data group, without decorative panels. */
+.registry-ui-form-sections{display:grid;gap:24px;min-width:0}
+.registry-ui-form-section{display:grid;gap:8px;min-width:0}
+.registry-ui-form-section>.registry-ui-modal-summary{margin:0 0 4px}
+.registry-ui-form-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;min-width:0}
+.registry-ui-form-row--wide-code{grid-template-columns:minmax(0,3fr) minmax(150px,1fr)}
+:is(.registry-ui-form-section,.registry-ui-form-row)>.field{margin:0;min-width:0}
+.registry-ui-form-disclosure{min-width:0}
+.registry-ui-form-disclosure>summary{list-style:none;max-width:100%;width:max-content}
+.registry-ui-form-disclosure>summary::-webkit-details-marker{display:none}
+.registry-ui-form-disclosure[open]>.registry-ui-form-section{margin-top:16px}
+.registry-ui-form-disclosure:not([open]) [data-disclosure-expanded],.registry-ui-form-disclosure[open] [data-disclosure-collapsed]{display:none}
+@media(max-width:700px){.registry-ui-form-row{grid-template-columns:minmax(0,1fr)}}
