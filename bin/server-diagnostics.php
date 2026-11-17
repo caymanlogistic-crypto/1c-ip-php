@@ -33,6 +33,7 @@ function serverDiagnostics(): array {
         'workers'=>'not configured','inherited_queue_replay'=>'not configured',
         'manual_email'=>$email!==null,
         'object_activity_max'=>\Modules\Integrations\ServerObjectMax::settings()!==null,
+        'contract_workflow_max'=>\Modules\Integrations\ServerWorkflowMax::settings()!==null,
         'onec_read_check'=>$onecRead!==null,'onec_transport'=>$onecRead!==null?'direct (bounded OneC check only)':'direct (external gate closed)','php'=>PHP_VERSION];
 }
 if(PHP_SAPI==='cli'&&realpath($_SERVER['SCRIPT_FILENAME'])===__FILE__){
