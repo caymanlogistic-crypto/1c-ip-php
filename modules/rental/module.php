@@ -65,4 +65,7 @@ $routes['/rental/template-base']=[\Modules\Rental\TemplateController::class,'bas
 $routes['/rental/invoice-pdf']=[Documents::class,'invoice'];
 $routes['/rental/download']=[Documents::class,'download'];
 $routes['/rental/upload']=[Documents::class,'upload'];
+$routes['/administration/zero-point']=[\Modules\Rental\ZeroPointController::class,'page'];
+$routes['/administration/zero-point/preview']=[\Modules\Rental\ZeroPointController::class,'preview'];
+$routes['/administration/zero-point/restore']=[\Modules\Rental\ZeroPointController::class,'restore'];
 return ['routes'=>$routes,'nav'=>[]];
