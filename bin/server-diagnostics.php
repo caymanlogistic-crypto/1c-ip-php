@@ -17,6 +17,8 @@ function serverDiagnostics(): array {
         throw new RuntimeException('ONEC_EXPLICIT_TRANSPORT_REQUIRED');
     $p=App\DB::pdo();$database=$p->query('SELECT DATABASE()')->fetchColumn();
     $onecRead=Modules\Integrations\OnecReadAdmission::settings();
+    $email=Modules\Integrations\EmailAdmission::settings();
+    if($email!==null&&!Modules\Integrations\EmailAdmission::allows(Modules\Integrations\Support::decode(Modules\Integrations\Config::get($p,'email')['config_json'])))throw new RuntimeException('EMAIL_PROFILE_BINDING');
     if($onecRead!==null&&!Modules\Integrations\OnecReadAdmission::allows($p,'onec','check'))throw new RuntimeException('ONEC_READ_PROFILE_BINDING');
     if($database!==$s['database']||$p->query('SELECT CURRENT_USER()')->fetchColumn()!==$s['db_user'].'@%')
         throw new RuntimeException('SERVER_DB_BINDING');
@@ -29,6 +31,7 @@ function serverDiagnostics(): array {
         'deployed_at'=>$deployment['deployed_at'],'database'=>$database,'database_ready'=>true,
         'project_id'=>$s['project_id'],'external_access'=>false,'automated_sends'=>false,
         'workers'=>'not configured','inherited_queue_replay'=>'not configured',
+        'manual_email'=>$email!==null,
         'onec_read_check'=>$onecRead!==null,'onec_transport'=>$onecRead!==null?'direct (bounded OneC check only)':'direct (external gate closed)','php'=>PHP_VERSION];
 }
 if(PHP_SAPI==='cli'&&realpath($_SERVER['SCRIPT_FILENAME'])===__FILE__){

@@ -6,15 +6,37 @@
 
 ## Публикация
 
-Свой worktree от main → локальная проверка → кандидат пользователю → «выкладывай» → свежий main в свою ветку → адресная проверка → PR и merge через GitHub → автодеплой main → проверка опубликованной версии и сценария → завершение.
+Свой worktree → локальная проверка → кандидат пользователю → «выкладывай» → PR → `./Queue-PR.ps1 -PullRequest <номер>` → автоматические обновление/проверка/слияние/выкладка → проверка своего сценария.
 
-Новая .github/workflows/staging.yml сохраняет имя файла, но публикует только push main через существующий environment ui. Task/codex-ветки и PR собираются в build без деплоя. Повторно используются UI_DEPLOY_SSH_KEY и DEPLOY_HOST/DEPLOY_KNOWN_HOSTS. Интеграционный ключ workflow не использует.
+Новая .github/workflows/staging.yml сохраняет имя файла, но публикует только main (push либо точный workflow_dispatch очереди) через существующий environment ui. Task/codex-ветки и PR собираются в build без деплоя. Повторно используются UI_DEPLOY_SSH_KEY и DEPLOY_HOST/DEPLOY_KNOWN_HOSTS. Интеграционный ключ workflow не использует.
 
-Receiver допускает только ui release с GitHub OIDC: repository/owner, refs/heads/main, точный commit/run_id, event=push и .github/workflows/staging.yml@refs/heads/main. Staging/task/PR и второй target отвергаются. Сохранены проверка digest (SHA256 архива для старого протокола), OCI commit, точный image_id, server flock, highest-run и возврат предыдущего образа. Main concurrency group не отменяет выполняющийся деплой; перед отправкой проверяется актуальный main. Следующая задача не сливается до проверки предыдущей публикации; локальная работа остальных продолжается.
+Receiver допускает только ui release с GitHub OIDC: repository/owner, refs/heads/main, точный commit/run_id, event=push/workflow_dispatch и .github/workflows/staging.yml@refs/heads/main. Staging/task/PR и второй target отвергаются. Сохранены проверка digest (SHA256 архива для старого протокола), OCI commit, точный image_id, server flock, highest-run и возврат предыдущего образа. Main concurrency group не отменяет выполняющийся деплой; перед отправкой проверяется актуальный main. Следующая задача не сливается до проверки предыдущей публикации; локальная работа остальных продолжается.
+
+## Автоматическая очередь
+
+Постановка одобренного PR из своего чистого worktree:
+
+```powershell
+./Queue-PR.ps1 -PullRequest 15
+```
+
+Быстрый просмотр заявки: `gh pr view <номер> --repo caymanlogistic-crypto/1c-ip-php --json labels,url`. Подробный stage, проверенный head, deploy_run и image_id находятся в комментарии Actions этого PR. Статус всего intake workflow может быть cancelled, если GitHub заменил ожидающий worker: durable ticket и очередь при этом сохраняются; ориентируйся на ticket.
+
+Эквивалент: `gh workflow run merge-queue.yml --repo caymanlogistic-crypto/1c-ip-php --ref main -f pr=15 -f head=<полный-одобренный-SHA>`. Существующие открытые PR автоматически не принимаются. Постановка проверяет право отправителя, открытый ready PR из этого репозитория в main и точное совпадение head. Изменённый после постановки код без нового запроса не сливается.
+
+Intake сохраняет ticket в комментарии Actions и ставит queue:ready до ожидания worker. Один worker concurrency `ipphp-merge-deploy-queue` выполняет весь цикл для одного PR: подтверждает доставку текущего main, обновляет ветку через GitHub (только merge существующего main), запускает сборку точного нового head, перепроверяет head/base, сливает и явно dispatch-ит публикацию main. Это важно: merge через GITHUB_TOKEN сам по себе не запускает push workflow. Первый GET нового run может кратковременно вернуть 404: выполняются до 8 коротких повторов только чтения статуса, без повторного dispatch/merge. Публикация проверяет expected_sha; receiver принимает только OIDC точного main workflow. Для перехода к следующему PR нужны успешный run и artifact с deployment.json, совпадающими commit/image_id, ui, database_ready и registry transport. Одного зелёного run с пропущенным деплоем недостаточно.
+
+Обычный pull_request workflow запускается при opened/reopened; новые commits task/codex проверяются по push. Обновление ветки очередью проверяется явным exact-SHA workflow_dispatch, поэтому synchronize от GITHUB_TOKEN не создаёт лишний workflow с ручным approval. Worker будится по завершению публикации main и по собственным заявкам; обычные сборки чужих веток его не будят.
+
+Конфликт/провал теста до merge помечает PR queue:blocked, сохраняя main. Агент исправляет кандидата и ставит новый head. Провал/неверная квитанция после merge блокирует последующие слияния; после исправления причины повторяют именно неуспешный run (`gh run rerun <deploy_run>`), а очередь возобновляется по workflow_run. Повторное начало worker читает сохранённый ticket и фактическое merged-состояние, не выполняет неизвестное слияние повторно. queued-заявку можно снять удалением queue:ready до её начала.
+
+Следующий worker запускается по завершению build/deploy или через явный dispatch оставшихся заявок. Пустая очередь не запускает cron и не расходует Actions-минуты. После отмены самого worker возобновление — `gh workflow run merge-queue.yml --repo caymanlogistic-crypto/1c-ip-php --ref main`; ticket сохраняется. Отдельная БД, сервер, PAT, scheduler-сервис и постоянный агент не создаются. Состояние заявок сохраняется в PR, поэтому замена pending job механизмом concurrency не теряет очередь. Источник статуса — комментарий ticket и метки PR; агент не обязан ждать или слать одинаковые сообщения о чужой выкладке.
+
+На текущем бесплатном тарифе приватного личного репозитория GitHub API защиты main возвращает 403 (требуется Pro). Владелец отказался от оплаты. Поэтому это автоматическая последовательная очередь, а не серверный запрет обхода: общий admin-доступ всё ещё способен выполнить прямой merge. AGENTS.md запрещает агентам прямой merge/push; обнаруженное изменение main вне очереди останавливает её. Не заявлять, что платная защита включена.
 
 ## Доставка слоёв через приватный GHCR
 
-Workflow публикует образ только для push main в `ghcr.io/caymanlogistic-crypto/1c-ip-php`. Task/PR проверяют сборку, но не публикуют образ, build cache или сайт. Main сохраняет registry build cache; метка SOURCE_COMMIT находится после runtime/vendor, поэтому они повторно используются при обычной правке кода.
+Workflow публикует образ только для main (push или workflow_dispatch очереди) в `ghcr.io/caymanlogistic-crypto/1c-ip-php`. Task/PR проверяют сборку, но не публикуют образ, build cache или сайт. Main сохраняет registry build cache; метка SOURCE_COMMIT находится после runtime/vendor, поэтому они повторно используются при обычной правке кода.
 
 Вместо полного tar.gz по SSH идёт только короткий JSON-заголовок: OIDC, commit/run, точный config image_id и `registry_ref` с manifest digest. Receiver разрешает только фиксированный GHCR repository и digest, получает недостающие Docker-слои и сверяет config image_id/OCI revision до запуска. Пакет остаётся приватным (настройку видимости не менять). GITHUB_TOKEN ограничен сроком job; на сервере docker login использует отдельный временный DOCKER_CONFIG с удалением при успехе/ошибке. В state/artifact попадают только публичные реквизиты и метрики delivery, без токенов.
 
@@ -36,6 +58,18 @@ Workflow публикует образ только для push main в `ghcr.io
 Сейчас receiver/entry установлены, environment ui содержит только main, старый environment не допускает staging-integrations; прежний SSH-ключ отключён. Активны только ipphp-ui-app-1 и ipphp-ui-db-1; integrations-контейнеры остановлены и сохранены, их data-каталоги на месте. /login и /health прежнего URL отвечают 301 на соответствующий путь общего сайта. При сбое будущей публикации сохрани работающий образ и сообщи блокер; возврат настроек — явный возврат процесса, не обход main push в staging.
 
 ## Диагностика и возврат
+
+### Ручная SMTP-почта
+
+Публикуется тем же main workflow. Серверный opt-in — приватный `ui/data/local/email-admission.json`:
+
+```json
+{"enabled":true,"project_id":"f6e21e3c-d974-4604-82fb-333da66559d2","provider":"email","scope":"manual-smtp","stand":"ui","smtp_host":"smtp.spaceweb.ru","smtp_port":465}
+```
+
+EmailAdmission проверяет scope/проект/сайт/host/port/TLS; `approved_recipients` и пароль остаются в encrypted email.enc. Маркер не включает RentalOutbox, MAX или общий external gate. Настройки SMTP в БД и секреты сохраняются вне образа; миграций и импорта при деплое нет. `/_ops.php` сообщает `manual_email` отдельно от `external_access` и `automated_sends`.
+
+Инфраструктурные файлы из принятого main устанавливаются root-owned: `deploy/server/email-network.py` → `/usr/local/sbin/ipphp-email-network` (0755), service/timer из той же папки → `/etc/systemd/system/` (0644). После `systemctl daemon-reload` включают `ipphp-email-network.timer`. Timer восстанавливает SMTP-маршруты после автодеплоя и перезапуска контейнера/сервера; общий receiver не меняется. Действующий внутренний backend сохраняется; helper проверяет контейнер, интерфейс и отсутствие чужого маршрута, добавляет только закреплённый `/32` SMTP-адрес на TCP/465, без default route. Compose закрепляет smtp.spaceweb.ru на тот же 77.222.41.51 через extra_hosts: в internal-сети нет внешнего DNS. TLS продолжает проверять имя smtp.spaceweb.ru. При первой настройке новый compose из принятого main устанавливается до активации образа workflow; существующий app вручную не пересоздаётся. Изменение DNS-пула требует сверки и обновления pins отдельной правкой; не открывать общий egress ради SMTP.
 
 https://ui.89.208.213.14.sslip.io/_ops.php требует сессию и сообщает commit, SHA256 image config digest, deployed_at, БД и gates. Сверять с artifact workflow, /srv/1c-ip-php/ui/state/current.json и контейнером. HTTP 200 и /health не заменяют версию и сценарий.
 
