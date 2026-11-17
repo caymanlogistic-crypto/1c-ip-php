@@ -1,6 +1,6 @@
 # Текущие задачи и факты проекта
 
-## EMAIL-MANUAL — исправление адресатов тестовой отправки
+## EMAIL-MANUAL — адресаты тестовой отправки исправлены и опубликованы
 
 - Продолжение рабочей почты по сообщению владельца «Получатель не включён в разрешённый список»; уточнено, что ошибка возникла при тестировании. Предыдущая реализация ошибочно применяла одноадресный служебный allowlist к ручной форме. Исправляется именно ручной POST send на /email; SMTP-профиль, разрешения служебных отправок, MAX/Outbox и деплой не меняются.
 - Отдельный worktree C:/Users/Vladimir/Documents/ChatGPT/1c-ip-mail-manual, task/mail-manual от main d3cd0b7. Независимые БД/ограниченный пользователь ipphp_task_mail_manual, cookie/runtime/private/vendor; localhost:8910. Согласованный T001-снимок восстановлен штатным restore и до входа сверен по всем DDL/строкам: 115 таблиц / 48 547 строк. Чужие занятые порты 8879/8891 не трогались.
@@ -8,6 +8,10 @@
 - tests/manual-email.php на своей БД: два новых адресата приняты fixture-транспортом; повтор ключа без дубля; смена адресата с тем же ключом — конфликт; вложение/подписанные receipts; неверный CSRF, GET, viewer, чужой actor и отсутствие сессии — отказ; неверный email — отказ; private allowlist неизменён, служебный транспорт всё ещё блокирует неразрешённого получателя. Сетевых вызовов нет.
 - Реальная HTTP-форма: новый адресат проходит до проверки SMTP-конфигурации вместо TARGET_NOT_APPROVED (в своей fixture пустой host, сеть не вызывается); повтор даёт одну попытку/receipt, CSRF/viewer — 403. PHP lint изменённых файлов/теста, 17 deploy/network/registry tests, действующий Email gate test и соседний MAX manual test — PASS. UI/общий механизм деплоя не меняются. Новых писем этой проверкой не отправлено. Кандидат фиксируется для публикации в рамках уже разрешённой рабочей почты.
 
+
+- Публикация по ранее данному «выкладывай»: свежий main 5e91982 объединён (изменились только чужие отчёты), обе CI-проверки PASS; PR https://github.com/caymanlogistic-crypto/1c-ip-php/pull/18 → main `4324442a4b8cda26925b36dee9fcfc46ccf21aa3`. Workflow https://github.com/caymanlogistic-crypto/1c-ip-php/actions/runs/44166990684 SUCCESS, registry pull 5,141 с / 9 новых + 20 имеющихся слоёв. Artifact и /_ops.php совпали: image_id sha256:803595070689783850412abe9fde15103b482fe7b178e53c962ebbf4676e44bd.
+- На сайте проверены вход владельца/admin и штатный SMTP check без письма; ручной send с некорректным email отклонён до claim/сети, viewer send и неверный CSRF — 403. manual_email/onec_read_check=true, external_access/automated_sends=false сохранены. Новая реальная отправка на другой адрес не выполнялась: адрес вводит пользователь в свежей форме /email. Старые failed attempts сохранены, не повторялись. SMTP/private allowlist и серверная конфигурация не менялись. Доказательства: .local/published-manual-email-result.json, published-artifact/, manual-http-result.json.
+- Локальный PHP остановлен штатно; своя тестовая БД/данные/доказательства сохранены. Отчёт меняет только WORK.md; workflow/Dockerfile/receiver и чужие задачи сохранены.
 
 ## MAX-LOCAL — принятая правка опубликована и проверена
 
