@@ -205,7 +205,7 @@ final class MonthlyBilling {
             return (int)$id;
         }
         if (isset($plan['invoice_targets'])) \App\BillingInvoiceTargets::assertSelection($p,(int)$c['id'],$plan['invoice_targets']);
-        $id = (int)$p->query('SELECT GREATEST(COALESCE(MAX(id),0),900000)+1 FROM invoices')->fetchColumn();
+        $id = \App\BusinessIds::next($p,'invoices',900000);
         $creation=NativeOperatingWriter::begin($p,'invoice',$id,'native-c-monthly','monthly.invoice.create',$date,$plan['key']);
         $p->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,coverage_key,source_json) VALUES(?,?,?,'Аренда',?,?,0,?,?,'active',?,'{}')")->execute([
             $id,

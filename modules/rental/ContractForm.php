@@ -28,7 +28,7 @@ final class ContractForm {
         $availabilityEnd = $end ?: $availabilityStart;
         $number = $c['number'] ?? '';
         if (!$c) {
-            $max = 0;
+            $max = \App\BusinessIds::numberFloor(\App\DB::pdo());
             foreach (Controller::query('SELECT number FROM contracts') as $row)if (preg_match('/^([0-9]+)/', $row['number'], $m))$max = max($max, (int)$m[1]);
             $number = (string)($max+1);
         }

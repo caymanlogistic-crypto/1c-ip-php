@@ -110,7 +110,7 @@ final class Addenda {
                 $rid
             ]);
             else {
-                $rid = (int)$p->query('SELECT GREATEST(COALESCE(MAX(id),0),900000)+1 FROM reservations')->fetchColumn();
+                $rid = \App\BusinessIds::next($p,'reservations',900000);
                 $p->prepare("INSERT INTO reservations(id,object_id,party_id,document_id,contract_id,start_date,end_date,until_date,status,comment,source_json) VALUES(?,?,?,?,?,?,?,?,'active',?,'{}')")->execute([
                     $rid,
                     $t['object_id'],
@@ -257,7 +257,7 @@ final class Addenda {
                 $ids[] = (int)$old;
                 continue;
             }
-            $id = (int)$p->query('SELECT GREATEST(COALESCE(MAX(id),0),900000)+1 FROM invoices')->fetchColumn();
+            $id = \App\BusinessIds::next($p,'invoices',900000);
             $issued=NativeOperatingWriter::today($p);
             $creation=NativeOperatingWriter::begin($p,'invoice',$id,'native-c-initial','addenda.initial-invoice',$issued,$key);
             $p->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,initial_invoice,coverage_key,source_json) VALUES(?,?,?,?,?,?,0,?,?,'active',1,?,'{}')")->execute([

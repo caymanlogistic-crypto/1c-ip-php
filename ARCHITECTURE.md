@@ -193,3 +193,12 @@ FROZEN в FrozenPacketWire относится к содержимому утве
 
 Если ответ требует долгой археологии, уточни этот раздел карты в рамках задачи. Не создавай новый слой отчётности.
 
+
+
+## Нулевая точка: граница восстановления
+
+`/administration/zero-point` → `ZeroPointController` (admin, POST/CSRF для плана и применения) → `ZeroPoint` → whitelist коммерческого графа и выбранных rental_facts. Частные снимки и SHA-квитанции — `.local/zero-point`, вне Git/public. `bin/zero-point.php reference` снимает источник только чтением; `bin/prepare-zero-point.py` независимо сверяет source pins, GUID/PK, физические объекты и 255+295→224 по полной аналитике, готовит снимок без подключения к БД; `bin/zero-point.php install` устанавливает неизменяемую точку без применения её бизнес-строк.
+
+`ZeroPoint::restore` использует rental_number_guard и блокировки графа, сохраняет fsync/SHA-проверенный резерв, проверяет CAS и актуальную схему, заменяет строки в порядке реальных FK, проверяет денежные инварианты и меняет runtime epoch. Истории rental_commands/rental_events/audit и внешних попыток не удаляются. `zero_point_sequence` в rental_facts хранит верхние границы ID/номеров; `BusinessIds` используется существующими создателями записей. `zero_point_runtime.active.event_floor` отделяет журнал текущей работы от архива. Идемпотентность восстановления — `zero_point_operation` и command_key. Подписанные blob-файлы и настройки подключений не копируются/не откатываются этим механизмом.
+
+`zero_point_data.last_occupant:<object_id>` — исходная историческая проекция; `ObjectFacts` сверяет её дату с более поздней историей приложения. `PartyOrigin` читает доказанный source GUID/код или сохранённую source binding; оба отделены от PK. UI использует существующие DirectoryUi/RentalUI/toolbar-select и общие стили; новая дизайн-система не создаётся.

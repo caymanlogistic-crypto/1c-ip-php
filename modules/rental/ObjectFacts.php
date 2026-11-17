@@ -68,14 +68,20 @@ final class ObjectFacts
             .'FROM reservations r LEFT JOIN parties p ON p.id=r.party_id WHERE '.Occupancy::reservationPredicate('r')
             ." AND r.object_id=? AND r.status='active' AND r.until_date>=? ORDER BY r.id DESC LIMIT 1",[$object['id'],$today])[0] ?? null;
         $days=self::idleDays($object,$free,$today);
-        $previous=Controller::query('SELECT p.name FROM contract_terms t JOIN contracts c ON c.id=t.contract_id JOIN parties p ON p.id=c.party_id '
+        $previousRow=Controller::query('SELECT p.name,t.end_date FROM contract_terms t JOIN contracts c ON c.id=t.contract_id JOIN parties p ON p.id=c.party_id '
             .'LEFT JOIN contract_objects co ON co.contract_id=c.id AND co.object_id=t.object_id '
-            .'WHERE '.ContractOccupancy::physicalPredicate('co').' AND t.object_id=? AND c.status IN (\'active\',\'reconciling\',\'closed\',\'ended\') AND t.end_date<=? ORDER BY t.end_date DESC,c.id DESC LIMIT 1',[$object['id'],$today])[0]['name'] ?? null;
+            .'WHERE '.ContractOccupancy::physicalPredicate('co').' AND t.object_id=? AND c.status IN (\'active\',\'reconciling\',\'closed\',\'ended\') AND t.end_date<=? ORDER BY t.end_date DESC,c.id DESC LIMIT 1',[$object['id'],$today])[0] ?? null;
+        $previous=$previousRow['name'] ?? null;
+        $seed=Controller::query("SELECT fact_json FROM rental_facts WHERE namespace='zero_point_data' AND source_key=?",['last_occupant:'.$object['id']])[0]['fact_json'] ?? null;
+        $historical=$seed?json_decode($seed,true):null;
+        if ($historical && ($historical['as_of'] ?? '9999-12-31')<=$today
+            && (!$previousRow || !empty($historical['end_date']) && $historical['end_date']>$previousRow['end_date']))
+            $previous=$historical['tenant'] ?? $previous;
         $role=Auth::user()['role']; $severity=''; $recent=null;
         if ($eligible) $severity=self::idleSeverity($days,$role);
         if ($eligible && !$free && $booking && str_contains($status,'бронир')) $severity='blue';
         if ($eligible && !$free && $lease && $lease['status']==='active' && !$booking && ($lease['term_start'] ?? $today)<=$today) {
-            $event=Controller::query("SELECT DATE(MIN(created_at)) at FROM rental_events WHERE contract_id=? AND action IN ('contract.sign','contract.activated')",[$lease['id']])[0]['at'] ?? null;
+            $event=Controller::query("SELECT DATE(MIN(created_at)) at FROM rental_events WHERE contract_id=? AND id>? AND action IN ('contract.sign','contract.activated')",[$lease['id'],ZeroPoint::eventFloor(\App\DB::pdo())])[0]['at'] ?? null;
             foreach (Controller::query("SELECT DATE(a.created_at) at,a.after_json FROM audit_log a JOIN rental_documents d ON d.id=a.entity_id WHERE a.action='document.objects-applied' AND a.entity_type='document' AND d.contract_id=? AND d.applied=1 AND d.status='signed'",[$lease['id']]) as $applied) {
                 $data=json_decode($applied['after_json'],true);
                 if (in_array((int)$object['id'],$data['added_object_ids'] ?? [],true)) {

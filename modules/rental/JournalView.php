@@ -24,7 +24,7 @@ final class JournalView
         }
     }
 
-    public static function registry(array $entries, string $query): string
+    public static function registry(array $entries, string $query,bool $archive=false): string
     {
         $rows=[];
         foreach ($entries as $entry) {
@@ -38,7 +38,7 @@ final class JournalView
                 View::e($entry['description']),
             ];
         }
-        $controls='<form method="get" data-rental-registry-filter>'.DirectoryUi::search($query).'</form>';
+        $controls='<form method="get" data-rental-registry-filter>'.($archive?'<input type="hidden" name="archive" value="1">':'').DirectoryUi::search($query).'</form>';
         return Controller::heading('Журнал','Действия, решения, изменения и отправленные документы.')
             .DirectoryUi::registry('rental-journal', ['Дата / время','Сотрудник','Договор','Действие и сведения'],
                 $rows, ['code','text','short','flex'], $controls);

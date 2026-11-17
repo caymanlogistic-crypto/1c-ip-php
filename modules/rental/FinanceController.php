@@ -395,7 +395,7 @@ final class FinanceController {
         . ' · '
         . $c['name'])
         . '</option>';
-        $next = (int)DB::pdo()->query('SELECT GREATEST(COALESCE(MAX(id),0),900000)+1 FROM invoices')->fetchColumn();
+        $next = \App\BusinessIds::next(DB::pdo(),'invoices',900000);
         $fields = (!$i?'<input type="hidden" name="expected_new_id" value="'
         . $next
         . '">':'')

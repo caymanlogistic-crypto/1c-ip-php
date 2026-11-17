@@ -136,16 +136,8 @@ final class SourceCards {
             ], $check);
         }
         $body.=RentalUI::pairs($pairs);
-        $more = RentalUI::button('Условия договора', '/rental/conditions?id='
-        . $id)
-        . RentalUI::button('Контрагент', '/rental/party?id='
-        . $c['party_id'])
-        . RentalUI::button('Счета и оплаты', '/rental/invoice-list?contract_id='
-        . $id)
-        . RentalUI::button('Допсоглашения', '/rental/documents?contract_id='
-        . $id)
-        . RentalUI::button('История и сообщения', '/rental/history?contract_id='
-        . $id);
+        $more = RentalUI::button('Контрагент', '/rental/party?id='
+        . $c['party_id']);
         $body.='<div class="demo-row">'
         . $more
         . '</div>';
@@ -261,15 +253,16 @@ final class SourceCards {
         if (isset($_GET['version']))return ContractHistory::preview($id, (int)$_GET['version']);
         $out = [
         ];
-        foreach (Controller::query("SELECT * FROM rental_events WHERE contract_id=? OR (action='party.block' AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.kind')) IN ('party-block-projects','committed-rental-workflow-event') AND JSON_CONTAINS(JSON_EXTRACT(source_json,'$.extra.projects'),JSON_OBJECT('id',CAST(? AS UNSIGNED)))) ORDER BY id DESC", [
-            $id,$id
+        $archive=($_GET['archive'] ?? '')==='1';$floor=ZeroPoint::eventFloor(\App\DB::pdo());
+        foreach (Controller::query("SELECT * FROM rental_events WHERE id ".($archive?'<=?':'>?')." AND (contract_id=? OR (action='party.block' AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.kind')) IN ('party-block-projects','committed-rental-workflow-event') AND JSON_CONTAINS(JSON_EXTRACT(source_json,'$.extra.projects'),JSON_OBJECT('id',CAST(? AS UNSIGNED))))) ORDER BY id DESC", [
+            $floor,$id,$id
         ]) as $r)$out[] = [
             View::e($r['created_at']),
             View::e($r['actor_name']?:$r['actor_role']),
             View::e(self::historyEventText($r,$id))
         ];
         return RentalUI::modal('История и сообщения · '
-        . $c['number'], Controller::table([
+        . $c['number'], ($floor>0?'<div class="demo-row">'.RentalUI::button('Текущая работа','/rental/history?contract_id='.$id).RentalUI::button('История до восстановления','/rental/history?contract_id='.$id.'&archive=1').'</div>':'').Controller::table([
             'Время',
             'Участник',
             'Событие'
