@@ -37,6 +37,8 @@ final class ObjectDirectory
         Access::pages(['objects']);
         $query=isset($_GET['reset'])?'':trim((string)($_GET['q'] ?? ''));
         $floor=isset($_GET['reset'])?'all':(string)($_GET['floor'] ?? 'all');
+        $type=isset($_GET['reset'])?'all':(string)($_GET['type'] ?? 'all');
+        if (!in_array($type,['all','office','parking'],true)) $type='all';
         $show=!isset($_GET['reset']) && !empty($_GET['inactive']);
         $flag=(string)($_GET['flag'] ?? 'all');
         if (!in_array($flag,['all','office','parking','free','work','inactive'],true)) $flag='all';
@@ -46,6 +48,7 @@ final class ObjectDirectory
             if (!DirectoryScope::realObject($object,self::parent($object))) continue;
             if ($object['floor']!==null && trim($object['floor'])!=='') $floors[(string)$object['floor']]=(string)$object['floor'];
             if ($floor!=='all' && $floor!==(string)$object['floor']) continue;
+            if ($type!=='all' && $object['type']!==($type==='office'?'Офис':'Машиноместо')) continue;
             $facts=ObjectFacts::project($object,self::parent($object),$availability[$object['id']] ?? null,$read->today,$read);
             $search=implode(' ',[$object['name'],$object['type'],$object['floor'],$object['area'],DirectoryUi::area($object['area']),$facts['status'],
                 $facts['lease']['number'] ?? '',$facts['lease']['tenant'] ?? '',$facts['lease']['end_date'] ?? '',$facts['deadline'],
@@ -103,9 +106,11 @@ final class ObjectDirectory
         natsort($floors);
         $inactive=in_array($flag,['all','office','parking'],true)?DirectoryUi::checkbox('inactive','Показать неактивные',$show):'';
         $controls='<input type="hidden" name="flag" value="'.View::e($flag).'">'.$inactive
-            .'<button class="registry-ui-reset" type="submit" name="reset" value="1"'.($query==='' && !$show && $floor==='all'?' hidden':'').'>Сбросить фильтр</button>'
+            .'<button class="registry-ui-reset" type="submit" name="reset" value="1"'.($query==='' && !$show && $floor==='all' && $type==='all'?' hidden':'').'>Сбросить фильтр</button>'
             .'<select class="toolbar-select" id="objects-floor-filter" name="floor" aria-label="Этаж"><option value="all">Все этажи</option>';
         foreach ($floors as $value) $controls.='<option value="'.View::e($value).'"'.($floor===$value?' selected':'').'>'.View::e($value).'</option>';
+        $controls.='</select><select class="toolbar-select" id="objects-type-filter" name="type" aria-label="Тип объекта">';
+        foreach (['all'=>'Показать все','office'=>'Офисы','parking'=>'Машиноместа'] as $value=>$label) $controls.='<option value="'.$value.'"'.($type===$value?' selected':'').'>'.$label.'</option>';
         $controls.='</select>'.DirectoryUi::search($query,true);
         $summary=' · Площадь: <b>'.DirectoryUi::area($area).'</b> м²'.($unknown?' · Не указана у '.$unknown:'');
         $notice='';
@@ -113,7 +118,7 @@ final class ObjectDirectory
             $notice=RentalUI::alert((string)$_SESSION['rental_notice']);unset($_SESSION['rental_notice']);
         }
         $body=Controller::heading('Объекты аренды','Помещения и машиноместа: занятость, бронирование и контроль простоя',self::editable()?RentalUI::button('Добавить объект','/rental/edit-object',true):'').$notice
-            .Controller::tabs($tabs,$flag,false,['floor'=>$floor,'inactive'=>(int)$show,'q'=>$query],'objects')
+            .Controller::tabs($tabs,$flag,false,['floor'=>$floor,'type'=>$type,'inactive'=>(int)$show,'q'=>$query],'objects')
             .DirectoryUi::registry('rental-contracts',['Объект аренды','Тип','Этаж','Площадь, м²','Занятость','Договор до','Комментарий'],$rows,['text','text','short','money','flex','code','flex'],$controls,$summary,filterForm:true);
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET')==='GET' && ($_SERVER['HTTP_X_RENTAL_OBJECTS_FRAGMENT'] ?? '')==='1') {
             if (PHP_SAPI!=='cli') header('Cache-Control: no-store');
