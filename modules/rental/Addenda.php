@@ -43,7 +43,7 @@ final class Addenda {
             if (bccomp($amount, '0', 2) <= 0)throw new RuntimeException('Укажите положительную цену каждого помещения.');
             if (Occupancy::physical($relations[$oid] ?? null))Service::available($p, [
                 $oid
-            ], $start, $end, (int)$c['id']);
+            ], $start, $end, (int)$c['id'], null, false, null, true);
             $total = bcadd($total, $amount, 2);
             $terms[] = [
                 'object_id' => $oid,
@@ -96,7 +96,7 @@ final class Addenda {
             if (!Occupancy::physical($t))continue;
             Service::available($p, [
                 (int)$t['object_id']
-            ], $t['start_date'], $t['end_date'], (int)$c['id']);
+            ], $t['start_date'], $t['end_date'], (int)$c['id'], null, false, null, true);
             $q = $p->prepare('SELECT id FROM reservations WHERE document_id=? AND object_id=? ORDER BY id DESC LIMIT 1');
             $q->execute([
                 $id,
@@ -141,7 +141,7 @@ final class Addenda {
         ]);
         foreach ($terms as $term)if (Occupancy::physical($term))Service::available($p, [
             (int)$term['object_id']
-        ], $term['start_date'], $term['end_date'], (int)$c['id']);
+        ], $term['start_date'], $term['end_date'], (int)$c['id'], null, false, null, true);
         $documentParts = \App\BillingParts::terms($p, 'document', (int)$d['id']);
         $contractParts = \App\BillingParts::terms($p, 'contract', (int)$c['id']);
         $documentState = \App\BillingPartTerms::state($p, 'document', (int)$d['id']);
@@ -195,6 +195,7 @@ final class Addenda {
         $p->prepare("UPDATE reservations SET status='converted',version=version+1 WHERE document_id=? AND status='active'")->execute([
             $d['id']
         ]);
+        CustomerBookings::cancelOthers($p,(int)$c['id']);
         Billing::reviewAfterTerms($p, (int)$c['id']);
         if (!empty(json_decode($c['source_json'], true)['imported']))$p->prepare('UPDATE contracts SET servicing_document_id=?,servicing_effective_date=? WHERE id=?')->execute([
             $d['id'],

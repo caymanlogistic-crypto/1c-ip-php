@@ -4,7 +4,7 @@ namespace Modules\Rental;
 use App\{DB, Http};
 final class Availability {
 
-    public static function items(string $start, string $end, ?int $except = null, ?int $booking = null): array {
+    public static function items(string $start, string $end, ?int $except = null, ?int $booking = null, bool $sharedCustomerBookings = false): array {
         Service::date($start);
         Service::date($end);
         if ($start>$end)throw new \RuntimeException('Проверьте даты аренды.', 422);
@@ -32,7 +32,7 @@ final class Availability {
                 $except ?? 0
             ]);
             if ($q->fetchColumn())$reason = 'Ожидается акт возврата';
-            $q = $p->prepare("SELECT 1 FROM reservations r WHERE ".Occupancy::reservationPredicate('r')." AND object_id=? AND id<>? AND status='active' AND (contract_id IS NULL OR contract_id<>?) AND ((document_id IS NULL AND until_date>=CURRENT_DATE) OR (document_id IS NOT NULL AND start_date<=? AND end_date>=?)) LIMIT 1");
+            $q = $p->prepare("SELECT 1 FROM reservations r WHERE ".Occupancy::reservationPredicate('r')." AND object_id=? AND id<>?".(($sharedCustomerBookings || $booking!==null)?" AND document_id IS NOT NULL":"")." AND status='active' AND (contract_id IS NULL OR contract_id<>?) AND ((document_id IS NULL AND until_date>=CURRENT_DATE) OR (document_id IS NOT NULL AND start_date<=? AND end_date>=?)) LIMIT 1");
             $q->execute([
                 $o['id'],
                 $booking ?? 0,
@@ -41,6 +41,10 @@ final class Availability {
                 $start
             ]);
             if ($q->fetchColumn() && $reason==='')$reason = 'Забронировано';
+            $bookingCount=0;
+            if($sharedCustomerBookings || $booking!==null){
+                $count=DB::pdo()->prepare("SELECT COUNT(*) FROM reservations WHERE object_id=? AND document_id IS NULL AND status='active' AND contract_id IS NULL AND until_date>=CURRENT_DATE AND id<>?");$count->execute([$o['id'],$booking ?? 0]);$bookingCount=(int)$count->fetchColumn();
+            }
             $area = $o['area'] === null?'—':rtrim(rtrim($o['area'], '0'), '.');
             $rows[] = [
                 'id' => (int)$o['id'],
@@ -55,7 +59,7 @@ final class Availability {
                 . ' · '
                 . $area
                 . ' м² · '
-                . ($reason?:'Доступно'),
+                . ($reason?:'Доступно').($bookingCount?' · броней: '.$bookingCount:''),
                 'available' => $reason === '',
                 'disabled' => $reason !== ''
             ];
@@ -75,7 +79,7 @@ final class Availability {
         $start = Service::date($_GET['start'] ?? $_GET['start_date'] ?? date('Y-m-d'));
         $endInput = $_GET['end'] ?? $_GET['end_date'] ?? $start;
         $end = Service::date($endInput === '' ? $start : $endInput);
-        Http::json(['items' => self::items($start, $end, $except, $booking)]);
+        Http::json(['items' => self::items($start, $end, $except, $booking, in_array($_GET['mode'] ?? '',['booking','contract'],true))]);
     }
 
     public static function options(array $items, ?int $selected = null): string {

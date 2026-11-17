@@ -48,10 +48,12 @@ final class ExtraService {
             if ($table === 'parties') {
                 $fields=DirectoryRules::party($in,$old);
                 if ($fields['inn']!=='') {
-                    $q=$p->prepare('SELECT id,inn FROM parties WHERE blocked=1 AND id<>?');
-                    $q->execute([$id]);
-                    foreach ($q->fetchAll() as $blocked) {
-                        if (preg_replace('/\D/','',$blocked['inn'] ?? '')===$fields['inn']) throw new RuntimeException('Работа с контрагентом с этим ИНН заблокирована.',422);
+                    // Lock the identity range in the command transaction, including concurrent inserts.
+                    $q=$p->query('SELECT id,inn,blocked FROM parties ORDER BY id FOR UPDATE');
+                    foreach ($q->fetchAll() as $existing) {
+                        if((int)$existing['id']===$id || preg_replace('/\D/','',(string)$existing['inn'])!==$fields['inn'])continue;
+                        if($existing['blocked'])throw new RuntimeException('Работа с контрагентом с этим ИНН заблокирована.',422);
+                        if(!$old || preg_replace('/\D/','',(string)$old['inn'])!==$fields['inn'])throw new RuntimeException('Контрагент с ИНН '.$fields['inn'].' уже существует. Выберите существующую карточку.',422);
                     }
                 }
                 if (!$old || array_intersect(['bank','account','bik','correspondent_account'],array_keys($in))) {
@@ -208,6 +210,7 @@ final class ExtraService {
                 ]);
             }
             elseif($action === 'reservation.create') {
+                if (trim((string)($in['client_name'] ?? '')) === '' && empty($in['party_id']))throw new RuntimeException('Укажите клиента для брони.',422);
                 if (trim((string)($in['comment'] ?? '')) === '')throw new RuntimeException('Укажите описание брони.');
                 $oid = (int)($in['object_id'] ?? 0);
                 $party = !empty($in['party_id'])?(int)$in['party_id']:null;
@@ -220,7 +223,7 @@ final class ExtraService {
                 if ($until<date('Y-m-d'))throw new RuntimeException('Бронь уже истекла.');
                 Service::available($p, [
                     $oid
-                ], $start, $start);
+                ], $start, $start, null, null, false, null, true);
                 $id = self::next($p, 'reservations');
                 $p->prepare("INSERT INTO reservations(id,object_id,party_id,client_name,author_id,start_date,end_date,until_date,status,comment,source_json) VALUES(?,?,?,?,?,?,NULL,?,'active',?,'{}')")->execute([
                     $id,

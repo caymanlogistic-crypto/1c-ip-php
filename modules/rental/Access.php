@@ -15,8 +15,9 @@ final class Access
     public static function contract(int $id,int $level=1):array
     {
         Auth::requirePermission('rental.read');
-        $q=DB::pdo()->prepare('SELECT id,status FROM contracts WHERE id=?');$q->execute([$id]);
+        $q=DB::pdo()->prepare('SELECT id,status,source_json FROM contracts WHERE id=?');$q->execute([$id]);
         $record=$q->fetch() ?: throw new RuntimeException('Договор не найден.',404);
+        if(ContractDraft::deleted($record))throw new RuntimeException('Договор не найден.',404);
         $pages=self::statusPages($record['status']);
         $user=Auth::user();
         $summary=$level===1 && in_array($user['role'],['director','admin'],true)

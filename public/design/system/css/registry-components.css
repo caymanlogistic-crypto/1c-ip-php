@@ -580,7 +580,7 @@
 .registry-ui-modal-secondary{display:block;max-width:100%;white-space:normal;overflow-wrap:anywhere;font:500 11px/15.4px var(--font);color:var(--tone-675f55)}
 .registry-ui-modal-confirm{display:grid;gap:8px}
 .registry-ui-modal-confirm .registry-ui-modal-text{margin:0}
-@media(max-width:700px){.registry-ui-modal{width:calc(100vw - 16px)}.registry-ui-modal-grid--reading{grid-template-columns:minmax(0,1fr)}.registry-ui-modal-address-row{flex-direction:column;align-items:stretch}.registry-ui-modal-address-row .btn{width:100%}.registry-ui-modal .registry-ui-compact-table{min-width:630px}}
+@media(max-width:700px){.registry-ui-modal :is(.form-grid-3,.form-grid-4){grid-template-columns:minmax(0,1fr)}.registry-ui-modal{width:calc(100vw - 16px)}.registry-ui-modal-grid--reading{grid-template-columns:minmax(0,1fr)}.registry-ui-modal-address-row{flex-direction:column;align-items:stretch}.registry-ui-modal-address-row .btn{width:100%}.registry-ui-modal .registry-ui-compact-table{min-width:630px}}
 /* One-request weight editor and history use the shared compact table with a three-column matrix. */
 .registry-ui-modal .registry-ui-compact-table--weight-single{min-width:0}
 .registry-ui-modal .registry-ui-compact-table--weight-single th:first-child{width:20%}
@@ -689,3 +689,32 @@
 .registry-ui-modal .registry-ui-compact-table--catalog th:nth-child(2){width:39%}
 .registry-ui-modal .registry-ui-compact-table--catalog th:nth-child(3){width:18%}
 .registry-ui-modal .registry-ui-compact-table--catalog td:nth-child(2){white-space:normal;overflow-wrap:anywhere}
+
+/* Sectioned forms: shared grid and optional data group, without decorative panels. */
+.registry-ui-form-sections{display:grid;gap:24px;min-width:0}
+.registry-ui-form-section{display:grid;gap:8px;min-width:0}
+.registry-ui-form-section>.registry-ui-modal-summary{margin:0 0 4px}
+.registry-ui-form-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;min-width:0}
+.registry-ui-form-row--wide-code{grid-template-columns:minmax(0,3fr) minmax(150px,1fr)}
+:is(.registry-ui-form-section,.registry-ui-form-row)>.field{margin:0;min-width:0}
+.registry-ui-form-disclosure{min-width:0}
+.registry-ui-form-disclosure>summary{list-style:none;max-width:100%;width:max-content}
+.registry-ui-form-disclosure>summary::-webkit-details-marker{display:none}
+.registry-ui-form-disclosure[open]>.registry-ui-form-section{margin-top:16px}
+.registry-ui-form-disclosure:not([open]) [data-disclosure-expanded],.registry-ui-form-disclosure[open] [data-disclosure-collapsed]{display:none}
+@media(max-width:700px){.registry-ui-form-row{grid-template-columns:minmax(0,1fr)}}
+
+/* Complete form panel: the viewport, rather than the form body, handles small screens. */
+.registry-ui-form-sections--compact{gap:16px}
+.registry-ui-form-sections--compact .registry-ui-form-disclosure[open]>.registry-ui-form-section{margin-top:8px}
+.registry-ui-form-composition{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(2,minmax(0,1fr));gap:16px;align-items:start;min-width:0}
+.registry-ui-modal.registry-ui-modal--form-canvas{position:fixed;inset:0;margin:0;padding:16px;width:100vw;min-width:0;max-width:none;height:100dvh;max-height:none;overflow:auto;background:transparent;border:0;box-shadow:none}
+.registry-ui-modal--form-canvas[open]{display:grid;justify-items:center;align-items:safe center}
+.registry-ui-modal--form-canvas>.registry-ui-modal-form{box-sizing:border-box;width:min(1200px,100%);flex:none;min-height:auto;background:var(--surface-strong);border:1px solid var(--line-strong);border-radius:2px;box-shadow:0 18px 60px rgb(from var(--tone-000000) r g b / 0.28)}
+.registry-ui-modal.registry-ui-modal--form-canvas .modal-body{overflow:visible;flex:none;min-height:auto}
+@media(max-width:700px){.registry-ui-form-composition{grid-template-columns:minmax(0,1fr)}.registry-ui-modal.registry-ui-modal--form-canvas{padding:8px}}
+
+.registry-ui-form-composition>.registry-ui-form-section>.registry-ui-modal-summary{display:flex;align-items:center;min-height:32px;margin:0}
+.registry-ui-form-composition>.registry-ui-form-disclosure>.registry-ui-form-section>.registry-ui-modal-summary{display:none}
+
+.registry-ui-form-composition>.registry-ui-form-disclosure>summary{box-sizing:border-box;min-height:32px}

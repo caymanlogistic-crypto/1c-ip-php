@@ -29,7 +29,7 @@ final class ZeroPoint
         return $user;
     }
 
-    public static function directory(): string { return APP_ROOT.'/.local/zero-point'; }
+    public static function directory(): string { return APP_ROOT.'/private/zero-point'; }
     public static function json(mixed $value): string { return Importer::canonicalJson($value); }
     public static function digest(array $value): string { return hash('sha256',self::json($value)); }
     public static function eventFloor(PDO $db): int

@@ -74,141 +74,50 @@ final class AddendumController {
             'returned'
         ], true) || ($d['status'] === 'returned' && $d['return_to'] !== 'manager'))))throw new RuntimeException('Редактирование ДС не назначено менеджеру.', 403);
         if ($d && $d['base_hash'] !== Evidence::documentBase(DB::pdo(), $cid))throw new RuntimeException('Исходные условия договора изменились.', 409);
-        $q = $d?'SELECT t.*,o.name,o.type FROM document_terms t JOIN rental_objects o ON o.id=t.object_id WHERE t.document_id=? ORDER BY o.id':'SELECT o.id object_id,o.name,o.type,COALESCE(t.start_date,c.start_date) start_date,COALESCE(t.end_date,c.end_date) end_date,t.amount FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN rental_objects o ON o.id=co.object_id LEFT JOIN contract_terms t ON t.id=(SELECT MAX(t2.id) FROM contract_terms t2 WHERE t2.contract_id=co.contract_id AND t2.object_id=co.object_id) WHERE co.contract_id=? ORDER BY o.id';
+        $q = $d?'SELECT t.*,o.name,o.type,o.area FROM document_terms t JOIN rental_objects o ON o.id=t.object_id WHERE t.document_id=? ORDER BY o.id':'SELECT o.id object_id,o.name,o.type,o.area,COALESCE(t.start_date,c.start_date) start_date,COALESCE(t.end_date,c.end_date) end_date,t.amount FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN rental_objects o ON o.id=co.object_id LEFT JOIN contract_terms t ON t.id=(SELECT MAX(t2.id) FROM contract_terms t2 WHERE t2.contract_id=co.contract_id AND t2.object_id=co.object_id) WHERE co.contract_id=? ORDER BY o.id';
         $terms = Controller::query($q, [
             $d['id'] ?? $cid
         ]);
+        $start=$d['start_date'] ?? $c['start_date'] ?? '';
+        $end=$d['end_date'] ?? $c['end_date'] ?? '';
+        $previewStart=$start ?: date('Y-m-d');$previewEnd=$end ?: $previewStart;
+        if ($previewEnd<$previewStart)$previewEnd=$previewStart;
+        $party=Controller::query('SELECT name FROM parties WHERE id=?',[$c['party_id']])[0]['name'];
         $form = 'rental-addendum-form';
-        $body = '<form id="'
-        . $form
-        . '" data-rental-contract-form method="post" action="/rental/action"><input type="hidden" name="_csrf" value="'
-        . View::e(Http::csrf())
-        . '"><input type="hidden" name="command_key" value="'
-        . bin2hex(random_bytes(16))
-        . '"><input type="hidden" name="action" value="'
-        . ($d?'document.edit':'document.create')
-        . '"><input type="hidden" name="id" value="'
-        . $id
-        . '"><input type="hidden" name="version" value="'
-        . ($d['version'] ?? 0)
-        . '"><input type="hidden" name="contract_id" value="'
-        . $cid
-        . '"><input type="hidden" name="base_version" value="'
-        . $c['version']
-        . '"><input type="hidden" name="kind" value="renewal">'
-        . RentalUI::pairs([
-            [
-                'Основной договор',
-                '№'
-                . $c['number']
-                . ' от '
-                . Documents::dateText($c['document_date'])
-            ],
-            [
-                'Контрагент',
-                Controller::query('SELECT name FROM parties WHERE id=?',
-                [
-                    $c['party_id']
-                ])[0]['name']
-            ]
-        ])
-        . '<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
-        . Controller::input('number', 'Номер допсоглашения', $d['number'] ?? '', 'text', true)
-        . Controller::input('document_date', 'Дата допсоглашения', $d['document_date'] ?? date('Y-m-d'), 'date', true)
-        . Controller::input('base_date', 'Дата базового договора', $d['base_date'] ?? $c['document_date'], 'date', false)
-        . Controller::input('effective_date', 'Дата вступления в силу', $d['effective_date'] ?? date('Y-m-d'), 'date', true)
-        . '</div>'
-        . '<span class="registry-ui-modal-help">Укажите полный состав помещений, сроки и месячную стоимость каждого. Новые условия применяются после подписания с даты вступления ДС в силу.</span>'
-        . '<div class="table-scroll">'
-        . '<table class="table registry-ui-table registry-ui-compact-table">'
-        . '<thead>'
-        . '<tr>'
-        . '<th>Объект</th>'
-        . '<th>Начало</th>'
-        . '<th>Окончание</th>'
-        . '<th>В месяц</th>'
-        . '<th>Состав</th>'
-        . '</tr>'
-        . '</thead>'
-        . '<tbody data-rental-terms>';
-        $total = '0.00';
-        foreach (\App\BillingParts::terms(DB::pdo(), $d?'document':'contract', (int)($d['id'] ?? $cid)) as $part) {
-            if ($part['amount'] !== null) $total = bcadd($total, $part['amount'], 2);
-        }
-        foreach ($terms as $t) {
-            $oid = $t['object_id'];
-            if ($t['amount'] !== null)$total = bcadd($total, $t['amount'], 2);
-            $body.='<tr data-rental-term-id="'
-            . $oid
-            . '"><td>'
-            . View::e($t['name'])
-            . '<input type="hidden" name="objects[]" value="'
-            . $oid
-            . '"></td><td>'
-            . Controller::input('term_start['
-            . $oid
-            . ']', 'Начало', $t['start_date'], 'date', true)
-            . '</td><td>'
-            . Controller::input('term_end['
-            . $oid
-            . ']', 'Окончание', $t['end_date'], 'date', true)
-            . '</td><td>'
-            . Controller::input('term_amount['
-            . $oid
-            . ']', 'Сумма с НДС', $t['amount'], 'text', true)
-            . '</td><td><button type="button" class="registry-ui-reset" data-rental-remove-object>Убрать</button></td></tr>';
-        }
-        $body.='</tbody><tfoot><tr><td colspan="5" class="registry-ui-number">Итого <input type="hidden" name="amount" value="'
-        . $total
-        . '"><strong data-rental-contract-total>'
-        . View::e(Documents::amountText($total))
-        . '</strong>'
-        . '</td>'
-        . '</tr>'
-        . '</tfoot>'
-        . '</table>'
-        . '</div>'
-        . '<div class="registry-ui-modal-address-row">'
-        . '<label class="field">'
-        . '<span class="field-label">Добавить помещение</span>'
-        . '<select class="field-input field-select" data-rental-object-picker>'
-        . '<option value="">Выберите помещение</option>';
-        foreach (Controller::query('SELECT id,name,type FROM rental_objects WHERE active=1 ORDER BY name') as $o)$body.='<option value="'
-        . $o['id']
-        . '" data-name="'
-        . View::e($o['name'])
-        . '" data-type="'
-        . View::e($o['type'])
-        . '">'
-        . View::e($o['name'])
-        . '</option>';
-        $body.='</select>'
-        . '</label>'
-        . '<button type="button" class="btn btn-secondary" data-rental-add-object>Добавить</button>'
-        . '</div>'
-        . '<template data-rental-term-template>'
-        . '<tr data-rental-term-id="__ID__">'
-        . '<td>'
-        . '<span data-rental-term-name>'
-        . '</span>'
-        . '<input type="hidden" name="objects[]" value="__ID__">'
-        . '</td>'
-        . '<td>'
-        . Controller::input('term_start[__ID__]', 'Начало', $d['effective_date'] ?? date('Y-m-d'), 'date', true)
-        . '</td><td>'
-        . Controller::input('term_end[__ID__]', 'Окончание', $d['end_date'] ?? $c['end_date'], 'date', true)
-        . '</td><td>'
-        . Controller::input('term_amount[__ID__]', 'Сумма с НДС', '', 'text', true)
-        . '</td><td><button type="button" class="registry-ui-reset" data-rental-remove-object>Убрать</button></td></tr></template>'
-        . PartTerms::render(DB::pdo(), $d?'document':'contract', (int)($d['id'] ?? $cid),
-            $d['start_date'] ?? $c['start_date'], $d['end_date'] ?? $c['end_date']).'</form>';
+        $body = '<form id="'.$form.'" class="registry-ui-modal-grid" data-rental-contract-form data-rental-addendum-form'
+            .' data-rental-period-start="'.View::e($start).'" data-rental-period-end="'.View::e($end).'"'
+            .' data-rental-availability-url="/rental/availability?mode=contract&amp;contract_id='.$cid.'" method="post" action="/rental/action">'
+            .'<input type="hidden" name="_csrf" value="'.View::e(Http::csrf()).'">'
+            .'<input type="hidden" name="command_key" value="'.bin2hex(random_bytes(16)).'">'
+            .'<input type="hidden" name="action" value="'.($d?'document.edit':'document.create').'">'
+            .'<input type="hidden" name="id" value="'.$id.'"><input type="hidden" name="version" value="'.($d['version'] ?? 0).'">'
+            .'<input type="hidden" name="contract_id" value="'.$cid.'"><input type="hidden" name="base_version" value="'.$c['version'].'">'
+            .'<input type="hidden" name="kind" value="renewal">'
+            .'<span class="registry-ui-modal-help">'.View::e('К договору №'.$c['number'].' от '.Documents::dateText($c['document_date']).' · '.$party).'</span>'
+            .Controller::input('base_party','Контрагент',$party,'text',false);
+        $body=str_replace('name="base_party"','name="base_party" readonly aria-readonly="true"',$body);
+        $body.='<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
+            .Controller::input('number','Номер допсоглашения',$d['number'] ?? '','text',true)
+            .Controller::input('document_date','Дата допсоглашения',$d['document_date'] ?? date('Y-m-d'),'date',true)
+            .Controller::input('start_date','Начало аренды',$start,'date',true)
+            .Controller::input('end_date','Окончание аренды',$end,'date',true)
+            .Controller::input('base_date','Дата базового договора',$d['base_date'] ?? $c['document_date'],'date',false)
+            .Controller::input('effective_date','Дата вступления в силу',$d['effective_date'] ?? date('Y-m-d'),'date',true).'</div>';
+        $vat=Controller::query('SELECT vat FROM organization WHERE id=1')[0]['vat'] ?? null;
+        $body.='<span class="registry-ui-modal-help">НДС нашей организации: '.View::e($vat===null?'не задан':rtrim(rtrim($vat,'0'),'.').'%').'. Суммы включают НДС.</span>';
+        $total='0.00';
+        foreach (\App\BillingParts::terms(DB::pdo(),$d?'document':'contract',(int)($d['id'] ?? $cid)) as $part) if($part['amount']!==null)$total=bcadd($total,$part['amount'],2);
+        foreach($terms as $term)if($term['amount']!==null)$total=bcadd($total,$term['amount'],2);
+        $body.=ContractObjectEditor::render($terms,Availability::options(Availability::items($previewStart,$previewEnd,$cid,null,true)),$total,['start'=>$start,'end'=>$end])
+            .'<span class="registry-ui-modal-help">Новые условия применяются после подписания с даты вступления ДС в силу. Индивидуальные сроки помещений сохранены.</span>'
+            .PartTerms::render(DB::pdo(),$d?'document':'contract',(int)($d['id'] ?? $cid),$start,$end).'</form>';
         $actions = (!$d || $d['status'] === 'draft'?'<button class="btn btn-secondary" type="submit" form="'
         . $form
         . '" name="intent" value="draft">Сохранить в черновиках</button>':'')
         . '<button class="btn btn-primary" type="submit" form="'
         . $form
         . '" name="intent" value="submit">Отправить на согласование</button>';
-        return RentalUI::modal($d?'Изменить допсоглашение':'Допсоглашение к действующему договору', $body, $actions, 'contracts-active', true);
+        return RentalUI::modal($d?'Изменить допсоглашение':'Допсоглашение', $body, $actions, 'contracts-active', true);
     }
     public static function card():string {
         Auth::requirePermission('rental.read');

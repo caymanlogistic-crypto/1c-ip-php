@@ -76,7 +76,7 @@ final class WorkflowNotices
             'legalApprove'=>'document-approved','lawyerReturn','accountantReturn'=>'document-returned',
             'package'=>'packet-confirmed',default=>null};
         return $key===null?null:self::notice('sender:'.$event['event_id'],(int)$event['event_id'],'green',$key,
-            self::variables($event)+['section'=>'Согласования','why'=>$event['reason'],'text'=>$event['text']],
+            self::variables($event)+['section'=>'Согласования','why'=>$event['reason'],'text'=>in_array($event['event_kind'],['submit','resubmit'],true)?$event['party_name']:$event['text']],
             [(int)$event['entity_version']],$catalog);
     }
 
