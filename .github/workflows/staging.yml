@@ -12,6 +12,8 @@ on:
   push:
     branches: [main, 'task/**', 'codex/**']
   pull_request:
+    # Bot updates are checked by exact-SHA queue dispatch; synchronize would require manual approval.
+    types: [opened, reopened]
     branches: [main]
 permissions:
   contents: read
