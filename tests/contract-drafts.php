@@ -18,7 +18,12 @@ try {
  ok($c['status']==='draft'&&$c['party_id']===null&&$c['start_date']===null&&$c['end_date']===null,'Empty draft projection');
  ok(Service::command('contract.create',$empty)===$r,'Idempotent replay');
  ok((int)$p->query('SELECT COUNT(*) FROM contracts')->fetchColumn()===$before+1,'Replay duplicated draft');
- $_GET=['id'=>$id];ok(str_contains(ContractForm::render(),'formnovalidate'),'Draft button bypass');
+ $custom='LOCAL-'.substr(keyForTest(),0,12);
+ Service::command('contract.edit',['id'=>$id,'version'=>$c['version'],'number'=>$custom,'command_key'=>keyForTest(),'intent'=>'draft']);$c=record($id);
+ ok($c['number']===$custom,'Custom draft number was not saved');
+ $duplicate=(string)$p->query('SELECT number FROM contracts WHERE id<>'.$id.' LIMIT 1')->fetchColumn();
+ try { Service::command('contract.edit',['id'=>$id,'version'=>$c['version'],'number'=>$duplicate,'command_key'=>keyForTest(),'intent'=>'draft']);throw new LogicException('Duplicate number accepted'); } catch(RuntimeException $e){if($e instanceof LogicException)throw $e;}
+ $_GET=['id'=>$id];$form=ContractForm::render();ok(!preg_match('/name="number"[^>]*readonly/',$form),'Draft number remains locked');ok(str_contains($form,'formnovalidate'),'Draft button bypass');
  ok(str_contains(WorkRegistry::render(),'contract:'.$id),'Unassigned draft missing in registry');
  ok(str_contains(SourceCards::show(),'Редактировать проект'),'Unassigned card failed');
  $p->exec('SAVEPOINT expected_submit');

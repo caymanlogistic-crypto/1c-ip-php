@@ -2,20 +2,6 @@
 // Presentation adapter for C directory-ui.js:19–23,90. PHP owns fields and validation.
 (() => {
   const chosenCadastreRentability = new WeakSet();
-  function showPanel(editor, key, focusTab = false) {
-    if (!editor) return;
-    for (const panel of editor.querySelectorAll('[data-party-panel]')) {
-      panel.hidden = panel.dataset.partyPanel !== key;
-    }
-    for (const tab of editor.querySelectorAll('[data-party-tab]')) {
-      const selected = tab.dataset.partyTab === key;
-      tab.classList.toggle('is-active', selected);
-      tab.setAttribute('aria-selected', String(selected));
-      tab.tabIndex = selected ? 0 : -1;
-      if (selected && focusTab) tab.focus({preventScroll: true});
-    }
-  }
-
   function syncAddress(form) {
     if (!form) return;
     const same = form.querySelector('input[type="checkbox"][name="postal_same_as_legal"]');
@@ -47,10 +33,6 @@
   }
 
   function enhance(container) {
-    for (const editor of container.querySelectorAll('[data-party-editor]')) {
-      const selected = editor.querySelector('[data-party-tab][aria-selected="true"]');
-      showPanel(editor, selected?.dataset.partyTab || 'details');
-    }
     for (const form of container.querySelectorAll('form')) {
       syncAddress(form);
       syncRecipients(form);
@@ -58,34 +40,9 @@
     }
   }
 
-  document.addEventListener('click', event => {
-    const tab = event.target.closest('[data-party-tab]');
-    if (!tab) return;
-    const editor = tab.closest('[data-party-editor]');
-    if (!editor) return;
-    event.preventDefault();
-    showPanel(editor, tab.dataset.partyTab);
-  });
-
-  document.addEventListener('keydown', event => {
-    const tab = event.target.closest('[data-party-tab]');
-    const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
-    if (!tab || !keys.includes(event.key)) return;
-    const editor = tab.closest('[data-party-editor]');
-    if (!editor) return;
-    const tabs = [...editor.querySelectorAll('[data-party-tab]')];
-    const index = tabs.indexOf(tab);
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
-      : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
-    event.preventDefault();
-    showPanel(editor, tabs[next].dataset.partyTab, true);
-  });
-
   document.addEventListener('invalid', event => {
-    const panel = event.target.closest('[data-party-panel]');
-    if (!panel) return;
+    if (!event.target.closest('[data-party-editor]')) return;
     event.preventDefault();
-    showPanel(panel.closest('[data-party-editor]'), panel.dataset.partyPanel);
     event.target.focus({preventScroll: true});
     event.target.scrollIntoView({block: 'nearest'});
     window.PlanexNotifications?.show({tone: 'danger', message: event.target.validationMessage});

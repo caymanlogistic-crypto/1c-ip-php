@@ -53,7 +53,7 @@ final class ContractDraft
         $values=[$party,self::optionalDate($draft['document_date'] ?? ''),self::optionalDate($draft['start_date'] ?? ''),self::optionalDate($draft['end_date'] ?? ''),$amount,Importer::json($source)];
         if ($old) {
             $id=(int)$old['id'];
-            $pdo->prepare('UPDATE contracts SET party_id=?,document_date=?,start_date=?,end_date=?,amount=?,source_json=?,version=version+1 WHERE id=?')->execute([...$values,$id]);
+            $pdo->prepare('UPDATE contracts SET number=?,party_id=?,document_date=?,start_date=?,end_date=?,amount=?,source_json=?,version=version+1 WHERE id=?')->execute([$number,...$values,$id]);
         } else {
             $id=(int)$pdo->query('SELECT COALESCE(MAX(id),900000)+1 FROM contracts')->fetchColumn();
             $pdo->prepare("INSERT INTO contracts(party_id,document_date,start_date,end_date,amount,source_json,id,number,status) VALUES(?,?,?,?,?,?,?,?,'draft')")->execute([...$values,$id,$number]);

@@ -148,7 +148,7 @@ final class Service {
         return $result;
     }
 
-    public static function available(PDO $p, array $ids, string $start, string $end, ?int $except = null, ?int $partyId = null, bool $consume = false, ?int $bookingId = null): void {
+    public static function available(PDO $p, array $ids, string $start, string $end, ?int $except = null, ?int $partyId = null, bool $consume = false, ?int $bookingId = null, bool $sharedCustomerBookings = false): void {
         sort($ids, SORT_NUMERIC);
         foreach ($ids as $id) {
             $o = self::get($p, 'rental_objects', (int)$id);
@@ -183,6 +183,7 @@ final class Service {
                 $start
             ]);
             foreach ($q->fetchAll() as $booking) {
+                if ($sharedCustomerBookings && $booking['document_id']===null && (!$consume || $bookingId!==(int)$booking['id']))continue;
                 if ($booking['document_id'] !== null || $partyId === null || ((int)$booking['party_id'] !== $partyId && !($bookingId === (int)$booking['id'] && $booking['party_id'] === null)))throw new RuntimeException('Объект забронирован.');
                 if ($consume)$p->prepare("UPDATE reservations SET status='consumed',version=version+1 WHERE id=?")->execute([
                     $booking['id']
@@ -266,7 +267,8 @@ final class Service {
             if ($old) {
                 $source = json_decode($old['source_json'], true);
                 if (!empty($source['imported']))throw new RuntimeException('Исходный договор доступен только для чтения; изменения оформляются ДС.');
-                if ($number !== $old['number'])throw new RuntimeException('Номер существующего договора не изменяется.');
+                if ($number !== $old['number'] && $old['status']!=='draft')throw new RuntimeException('Номер существующего договора не изменяется.');
+                if ($number==='')throw new RuntimeException('Укажите номер договора.',422);
             }
             elseif($number === '') {
                 $numbers = $p->query('SELECT number FROM contracts')->fetchAll(PDO::FETCH_COLUMN);
@@ -327,7 +329,7 @@ final class Service {
                     if (!in_array((int)$booking['object_id'], $ids, true))throw new RuntimeException('В договор не включено забронированное помещение.');
                 }
                 $physicalIds=array_values(array_filter($ids,static fn($oid)=>Occupancy::physical($priorRelations[(int)$oid] ?? null)));
-                self::available($p, $physicalIds, $start, $end, $old?$id:null, $party, true, $booking?(int)$booking['id']:null);
+                self::available($p, $physicalIds, $start, $end, $old?$id:null, $party, true, $booking?(int)$booking['id']:null, true);
                 if ($old)$p->prepare('UPDATE contracts SET number=?,party_id=?,start_date=?,end_date=?,amount=?,version=version+1 WHERE id=?')->execute([
                     $number,
                     $party,
@@ -426,7 +428,7 @@ final class Service {
                 $q->execute([
                     $id
                 ]);
-                self::available($p, $q->fetchAll(PDO::FETCH_COLUMN), $c['start_date'], $c['end_date'], $id);
+                self::available($p, $q->fetchAll(PDO::FETCH_COLUMN), $c['start_date'], $c['end_date'], $id, null, false, null, true);
                 $next = 'legal';
                 break;
                 case 'contract.legal':self::roles([
@@ -495,6 +497,7 @@ final class Service {
                 ], true))throw new RuntimeException('Подпись сейчас не ожидается.');
                 if (empty($in['both_signed']))throw new RuntimeException('Подтвердите подписи обеих сторон.');
                 Evidence::latest($p, 'contract', $id, 'signed-contract', (int)$c['version']);
+                if($status!=='active')CustomerBookings::checkActivation($p,$c);
                 $p->prepare('UPDATE contracts SET signed=1 WHERE id=?')->execute([
                     $id
                 ]);
@@ -581,6 +584,7 @@ final class Service {
                 $next === 'closed' ? 0 : 1,
                 $id
             ]);
+            if ($next==='active' && $status!=='active')CustomerBookings::cancelOthers($p,$id);
             self::event($p, $u, $action, 'Договор №'
             . $c['number']
             . ': '

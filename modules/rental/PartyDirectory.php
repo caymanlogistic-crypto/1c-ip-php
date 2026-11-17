@@ -112,32 +112,29 @@ final class PartyDirectory
         $id=(int)($_GET['id'] ?? 0); $party=$id?self::record($id,2):[];
         if (!empty($party['blocked'])) throw new RuntimeException('Работа с контрагентом заблокирована.',403);
         $bank=self::bank($id);
-        $body='<div class="registry-ui-modal-grid" data-party-editor=""><div class="registry-ui-tabs" role="tablist" aria-label="Разделы карточки контрагента">';
-        foreach (['details'=>'Реквизиты','contacts'=>'Контакты','banks'=>'Банковские реквизиты'] as $key=>$label) {
-            $body.='<button type="button" role="tab" data-party-tab="'.$key.'" id="party-'.$key.'-tab" aria-controls="party-'.$key.'-panel" aria-selected="'.($key==='details'?'true':'false').'" class="'.($key==='details'?'is-active':'').'">'.$label.'</button>';
-        }
-        $body.='</div><section class="registry-ui-modal-grid" role="tabpanel" data-party-panel="details" id="party-details-panel" aria-labelledby="party-details-tab">'
-            .'<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'.DirectoryUi::input('name','Полное наименование',$party['name'] ?? '','text',true).DirectoryUi::input('inn','ИНН',$party['inn'] ?? '').'</div>'
-            .'<fieldset class="registry-ui-modal-grid"><legend class="registry-ui-modal-summary">Адреса</legend>'
+        $body='<div class="registry-ui-modal-grid" data-party-editor>'
+            .'<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
+            .DirectoryUi::input('name','Полное наименование',$party['name'] ?? '','text',true)
+            .DirectoryUi::input('inn','ИНН',$party['inn'] ?? '').'</div>'
+            .'<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
             .DirectoryUi::input('address','Юридический адрес',$party['address'] ?? '')
-            .DirectoryUi::checkbox('postal_same_as_legal','Почтовый адрес совпадает с юридическим',$party?self::selected($party['postal_same_as_legal']):true)
-            .DirectoryUi::input('postal_address','Почтовый адрес',$party['postal_address'] ?? '').'</fieldset>'
-            .'<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'.DirectoryUi::input('edo','Оператор ЭДО',$party['edo'] ?? '').DirectoryUi::input('edo_id','Идентификатор ЭДО',$party['edo_id'] ?? '').'</div></section>'
-            .'<section class="registry-ui-modal-grid registry-ui-modal-grid--reading" role="tabpanel" data-party-panel="contacts" id="party-contacts-panel" aria-labelledby="party-contacts-tab" hidden>';
-        foreach ([['Основной контакт','contact','phone','email','document_recipient'],['Дополнительный контакт (необязательно)','additional_contact','additional_phone','account_email','additional_document_recipient']] as $index=>[$title,$name,$phone,$email,$recipient]) {
-            $body.='<fieldset class="registry-ui-modal-grid"><legend class="registry-ui-modal-summary">'.$title.'</legend>'
-                .DirectoryUi::input($name,'ФИО',$party[$name] ?? '').DirectoryUi::input($phone,'Телефон',$party[$phone] ?? '','tel')
-                .DirectoryUi::input($email,'Электронная почта',$party[$email] ?? '')
-                .DirectoryUi::checkbox($recipient,'Получает документацию на email',$party?self::selected($party[$recipient]):$index===0).'</fieldset>';
+            .DirectoryUi::input('postal_address','Почтовый адрес',$party['postal_address'] ?? '').'</div>'
+            .DirectoryUi::checkbox('postal_same_as_legal','Почтовый адрес совпадает с юридическим',$party?self::selected($party['postal_same_as_legal']):true);
+        foreach ([['Основной контакт','contact','phone','email','document_recipient'],['Дополнительный контакт','additional_contact','additional_phone','account_email','additional_document_recipient']] as $index=>[$title,$name,$phone,$email,$recipient]) {
+            $body.='<section class="registry-ui-modal-grid" aria-label="'.$title.'"><div class="registry-ui-modal-quality"><span class="registry-ui-modal-summary">'.$title.'</span>'
+                .DirectoryUi::checkbox($recipient,'Получает документацию на email',$party?self::selected($party[$recipient]):$index===0).'</div>'
+                .'<div class="form-grid-3">'.DirectoryUi::input($name,'ФИО',$party[$name] ?? '')
+                .DirectoryUi::input($phone,'Телефон',$party[$phone] ?? '','tel')
+                .DirectoryUi::input($email,'Электронная почта',$party[$email] ?? '').'</div></section>';
         }
-        $body.='</section><section class="registry-ui-modal-grid" role="tabpanel" data-party-panel="banks" id="party-banks-panel" aria-labelledby="party-banks-tab" hidden>'
-            .'<section class="registry-ui-modal-grid registry-ui-modal-grid--reading" data-party-bank data-bank-prefix="">';
+        $body.='<fieldset class="form-grid-4" data-party-bank data-bank-prefix=""><legend class="registry-ui-modal-summary">Банковские реквизиты</legend>';
         foreach (['bank'=>'Наименование банка','account'=>'Расчётный счёт','bik'=>'БИК','correspondent_account'=>'Корреспондентский счёт'] as $key=>$label) {
             $body.=DirectoryUi::input($key,$label,$key==='bank' && $bank?DirectoryUi::bankName($bank):($bank[$key] ?? ''),'text',true);
         }
-        $body.='</section></section></div>';
+        $body.='</fieldset><div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
+            .DirectoryUi::input('edo','Оператор ЭДО',$party['edo'] ?? '').DirectoryUi::input('edo_id','Идентификатор ЭДО',$party['edo_id'] ?? '').'</div></div>';
         [$form,$actions]=DirectoryUi::form('party.save',$party,$body);
-        return RentalUI::modal($id?'Редактировать контрагента':'Новый контрагент',$form,$actions,'parties',false,$party?self::statusButton($party):'');
+        return RentalUI::modal($id?'Редактировать контрагента':'Новый контрагент',$form,$actions,'parties',true,$party?self::statusButton($party):'');
     }
 
     public static function status(): string

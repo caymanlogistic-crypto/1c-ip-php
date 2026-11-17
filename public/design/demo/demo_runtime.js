@@ -257,7 +257,7 @@ function openDialog(title,body,foot,variant='registry-ui-modal--reading',onSubmi
 }
 
 const closeButton='<button class="btn btn-ghost" type="button" data-close>Отменить</button>';
-const roomPickerField=()=>'<label class="field"><span class="field-label">Помещение</span><select class="field-select" name="room" data-rental-picker="room"><option value="">Выберите помещение</option>'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" data-name="Помещение '+(i+1)+'" data-description="Демонстрационная запись">Помещение '+(i+1)+'</option>').join('')+'</select></label>';
+const roomPickerField=()=>'<label class="field"><span class="field-label">Помещение</span><select class="field-select" name="room" data-rental-picker="room"><option value="">Выберите помещение</option>'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" data-name="Помещение '+(i+1)+'" data-type="Офис" data-area="12.5" data-available="true" data-description="Офис · 12.5 м² · Доступно">Помещение '+(i+1)+'</option>').join('')+'</select></label>';
 const availabilityField=r=>'<label class="field"><span class="field-label">Доступность</span><select class="field-select" name="rentable"><option value="1"'+(r?.rentable!==false?' selected':'')+'>Доступен</option><option value="0"'+(r?.rentable===false?' selected':'')+'>Недоступен</option></select></label>';
 function savedObject(r){refresh();if(state.page==='objects'){window.UIRegistryViewport.ensureRow(work,'objects',r.id);saveFeedback.show('objects',r.id,'Объект #'+r.id);}else toast('success','Объект #'+r.id+' сохранён.');}
 function openModal(kind){

@@ -209,6 +209,7 @@ final class ExtraService {
                 ]);
             }
             elseif($action === 'reservation.create') {
+                if (trim((string)($in['client_name'] ?? '')) === '' && empty($in['party_id']))throw new RuntimeException('Укажите клиента для брони.',422);
                 if (trim((string)($in['comment'] ?? '')) === '')throw new RuntimeException('Укажите описание брони.');
                 $oid = (int)($in['object_id'] ?? 0);
                 $party = !empty($in['party_id'])?(int)$in['party_id']:null;
@@ -221,7 +222,7 @@ final class ExtraService {
                 if ($until<date('Y-m-d'))throw new RuntimeException('Бронь уже истекла.');
                 Service::available($p, [
                     $oid
-                ], $start, $start);
+                ], $start, $start, null, null, false, null, true);
                 $id = self::next($p, 'reservations');
                 $p->prepare("INSERT INTO reservations(id,object_id,party_id,client_name,author_id,start_date,end_date,until_date,status,comment,source_json) VALUES(?,?,?,?,?,?,NULL,?,'active',?,'{}')")->execute([
                     $id,
