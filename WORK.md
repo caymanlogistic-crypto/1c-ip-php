@@ -1,11 +1,13 @@
 # Текущие задачи и факты проекта
 
-## DEPLOY-LAYERS — доставка недостающих слоёв, в работе
+## DEPLOY-LAYERS — доставка недостающих слоёв внедрена
 
 - Поручение владельца: исправить общий деплой без повторной передачи полного образа; БД и документы не менять. Один исполнитель, worktree `C:/Users/Vladimir/Documents/ChatGPT/1c-ip-deploy-layers`, `codex/deploy-layers` от `origin/main` afc384f.
-- Кандидат заменяет `docker save | gzip | SSH` на приватный GHCR: CI публикует проверенный образ, SSH передаёт только OIDC/digest/временный токен, сервер получает отсутствующие слои по immutable digest. Токен удаляется до формирования receipt, временный Docker config удаляется и при ошибке. В task/PR нет публикации образа или сайта; кеш записывает только main.
+- Принятое изменение заменяет `docker save | gzip | SSH` на приватный GHCR: CI публикует проверенный образ, SSH передаёт только OIDC/digest/временный токен, сервер получает отсутствующие слои по immutable digest. Токен удаляется до формирования receipt, временный Docker config удаляется и при ошибке. В task/PR нет публикации образа или сайта; кеш записывает только main.
 - SOURCE_COMMIT перенесён после runtime/vendor: смена commit больше не инвалидирует установку PHP/Composer. Между сборками main сохраняется registry build cache. OIDC main/commit/run, image_id/OCI revision, flock/highest-run, rollback и существующий допуск 1С сохранены. Старый архивный протокол оставлен только для перехода уже запущенных workflow; новый workflow его не использует.
-- Локально: 13 адресных Python-тестов, Python compile, Bash syntax шагов workflow и diff-check — PASS. Реальный registry-деплой и повторное использование слоёв ещё предстоит проверить. Данные приложения, миграции и внешние отправки не запускались.
+- Локально и в GitHub Ubuntu: 13 адресных Python-тестов, Python compile, Bash syntax шагов workflow и diff-check — PASS. Совместимый receiver установлен атомарно под deploy.lock, root:root 0755, SHA256 3de5b35db374f726a84959dd93ea5e0e308a2cc6541ad5bceea00d00ff8fed2d. Резерв: /srv/1c-ip-php/deploy-registry-20261117T193112Z. Отличие прежнего установленного receiver от main было только в отсутствии уже принятого вызова ipphp-onec-network; main-версия сохранена.
+- Публикация через PR #10: main 84fcffdc03b2b6dc862e8ea2f9e45f6b89dd95dd, workflow 44159745403 — SUCCESS. GHCR manifest sha256:b830001bfac18d912a0b7a6fef2bfc7aa4120dfd7a962b641dddec488ec0f0fc; config image_id sha256:05f10a316886e90332eb5552415c716f83ac9ca23b8dfa88a4f99ae95ab0e53d. Первое заполнение layer store: 52.210 с, 29 слоёв, 0 ранее зарегистрированных; это начальная загрузка registry, не обещание нулевой передачи при внедрении. Основной кеш main успешно сохранён. Анонимное получение private registry отклонено HTTP 401.
+- /_ops.php и Docker receipt совпали; реальный вход admin и /rental/contracts, /rental/contracts-active, /rental/objects, /design/demo/index.html — PASS. Хеши всех 10 файлов документов совпали (агрегат 463e5b421fe9cc3948bcbc50d6ef8b8a78a3dc23248fb1f4e0c6c14b2e59ec65). ID и StartedAt DB-контейнера не изменились. SQL/миграций, изменений бизнес-данных/документов, workers и внешних отправок не выполнялось. Последующая запись отчёта меняет только Markdown; актуальную опубликованную версию проверять через /_ops.php.
 
 
 ## OBJECT-SIGNALS — подписи и согласованность индикаторов объектов (кандидат)
