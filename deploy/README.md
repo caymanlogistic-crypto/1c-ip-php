@@ -8,7 +8,7 @@ Host: 89.208.213.14; root folder `/srv/1c-ip-php`.
 | UI | staging-ui | https://ui.89.208.213.14.sslip.io | ipphp-ui | 172.30.101.10:80 | ipphp_ui |
 | INTEGRATIONS | staging-integrations | https://integrations.89.208.213.14.sslip.io | ipphp-integrations | 172.30.102.10:80 | ipphp_integrations |
 
-Each project has its own app, MySQL 8.4.9, network, DB user, file secrets, documents, runtime/sessions, private data and logs. Containers have no published ports; only the host proxy can reach their private IPs. UI uses an internal Docker network. Only the host Apache HTTPS proxy is public. A dedicated TLS certificate covers the two sslip.io names; certbot.timer renews it and a scoped deploy hook reloads Apache. Existing sites, certificates and databases are retained. Basic access and application test accounts are distinct per stand. Credentials live only in private carriers, never in Git.
+Each project has its own app, MySQL 8.4.9, network, DB user, file secrets, documents, runtime/sessions, private data and logs. Containers have no published ports; only the host proxy can reach their private IPs. UI uses an internal Docker network. Only the host Apache HTTPS proxy is public. A dedicated TLS certificate covers the two sslip.io names; certbot.timer renews it and a scoped deploy hook reloads Apache. Existing sites, certificates and databases are retained. Application test accounts have distinct passwords per stand. There is no additional browser login. Credentials live only in private carriers, never in Git.
 
 PHP 8.5.6 Apache image and MySQL are pinned by digest. Composer 2.8.9 installs the existing composer.lock without updates. Source comes from the image, not a writable checkout. `.dockerignore` starts from an allowlist; `.local`, private profiles/keys, SQL dumps, sessions, Git and vendor do not enter the context. Dependency vendor is built from lock.
 
@@ -26,7 +26,7 @@ There is a separate GitHub concurrency group and server flock for each stand. In
 
 ## Diagnosis and image rollback
 
-`https://<stand-address>/_ops.php` is behind Basic access and reports stand, commit, image_id, deployment time, actual DB identity/readiness, PHP and external gates. It never reports credentials. Server receipts are in `<stand>/state/current.json`, previous.json and release-<run>.json. Compose configuration is root-owned and separate from application images.
+`https://<stand-address>/_ops.php` requires an authenticated application session and reports stand, commit, image_id, deployment time, actual DB identity/readiness, PHP and external gates. It never reports credentials. Server receipts are in `<stand>/state/current.json`, previous.json and release-<run>.json. Compose configuration is root-owned and separate from application images.
 
 As the authorized server administrator:
 

@@ -9,7 +9,7 @@
 | UI: интерфейс, формы, роли; витрина пока не принята | https://ui.89.208.213.14.sslip.io | staging-ui |
 | INTEGRATIONS: подготовка отдельных задач чтения подключений | https://integrations.89.208.213.14.sslip.io | staging-integrations |
 
-Доступ защищён HTTPS и отдельным Basic-паролем каждого стенда, затем входом приложения. Тестовые учётки имеют разные пароли на разных стендах. Приватный носитель на этом ПК: `.local/server-access.private.json`; серверный — `/srv/1c-ip-php/access.private.json`. В Git и ответы значения не выводить. Роль для основной проверки — manager.
+Доступ защищён HTTPS и обычной авторизацией приложения. Дополнительного входа браузера нет. Тестовые учётки имеют разные пароли на разных стендах. Приватный носитель на этом ПК: `.local/server-access.private.json`; серверный — `/srv/1c-ip-php/access.private.json`. В Git и ответы значения не выводить. Роль для основной проверки — manager.
 
 Фактическая версия и режимы: `/_ops.php` соответствующего стенда; commit, SHA256 image config digest, время выкладки, реальная БД, external_access/automated_sends. Успех /health не заменяет эту проверку. Результаты выкладки сохраняются GitHub Actions и `<stand>/state/current.json`.
 
