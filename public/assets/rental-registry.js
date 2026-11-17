@@ -66,7 +66,9 @@
     const focused = workspace.contains(document.activeElement) ? document.activeElement : null;
     const focus = focused ? {id:focused.id,name:focused.name,tag:focused.tagName,type:focused.type,start:focused.selectionStart,end:focused.selectionEnd} : null;
     const scroll = {top:workspace.scrollTop,left:workspace.scrollLeft};
-    const response = await fetch(url, {signal:abort.signal,headers:{'X-Requested-With':'ERP-Fetch',Accept:'text/html'}});
+    const headers = {'X-Requested-With':'ERP-Fetch',Accept:'text/html'};
+    if (url.pathname==='/rental/objects') headers['X-Rental-Objects-Fragment']='1';
+    const response = await fetch(url, {signal:abort.signal,headers});
     const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
     if (!response.ok) throw new Error(doc.querySelector('[role=alert]')?.textContent.trim() || 'Не удалось обновить реестр.');
     const replacement = doc.querySelector('#workspace');

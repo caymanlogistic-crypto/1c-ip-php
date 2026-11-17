@@ -23,7 +23,7 @@ final class BookingController {
         return [
             '<form id="'
             . $fid
-            . '" method="post" action="/rental/action" data-rental-availability-url="/rental/availability"><input type="hidden" name="_csrf" value="'
+            . '" class="registry-ui-modal-grid" method="post" action="/rental/action" data-rental-availability-url="/rental/availability?mode=booking"><input type="hidden" name="_csrf" value="'
             . View::e(Http::csrf())
             . '"><input type="hidden" name="action" value="'
             . $action
@@ -52,8 +52,9 @@ final class BookingController {
         \App\PagePolicy::requireCommand('reservation.create');
         $start = date('Y-m-d');
         $fields = '<label class="field"><span class="field-label">Помещение</span><select class="field-input field-select" name="object_id" required data-rental-picker="room">'
-        . Availability::options(Availability::items($start, $start))
+        . Availability::options(Availability::items($start, $start, null, null, true))
         . '</select></label>'
+        . Controller::input('client_name', 'Клиент', '', 'text', true)
         . '<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
         . Controller::input('start_date', 'Планируемое начало аренды', $start, 'date', true)
         . Controller::input('until_date', 'Бронь действует до', date('Y-m-d'), 'date', true)
@@ -101,6 +102,8 @@ final class BookingController {
                 }
             ]
         ]);
+        $source=json_decode($r['source_json'],true) ?: [];
+        if(!empty($source['cancellation']['reason']))$body.=RentalUI::alert($source['cancellation']['reason']);
         $actions = '';
         if ($active && in_array(Auth::user()['role'], [
             'admin',

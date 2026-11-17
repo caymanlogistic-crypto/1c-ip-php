@@ -9,10 +9,18 @@ final class DirectoryUi
 {
     public static function input(string $key,string $label,mixed $value='',string $type='text',bool $required=false): string
     {
-        return '<label class="field"><span class="field-label">'.View::e($label)
-            .($required?' <span class="req">*</span>':'').'</span><input class="field-input" name="'.View::e($key)
+        return '<label class="field"><span class="field-label-row"><span class="field-label">'.View::e($label)
+            .($required?' <span class="req">*</span>':'').'</span></span><input class="field-input" name="'.View::e($key)
             .'" type="'.View::e($type).'"'.($type==='number'?' step="0.01"':'').' value="'.View::e($value)
             .'"'.($required?' required':'').'></label>';
+    }
+
+    public static function inputWithOption(string $key,string $label,mixed $value,string $flag,string $caption,string $accessible,bool $checked): string
+    {
+        $id='party-'.$key;
+        return '<div class="field"><div class="field-label-row"><label class="field-label" for="'.$id.'">'.View::e($label).'</label>'
+            .'<input type="hidden" name="'.$flag.'" value="0"><label class="checkbox-inline"><input type="checkbox" name="'.$flag.'" value="1" aria-label="'.View::e($accessible).'"'.($checked?' checked':'').'><span>'.View::e($caption).'</span></label></div>'
+            .'<input class="field-input" id="'.$id.'" name="'.$key.'" type="text" value="'.View::e($value).'"></div>';
     }
 
     public static function pairs(array $rows): string

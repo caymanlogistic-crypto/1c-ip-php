@@ -12,9 +12,9 @@ final class RentalUI
         return $h.'</div>';
     }
 
-    public static function button(string $label,string $url,bool $primary=false): string
+    public static function button(string $label,string $url,bool $primary=false,bool $danger=false): string
     {
-        return '<button type="button" class="btn '.($primary?'btn-primary':'btn-secondary').'" data-rental-open="'.View::e($url).'">'.View::e($label).'</button>';
+        return '<button type="button" class="btn '.($danger?'btn-danger':($primary?'btn-primary':'btn-secondary')).'" data-rental-open="'.View::e($url).'">'.View::e($label).'</button>';
     }
 
     public static function alert(string $title,string $sub='',string $tone='info'): string
@@ -22,7 +22,7 @@ final class RentalUI
         return '<div class="form-alert alert-'.$tone.'" role="'.($tone==='error'?'alert':'status').'"><span class="alert-mark" aria-hidden="true">'.($tone==='error'?'×':($tone==='warning'?'!':'i')).'</span><div class="alert-body"><div class="alert-body-title">'.View::e($title).'</div>'.($sub?'<div class="alert-body-sub">'.View::e($sub).'</div>':'').'</div></div>';
     }
 
-    public static function modal(string $title,string $body,string $actions='',string $active='contracts',bool $wide=false,string $leadingActions='',string $closeLabel='Закрыть',bool $extractForms=true,bool $tableOnly=false):string
+    public static function modal(string $title,string $body,string $actions='',string $active='contracts',bool $wide=false,string $leadingActions='',string $closeLabel='Закрыть',bool $extractForms=true,bool $canvas=false,bool $tableOnly=false):string
     {
         if ($actions==='' && $extractForms)
             $body=preg_replace_callback('~<form\b[^>]*>.*?</form>~s',function($match) use(&$actions) {
@@ -39,8 +39,7 @@ final class RentalUI
         $fetch=($_SERVER['HTTP_X_REQUESTED_WITH']??'')==='ERP-Fetch';
         $h='<dialog data-rental-dialog data-rental-return="/rental/'.View::e($active).'"'
             .(!$fetch?' data-rental-autopen':'').' class="modal registry-ui-modal '
-            .($wide?'registry-ui-modal--probe':'registry-ui-modal--reading')
-            .($tableOnly?' registry-ui-modal--table':'')
+            .($wide?'registry-ui-modal--probe':'registry-ui-modal--reading').($canvas?' registry-ui-modal--form-canvas':'').($tableOnly?' registry-ui-modal--table':'')
             .' demo-dialog"><div class="registry-ui-modal-form"><div class="modal-head"><h2 class="modal-title">'
             .View::e($title)
             .'</h2><button class="modal-close" type="button" data-rental-close aria-label="Закрыть">×</button></div><div class="modal-body"><div class="registry-ui-modal-grid"><div id="form-error" hidden></div>'

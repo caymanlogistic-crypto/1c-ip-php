@@ -28,7 +28,7 @@ final class WorkflowNotices
         // Retain the one existing pending command until overwrite/logout. Rendering or an aborted
         // registry response is not proof of client consumption; client fingerprints deduplicate it.
         if(is_string($command)){
-            $q=$db->prepare("SELECT id,source_json,created_at FROM rental_events WHERE JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.command_key'))=? ORDER BY id DESC LIMIT 1");
+            $q=$db->prepare("SELECT id,source_json,created_at FROM rental_events WHERE JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.epoch'))=(SELECT epoch FROM rental_runtime_context WHERE id=1) AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.command_key'))=? ORDER BY id DESC LIMIT 1");
             $q->execute([$command]);$row=$q->fetch(PDO::FETCH_ASSOC);$event=$row?WorkflowEvents::decode($row):null;
             if($event&&in_array($event['entity_kind'],['contract','document'],true)&&(int)$event['actor_id']===(int)$user['id']){
                 $table=$event['entity_kind']==='contract'?'contracts':'rental_documents';
@@ -76,7 +76,7 @@ final class WorkflowNotices
             'legalApprove'=>'document-approved','lawyerReturn','accountantReturn'=>'document-returned',
             'package'=>'packet-confirmed',default=>null};
         return $key===null?null:self::notice('sender:'.$event['event_id'],(int)$event['event_id'],'green',$key,
-            self::variables($event)+['section'=>'Согласования','why'=>$event['reason'],'text'=>$event['text']],
+            self::variables($event)+['section'=>'Согласования','why'=>$event['reason'],'text'=>in_array($event['event_kind'],['submit','resubmit'],true)?$event['party_name']:$event['text']],
             [(int)$event['entity_version']],$catalog);
     }
 

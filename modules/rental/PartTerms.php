@@ -145,7 +145,7 @@ final class PartTerms
             ...($proof?['validated_raw_terms' => $proof]:[])];
     }
 
-    public static function render(PDO $pdo, string $kind, int $id, string $start, string $end): string
+    public static function render(PDO $pdo, string $kind, int $id, string $start, string $end, ?array $draft = null): string
     {
         $candidates = self::candidates($pdo, $kind, $id);
         if (!$candidates) return '';
@@ -153,11 +153,16 @@ final class PartTerms
         foreach ($candidates as $slot => $candidate) {
             $term = $candidate['term'];
             $part = $candidate['part']['part'];
+            if ($draft !== null) {
+                foreach (['start_date','end_date'] as $field) $term[$field]=$draft['part_terms'][$slot][$field] ?? '';
+                $term['amount']=$draft['term_amount'][$slot] ?? '';
+                $term['part_version']=$draft['part_terms'][$slot]['version'] ?? $term['part_version'];
+            }
             $prefix = 'part_terms['.$slot.']';
-            $version = '<input type="hidden" name="'.$prefix.'[version]" value="'.$term['part_version'].'">';
+            $version = '<input type="hidden" name="'.$prefix.'[version]" value="'.View::e((string)$term['part_version']).'">';
             if ((int)$term['part_version'] !== $candidate['part']['current_version']) {
                 $version = '<label class="field"><span class="field-label">Версия части</span><select class="field-input field-select" name="'.$prefix.'[version]">'
-                    .'<option value="'.$term['part_version'].'">Версия '.$term['part_version'].' · требуется обновление</option>'
+                    .'<option value="'.View::e((string)$term['part_version']).'">Версия '.View::e((string)$term['part_version']).' · требуется обновление</option>'
                     .'<option value="'.$candidate['part']['current_version'].'">Актуальная версия '.$candidate['part']['current_version'].'</option></select></label>';
             }
             $rows .= '<tr><td>'.View::e('Часть '.$part['number'].' · юридический адрес')

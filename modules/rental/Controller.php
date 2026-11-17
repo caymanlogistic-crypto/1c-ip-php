@@ -321,7 +321,7 @@ final class Controller {
         if ($page==='templates' && in_array($u['role'],['admin','lawyer'],true) && Auth::can('rental.approve.legal')
             && \App\PagePolicy::level('rental.templates',$u)>=2) $headActions=RentalUI::button('Создать шаблон','/rental/template-editor',true);
         $sub = match ($page) {
-            'contracts' => 'Двойной щелчок по строке открывает карточку.', 'contracts-active' => 'Действующие условия аренды, сроки и назначенные действия.', 'contracts-completed' => 'История завершённой аренды и подтверждений расчётов.', 'approvals' => 'Назначенные проверки, ожидание подписания и история решений.', 'invoices', 'payments' => 'Счета сгруппированы по контрагентам. Раскройте строку, чтобы открыть нужный счёт.', 'invoice-list' => 'Счета, оплаты и остатки по каждому документу.', 'templates'=>'Юрист готовит новую версию, руководитель утверждает.', 'objects' => 'Помещения и машиноместа: занятость, бронирование и контроль простоя', 'cadastre' => 'Кадастровая площадь и доступность для сдачи.', default => ''
+            'contracts' => 'Двойной щелчок открывает редактор черновика или карточку брони.', 'contracts-active' => 'Действующие условия аренды, сроки и назначенные действия.', 'contracts-completed' => 'История завершённой аренды и подтверждений расчётов.', 'approvals' => 'Назначенные проверки, ожидание подписания и история решений.', 'invoices', 'payments' => 'Счета сгруппированы по контрагентам. Раскройте строку, чтобы открыть нужный счёт.', 'invoice-list' => 'Счета, оплаты и остатки по каждому документу.', 'templates'=>'Юрист готовит новую версию, руководитель утверждает.', 'objects' => 'Помещения и машиноместа: занятость, бронирование и контроль простоя', 'cadastre' => 'Кадастровая площадь и доступность для сдачи.', default => ''
         };
         $h = self::heading($title, $sub, $headActions);
         if (isset($_SESSION['rental_notice'])) {
@@ -1098,6 +1098,7 @@ final class Controller {
         if (in_array($action, ['contract.create', 'contract.edit', 'document.create', 'document.edit'], true)) {
             return ($input['intent'] ?? 'draft') === 'submit' ? '/rental/approvals' : '/rental/contracts';
         }
+        if ($action === 'contract.delete') return '/rental/contracts';
         if ($action === 'contract.submit') return '/rental/approvals';
         if (str_starts_with($action, 'reservation.')) return '/rental/contracts';
         if (str_starts_with($action,'party.')) return '/rental/parties';
@@ -1110,13 +1111,17 @@ final class Controller {
     private static function workflowMaxNotice(?int $freshEventId,string $commandKey):string {
         if($freshEventId===null)return '';
         try{
-            if(!\Modules\Integrations\WorkflowMaxEvent::postcommitModeAllowed(PHP_SAPI,getenv('IPPHP_RENTAL_MAX_POSTCOMMIT')))return '';
             $actor=Auth::user();
             if(!$actor)return '';
-            $delivery=(new \Modules\Integrations\WorkflowMaxEvent(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+            $delivery=(new \Modules\Integrations\ObjectActivityMax(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+            if ($delivery===null) {
+                if(!\Modules\Integrations\WorkflowMaxEvent::postcommitModeAllowed(PHP_SAPI,getenv('IPPHP_RENTAL_MAX_POSTCOMMIT')))return '';
+                $delivery=(new \Modules\Integrations\WorkflowMaxEvent(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+            }
             return match($delivery['status']??'uncertain'){
                 'disabled','skipped'=>'',
                 'accepted'=>' MAX принял уведомление; прочтение не подтверждено.',
+                'unavailable'=>' Уведомление MAX не отправлено: в этой среде отправка не разрешена.',
                 default=>' Результат уведомления MAX не подтверждён; автоматического повтора нет.',
             };
         }catch(\Throwable){

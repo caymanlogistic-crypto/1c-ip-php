@@ -165,12 +165,10 @@ final class OnecNativeService
             $this->receipt($intent, 'reference-'.$name, $r);
             $facts = Support::decode($r['raw']); $facts = $facts['d'] ?? $facts;
             if ($r['status'] !== 200 || ($facts['Ref_Key'] ?? null) !== $ref['key'] || ($facts['DataVersion'] ?? null) !== $ref['version']
-                || ($facts['DeletionMark'] ?? null) !== false || ($facts['IsFolder'] ?? null) !== false) throw new RuntimeException('ONEC_NATIVE_REFERENCE_CHANGED');
+                || !OnecMapping::referenceFlags($ref['type'],$facts)) throw new RuntimeException('ONEC_NATIVE_REFERENCE_CHANGED');
             if ($name === 'organization' && ($facts['ИНН'] ?? null) !== $source['organization_inn']) throw new RuntimeException('ONEC_NATIVE_ORGANIZATION_CHANGED');
             if ($name === 'currency' && (string)($facts['Code'] ?? '') !== '643') throw new RuntimeException('ONEC_NATIVE_CURRENCY_CHANGED');
-            if ($name === 'contract' && (($facts['Организация_Key'] ?? null) !== $payload['organization']['key']
-                || ($facts['Owner_Key'] ?? null) !== $payload['counterparty']['key'] || ($facts['ВалютаВзаиморасчетов_Key'] ?? null) !== $payload['currency']['key']
-                || ($facts['Закрыт'] ?? null) !== false)) throw new RuntimeException('ONEC_NATIVE_CONTRACT_CHANGED');
+            if ($name === 'contract' && !OnecMapping::customerContract($facts,$payload['organization']['key'],$payload['counterparty']['key'],$payload['currency']['key'])) throw new RuntimeException('ONEC_NATIVE_CONTRACT_CHANGED');
         }
     }
 
@@ -239,6 +237,24 @@ final class OnecNativeService
         return $intent;
     }
 
+    /** Historical evidence survives business-data resets; it never authorizes another write. */
+    public function readHistory(string $id,int $actor): array
+    {
+        (new OnecOwnerFacade($this->db,$this->store))->actor($actor,'read_existing');
+        $intent=$this->row('SELECT * FROM integration_native_intents WHERE id=?',[$id]);
+        if((int)$intent['actor_id']!==$actor)throw new RuntimeException('ONEC_ACTOR_SCOPE_CHANGED');
+        $intent['_proof_verified']=false;
+        if(in_array($intent['state'],['saved','existing_verified'],true)){
+            OnecNativeEvidence::readSaved($this->store,$intent);
+            $intent['_proof_verified']=true;
+        }
+        // read_existing deliberately permits a frozen historical packet. Only
+        // validate checks today's business confirmation and write eligibility.
+        try{$current=$this->owner->current($intent,'validate');$this->immutable($intent,$current);$intent['_source_current']=true;}
+        catch(\RuntimeException){$intent['_source_current']=false;}
+        return $intent;
+    }
+
     private function reconcileIntent(string $id, int $actor, bool $recordedDispatch): array
     {
         $intent = $this->row('SELECT * FROM integration_native_intents WHERE id=?', [$id]);
@@ -246,7 +262,12 @@ final class OnecNativeService
         $action = $recordedDispatch ? 'read_existing' : 'reconcile';
         $current = $this->owner->current($intent, $action);
         $data = $this->immutable($intent, $current);
-        if (in_array($intent['state'], ['saved', 'existing_verified'], true)) return $intent;
+        if (in_array($intent['state'], ['saved', 'existing_verified'], true)) return $this->transaction(function()use($intent,$action):array{
+            $row=$this->row('SELECT * FROM integration_native_intents WHERE id=? FOR UPDATE',[$intent['id']]);
+            $this->owner->current($row,$action);
+            (new OnecBindings($this->db,$this->store))->recordSavedReference($row['id']);
+            return $row;
+        });
         $ack = $this->store->receiptFor($id);
         $ackValid = false;
         if ($ack !== null) {
@@ -274,7 +295,9 @@ final class OnecNativeService
                 $state, $ack['receipt_path'] ?? null, $receipt['hmac_path'], $number, $version,
                 $state === 'saved' ? 'NATIVE_201_AND_READBACK_VERIFIED' : ($state === 'existing_verified' ? 'EXISTING_NATIVE_REFERENCE_VERIFIED' : 'GET_WITHOUT_VERIFIED_CREATE_ACK'), $intent['id'],
             ]);
-            return $this->row('SELECT * FROM integration_native_intents WHERE id=?', [$intent['id']]);
+            $saved=$this->row('SELECT * FROM integration_native_intents WHERE id=?', [$intent['id']]);
+            if(in_array($saved['state'],['saved','existing_verified'],true))(new OnecBindings($this->db,$this->store))->recordSavedReference($saved['id']);
+            return $saved;
         });
     }
 }

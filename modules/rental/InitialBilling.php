@@ -102,7 +102,7 @@ final class InitialBilling
                 $ids[]=(int)$id;continue;
             }
             if($typed)BillingInvoiceTargets::assertSelection($db,(int)$contract['id'],$plan['invoice_targets']);
-            $id=(int)$db->query('SELECT GREATEST(COALESCE(MAX(id),0),900000)+1 FROM invoices')->fetchColumn();
+            $id=\App\BusinessIds::next($db,'invoices',900000);
             $issued=NativeOperatingWriter::today($db);
             $creation=NativeOperatingWriter::begin($db,'invoice',$id,'native-c-initial','evidence.initial-invoice',$issued,$plan['coverage_key']);
             $source=$typed?['native_invoice_targets'=>BillingInvoiceTargets::producerMarker($plan['invoice_targets'],'initial','contract',(int)$contract['id'])]:new \stdClass();

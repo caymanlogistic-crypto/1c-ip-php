@@ -364,6 +364,12 @@
     for(const el of fragment.querySelectorAll('[data-rental-term-type]'))el.textContent=option.dataset.type||'';
     for(const el of fragment.querySelectorAll('[data-rental-term-area]'))el.textContent=option.dataset.area||'—';
     for(const empty of body.querySelectorAll('[data-rental-empty-terms]'))empty.remove();
+    if(form.hasAttribute('data-rental-addendum-form')){
+      for(const [prefix,name] of [['term_start[','start_date'],['term_end[','end_date']]){
+        const boundary=form.querySelector('[name="'+name+'"]')?.value||'';
+        for(const input of fragment.querySelectorAll('input'))if(input.name.startsWith(prefix))input.value=boundary;
+      }
+    }
     body.append(fragment);
     total(form);
   }
@@ -448,7 +454,15 @@
   document.addEventListener('change',event=>{
     if(event.target.matches('[name=\"start_date\"],[name=\"end_date\"]')){
       const form=event.target.closest('form[data-rental-availability-url]');
-      if(form)refreshAvailability(form);
+      if(form){
+        if(form.hasAttribute('data-rental-addendum-form')){
+          const start=event.target.name==='start_date',key=start?'rentalPeriodStart':'rentalPeriodEnd',prefix=start?'term_start[':'term_end[',previous=form.dataset[key]||'';
+          for(const input of form.querySelectorAll('input'))if(input.name.startsWith(prefix)&&(input.value===previous||input.value===''))input.value=event.target.value;
+          form.dataset[key]=event.target.value;
+          window.UIDatePicker?.sync(form);
+        }
+        refreshAvailability(form);
+      }
     }
   });
   document.addEventListener('input',event=>{

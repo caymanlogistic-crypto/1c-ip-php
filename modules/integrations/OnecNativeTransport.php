@@ -37,8 +37,10 @@ final class OnecNativeTransport {
                 $query['$filter']))throw new \RuntimeException('ONEC_ROUTE_REJECTED');
         }
         elseif($query)throw new \RuntimeException('ONEC_ROUTE_REJECTED');
-        if (!Config::liveAllowed())throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
-        if ($method === 'POST' && getenv('IPPHP_ALLOW_ONEC_WRITE') !== 'owner-authorized-prepared-create')throw new \RuntimeException('ONEC_WRITE_NOT_AUTHORIZED');
+        $needsScoped=!Config::liveAllowed()||($method==='POST'&&getenv('IPPHP_ALLOW_ONEC_WRITE')!=='owner-authorized-prepared-create');
+        $scoped=$needsScoped&&OnecWriteAdmission::settings()!==null&&OnecWriteAdmission::allows(\App\DB::pdo(),$this->binding,$this->reference,$method,$collection);
+        if (!Config::liveAllowed()&&!$scoped)throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
+        if ($method === 'POST' && getenv('IPPHP_ALLOW_ONEC_WRITE') !== 'owner-authorized-prepared-create'&&!$scoped)throw new \RuntimeException('ONEC_WRITE_NOT_AUTHORIZED');
         $secret = $this->profileLoader!==null?($this->profileLoader)($this->reference):Config::profile('onec',$this->reference);
         $policy = $secret['write_policy']??null;
         if (!is_array($policy) || ($policy['enabled']??false) !== true || ($policy['source_instance']??'') !== ($this->binding['source_instance']??null) || ($policy['project_id']??'') !== CaptureReader::PROJECT || ($policy['organization_key']??'') !== ($this->binding['organization_key']??null) || ($policy['organization_inn']??'') !== ($this->binding['organization_inn']??null))throw new \RuntimeException('ONEC_TRUSTED_SOURCE_POLICY_REQUIRED');
