@@ -33,6 +33,9 @@
   if(!/^[a-z0-9-]{1,80}$/i.test(projectId||'')||!/^[a-z0-9-]{1,80}$/i.test(surface||'')||typeof identityProvider!=='function'||typeof readCounts!=='function'||typeof applyCounts!=='function')throw new TypeError('Invalid menu controller adapters');
   const win=options.eventTarget||root,doc=options.document||root.document,clock=options.clock||root,intervalMs=options.intervalMs??30000;
   if(!Number.isFinite(intervalMs)||intervalMs<1000)throw new TypeError('Invalid refresh interval');
+  const maxErrorIntervalMs=options.maxErrorIntervalMs??intervalMs;
+  if(!Number.isFinite(maxErrorIntervalMs)||maxErrorIntervalMs<intervalMs)throw new TypeError('Invalid error refresh interval');
+  let failedReads=0,pollSkips=0,explicitRead=false;
   let storage=options.storage;try{if(storage===undefined)storage=root.localStorage;}catch{storage=null;}
   const prefix='onecip:'+projectId+':menu-prefs:v1:'+surface+':',folderId=id=>typeof id==='string'&&/^[a-z][a-z0-9-]{0,95}$/i.test(id);
   const knownFolders=new Set((options.folderIds||[]).filter(folderId));
@@ -48,11 +51,40 @@
   function toggle(id){return setExpanded(id,!isExpanded(id));}
   function mount(element){nav=element;syncIdentity();applyExpansion();return api;}
   const visible=()=>pageActive&&!doc?.hidden;
-  function requestRefresh(){if(disposed||!visible())return Promise.resolve(false);dirty=true;if(running)return running;
-   running=Promise.resolve().then(async()=>{let applied=false;while(dirty&&!disposed&&visible()){dirty=false;syncIdentity();const stamp=generation,key=currentKey;let value;try{value=await readCounts();}catch{continue;}syncIdentity();if(disposed||!visible())break;if(stamp!==generation||key!==currentKey){dirty=true;continue;}if(value!==null&&value!==undefined){try{applyCounts(value);applied=true;}catch{}}}return applied;}).finally(()=>{running=null;if(dirty&&!disposed&&visible())requestRefresh();});return running;
+  function refresh(periodic){
+    if(disposed||!visible())return Promise.resolve(false);
+    if(!periodic)explicitRead=true;
+    pollSkips=0;dirty=true;
+    if(running)return running;
+    running=Promise.resolve().then(async()=>{
+      let applied=false;
+      while(dirty&&!disposed&&visible()){
+        dirty=false;syncIdentity();
+        const stamp=generation,key=currentKey,periodicRead=!explicitRead;
+        explicitRead=false;
+        let value;
+        try{value=await readCounts({periodic:periodicRead});}catch{value=null;}
+        syncIdentity();
+        if(disposed||!visible())break;
+        if(stamp!==generation||key!==currentKey){dirty=true;explicitRead=true;continue;}
+        if(value!==null&&value!==undefined){
+          failedReads=0;pollSkips=0;
+          try{applyCounts(value);applied=true;}catch{}
+        }else{
+          failedReads=Math.min(failedReads+1,8);
+          pollSkips=Math.min(Math.ceil(maxErrorIntervalMs/intervalMs),2**failedReads)-1;
+        }
+      }
+      return applied;
+    }).finally(()=>{running=null;if(dirty&&!disposed&&visible())requestRefresh();});
+    return running;
   }
+  function requestRefresh(){return refresh(false);}
   function pause(){if(timer!==null){clock.clearInterval(timer);timer=null;}}
-  function resume(){if(disposed||!visible()){pause();return;}if(timer===null)timer=clock.setInterval(requestRefresh,intervalMs);requestRefresh();}
+  // Timer ticks must not queue another read behind a slow request. Explicit refreshes
+  // (a saved command, focus) still mark it dirty so that a fresh read follows it.
+  function poll(){if(running)return;if(pollSkips>0){pollSkips--;return;}refresh(true);}
+  function resume(){if(disposed||!visible()){pause();return;}if(timer===null)timer=clock.setInterval(poll,intervalMs);requestRefresh();}
   function listen(target,type,handler){if(!target?.addEventListener)return;target.addEventListener(type,handler);listeners.push([target,type,handler]);}
   function start(){if(disposed)return api;if(!started){started=true;listen(win,'storage',event=>{syncIdentity();if(event.key===currentKey||event.key===null){expanded=readPrefs(currentKey);applyExpansion();}if(event.key===null||(options.observedStorageKeys||[]).includes(event.key))requestRefresh();});listen(win,'focus',requestRefresh);listen(doc,'visibilitychange',()=>{if(visible())resume();else pause();});listen(win,'pagehide',()=>{pageActive=false;pause();});listen(win,'pageshow',()=>{pageActive=true;resume();});}resume();return api;}
   function destroy(){if(disposed)return;disposed=true;generation++;dirty=false;pause();for(const[target,type,handler]of listeners)target.removeEventListener(type,handler);listeners.length=0;nav=null;}
