@@ -4,9 +4,9 @@ ARG SOURCE_COMMIT
 LABEL org.opencontainers.image.revision=${SOURCE_COMMIT}
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libicu-dev libzip-dev libpng-dev libjpeg62-turbo-dev libfreetype6-dev \
-    libonig-dev libxml2-dev ca-certificates curl unzip \
+    ca-certificates curl unzip \
  && docker-php-ext-configure gd --with-freetype --with-jpeg \
- && docker-php-ext-install -j2 pdo_mysql bcmath intl zip gd mbstring dom xml simplexml xmlreader xmlwriter \
+ && docker-php-ext-install -j2 pdo_mysql bcmath intl zip gd \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=composer:2.8.9 /usr/bin/composer /usr/local/bin/composer
 WORKDIR /opt/app
