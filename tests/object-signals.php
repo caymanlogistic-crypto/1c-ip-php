@@ -3,7 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\{DB,Menu};
-use Modules\Rental\{Availability,DirectoryScope,DirectoryUi,Indicators,ObjectFacts};
+use Modules\Rental\{Availability,DirectoryScope,DirectoryUi,Indicators,ObjectDirectory,ObjectFacts};
 
 // Run only against an isolated task copy. All fixtures roll back, including on failure.
 $p=DB::pdo();
@@ -24,11 +24,19 @@ $check(str_contains(Menu::badges([0,0,1,1],true,'objects'),'Недавно сд�
 $check(str_contains(DirectoryUi::counts([0,0,1,1],'objects'),'Брони: 1'),'Tab blue label');
 
 $session=$_SESSION ?? [];
+$get=$_GET;
 $p->beginTransaction();
 try {
     $admin=$p->query("SELECT id,auth_version FROM users WHERE role='admin' AND active=1 ORDER BY id LIMIT 1")->fetch();
     $check((bool)$admin,'Fixture needs an existing administrator');
     $_SESSION=['user_id'=>$admin['id'],'auth_version'=>$admin['auth_version']];
+    $_GET=['q'=>'old search before reset','floor'=>'2','reset'=>'1'];
+    $html=ObjectDirectory::page();
+    $dom=new DOMDocument();$dom->loadHTML('<?xml encoding="utf-8" ?>'.$html,LIBXML_NOERROR|LIBXML_NOWARNING);
+    $xpath=new DOMXPath($dom);
+    $query=$xpath->query('//form[contains(@class,"registry-ui-tabs")]/input[@name="q"]');
+    $check($query->length===1 && $query->item(0)->getAttribute('value')==='','Reset must not carry the old search into tab navigation');
+    $_GET=$get;
     $parent=null;
     foreach ($p->query('SELECT * FROM cadastre') as $row) if (DirectoryScope::realCadastre($row)&&DirectoryScope::cadastreAvailable($row)) {$parent=$row;break;}
     $check($parent!==null,'Fixture needs a rentable parent');
@@ -65,5 +73,5 @@ try {
         $check($facts['severity']===$severity,'Actual row projection differs from task '.$object['id']);
     }
     $check(count(ObjectFacts::idleSignals($today))===count($signals),'Repeated projection duplicates tasks');
-} finally {$p->rollBack();$_SESSION=$session;}
+} finally {$p->rollBack();$_SESSION=$session;$_GET=$get;}
 echo "PASS: role/date boundaries, labels, directory/task availability, repeat projection; fixtures rolled back\n";
