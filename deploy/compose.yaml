@@ -56,7 +56,8 @@ services:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}
 networks:
-  backend: {}
+  backend:
+    internal: ${NETWORK_INTERNAL:-false}
 secrets:
   db_password:
     file: ./secrets/db-password
