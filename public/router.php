@@ -2,6 +2,8 @@
 declare(strict_types=1);
 $path=parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH);
 $file=realpath(__DIR__.$path);
-$showcase=$path==='/design/demo/'||$path==='/design/demo'||preg_match('~^/design/demo/[^/]+\.html$~D',$path);
+$demoRoot=realpath(__DIR__.'/design/demo');
+$demoHtml=$file&&$demoRoot&&str_starts_with($file,$demoRoot.DIRECTORY_SEPARATOR)&&str_ends_with($file,'.html');
+$showcase=$demoHtml||$path==='/design/demo/'||$path==='/design/demo'||preg_match('~^/design/demo/[^/]+\.html$~D',$path);
 if(!$showcase&&$file&&str_starts_with($file,__DIR__.DIRECTORY_SEPARATOR)&&is_file($file)&&!str_ends_with($file,'.php'))return false;
 require __DIR__.'/index.php';
