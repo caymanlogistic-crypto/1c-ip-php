@@ -113,7 +113,11 @@ final class ExtraService {
                 }
                 if (!$fields['name'])throw new RuntimeException('Укажите наименование объекта.');
                 if ($old && (int)$old['active'] !== $active) {
-                    $date = date('Y-m-d');
+                    $date = Service::date((string)($in['active_on'] ?? ''));
+                    if ($date>date('Y-m-d')) throw new RuntimeException('Дата изменения состояния не может быть в будущем.',422);
+                    $q=$p->prepare('SELECT MAX(started_on) FROM rental_object_periods WHERE object_id=?');$q->execute([$id]);
+                    $last=$q->fetchColumn();
+                    if ($last && $date<$last) throw new RuntimeException('Дата изменения состояния раньше последнего изменения.',422);
                     $p->prepare('UPDATE rental_object_periods SET ended_on=? WHERE object_id=? AND ended_on IS NULL')->execute([
                         $date,
                         $id

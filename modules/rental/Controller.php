@@ -1110,13 +1110,17 @@ final class Controller {
     private static function workflowMaxNotice(?int $freshEventId,string $commandKey):string {
         if($freshEventId===null)return '';
         try{
-            if(!\Modules\Integrations\WorkflowMaxEvent::postcommitModeAllowed(PHP_SAPI,getenv('IPPHP_RENTAL_MAX_POSTCOMMIT')))return '';
             $actor=Auth::user();
             if(!$actor)return '';
-            $delivery=(new \Modules\Integrations\WorkflowMaxEvent(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+            $delivery=(new \Modules\Integrations\ObjectActivityMax(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+            if ($delivery===null) {
+                if(!\Modules\Integrations\WorkflowMaxEvent::postcommitModeAllowed(PHP_SAPI,getenv('IPPHP_RENTAL_MAX_POSTCOMMIT')))return '';
+                $delivery=(new \Modules\Integrations\WorkflowMaxEvent(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+            }
             return match($delivery['status']??'uncertain'){
                 'disabled','skipped'=>'',
                 'accepted'=>' MAX принял уведомление; прочтение не подтверждено.',
+                'unavailable'=>' Уведомление MAX не отправлено: в этой среде отправка не разрешена.',
                 default=>' Результат уведомления MAX не подтверждён; автоматического повтора нет.',
             };
         }catch(\Throwable){

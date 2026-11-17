@@ -10,13 +10,11 @@ $p=DB::pdo();
 if (!preg_match('/^ipphp_task_[a-z0-9_]+$/D',(string)$p->query('SELECT DATABASE()')->fetchColumn())) throw new RuntimeException('ISOLATED_TASK_DATABASE_REQUIRED');
 $check=static function(bool $ok,string $why):void { if (!$ok) throw new RuntimeException($why); };
 $today=date('Y-m-d');
-foreach (['manager','director','lawyer','accountant','admin','viewer'] as $role) {
-    foreach ([13,14,29,30] as $days) {
-        $expected=$days>=30?'red':($days>=14?'yellow':'');
-        $check(ObjectFacts::idleSeverity($days)===$expected,'Common idle boundary '.$role.':'.$days);
-    }
-    $check(ObjectFacts::idleSeverity(null)==='','Unknown date must not be a task');
+foreach ([13,14,29,30] as $days) {
+    $expected=$days>=30?'red':($days>=14?'yellow':'');
+    $check(ObjectFacts::idleSeverity($days)===$expected,'Common idle boundary:'.$days);
 }
+$check(ObjectFacts::idleSeverity(null)==='','Unknown date must not be a task');
 $check(ObjectFacts::idleDays(['free_since'=>null],true,$today)===null,'Missing date');
 $check(ObjectFacts::idleDays(['free_since'=>date('Y-m-d',strtotime('+1 day'))],true,$today)===null,'Future date');
 $check(ObjectFacts::idleDays(['free_since'=>'2000-01-01'],false,$today)===null,'Occupied object');
@@ -73,5 +71,8 @@ try {
         $check($facts['severity']===$severity,'Actual row projection differs from task '.$object['id']);
     }
     $check(count(ObjectFacts::idleSignals($today))===count($signals),'Repeated projection duplicates tasks');
+    $p->prepare('UPDATE rental_objects SET free_since=? WHERE id=?')->execute([date('Y-m-d',strtotime('-14 days')),$id]);
+    $yellowTasks=array_values(array_filter(ObjectFacts::idleSignals($today),fn($signal)=>(int)$signal['id']===$id));
+    $check(count($yellowTasks)===1&&$yellowTasks[0]['role']==='manager'&&$yellowTasks[0]['severity']==='yellow','Common appearance must preserve personal task ownership');
 } finally {$p->rollBack();$_SESSION=$session;$_GET=$get;}
 echo "PASS: role/date boundaries, labels, directory/task availability, repeat projection; fixtures rolled back\n";
