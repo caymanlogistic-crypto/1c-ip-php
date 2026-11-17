@@ -98,7 +98,7 @@ final class OnecController
             }
             self::input($input,['_csrf','intent_id']);
             $id=self::intent($input);
-            if ($operation==='dispatch' && getenv('IPPHP_ALLOW_ONEC_WRITE')!=='owner-authorized-prepared-create') {
+            if ($operation==='dispatch' && !OnecWriteAdmission::createAllowed(DB::pdo())) {
                 Http::json(['code'=>'NATIVE_WRITES_DISABLED','title'=>'Запись в 1С пока не разрешена. Счёт не отправлялся.'],409);
             }
             $result=match($operation) {
