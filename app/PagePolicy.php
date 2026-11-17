@@ -171,7 +171,10 @@ final class PagePolicy {
             $key = 'connections.'
             . $provider;
         }
-        elseif(preg_match('~^/integrations/onec-actions/(onec-counterparty|onec-invoice|onec-print)/[a-z]+$~D',$path,$m))$key='connections.'.$m[1];
+        elseif(preg_match('~^/integrations/onec-actions/(onec-counterparty|onec-invoice|onec-print)/([a-z]+)$~D',$path,$m)){
+            if($m[2]==='check')$key='connections.'.$m[1];
+            else{Auth::requirePermission('rental.read');return;} // The shared owner checks finance/packet authority.
+        }
         elseif(preg_match('~^/(?:connections|external-documents)/([a-z-]+)$~D', $path, $m))$key = 'connections.'
         . $m[1];
         elseif(in_array($path, [

@@ -69,7 +69,7 @@ window.OnecOperations = Object.freeze({
     event.preventDefault();
     identity = JSON.parse(row.dataset.onecPayload); intent = identity.intent_id || null;
     const current = ++selection;
-    dialog.querySelector('[data-onec-selection]').textContent = row.innerText.replaceAll('\n', ' · ');
+    dialog.querySelector('[data-onec-selection]').textContent = row.innerText.replace(/\s*\n+\s*/g, ' · ');
     buttons('loading'); show(output, {title: 'Проверка данных…'}); dialog.showModal();
     try {
       const result = await window.OnecOperations.call(connection, intent ? 'state' : 'preview', identity, csrf);

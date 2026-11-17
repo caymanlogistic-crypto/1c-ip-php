@@ -19,7 +19,8 @@ final class OnecOperationsController
         try {
             $post=!in_array($action,['preview','state'],true);
             if (($_SERVER['REQUEST_METHOD']??'GET')!==($post?'POST':'GET')) throw new \RuntimeException('NATIVE_METHOD_REJECTED',405);
-            Auth::requirePermission('integrations.read');Auth::requirePermission('rental.read');
+            Auth::requirePermission('rental.read');
+            if($action==='check')Auth::requirePermission('integrations.read');
             if ($post) Http::checkCsrf();
             $input=$post?$_POST:$_GET;unset($input['_csrf']);
             $result=(new OnecOperations(DB::pdo(),Config::store()))->execute($connection,$action,(int)Auth::user()['id'],$input);

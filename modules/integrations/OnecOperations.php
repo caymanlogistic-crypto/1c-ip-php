@@ -24,6 +24,13 @@ final class OnecOperations
     public function authorize(string $connection, int $actor, string $action): void
     {
         self::definition($connection);
+        // Business callers use the existing packet/finance authority, independently
+        // of permission to open or configure technical connection pages.
+        if (!in_array($action,['read','check','settings'],true)) {
+            try{(new OnecOwnerFacade($this->db,$this->store))->actor($actor,match($action){'preview','prepare'=>'prepare','dispatch'=>'create','reconcile'=>'reconcile',default=>'read_existing'});}
+            catch(RuntimeException $e){if($e->getMessage()==='ONEC_ACTOR_DENIED')throw new RuntimeException('ONEC_ACTOR_DENIED',403,$e);throw $e;}
+            return;
+        }
         $q=$this->db->prepare("SELECT u.id,u.role AS role_id,r.grants_configured,CASE WHEN u.role='admin' THEN 'admin' ELSE COALESCE(rp.kind,'viewer') END AS role FROM users u JOIN roles r ON r.id=u.role LEFT JOIN role_profiles rp ON rp.role_id=u.role WHERE u.id=? AND u.active=1");$q->execute([$actor]);
         $user=$q->fetch(PDO::FETCH_ASSOC);
         if (!$user) throw new RuntimeException('ONEC_ACTOR_DENIED',403);
@@ -32,10 +39,6 @@ final class OnecOperations
         if (!$q->fetchColumn()) throw new RuntimeException('ONEC_ACTOR_DENIED',403);
         $level=\App\PagePolicy::level('connections.'.$connection,$user);
         if ($level < (in_array($action,['read','preview','state'],true)?1:2)) throw new RuntimeException('ONEC_ACTOR_DENIED',403);
-        if (!in_array($action,['read','check','settings'],true)) {
-            try{(new OnecOwnerFacade($this->db,$this->store))->actor($actor,match($action){'preview','prepare'=>'prepare','dispatch'=>'create','reconcile'=>'reconcile',default=>'read_existing'});}
-            catch(RuntimeException $e){if($e->getMessage()==='ONEC_ACTOR_DENIED')throw new RuntimeException('ONEC_ACTOR_DENIED',403,$e);throw $e;}
-        }
     }
 
     public static function identity(string $connection, array $input): array
