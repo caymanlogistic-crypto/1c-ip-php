@@ -53,6 +53,9 @@ try{
  $intent=['id'=>$intentId,'project_id'=>CaptureReader::PROJECT,'source_instance'=>$source['source_instance'],'prepared_id'=>$preparedId,'request_key'=>$request,'actor_id'=>$actor,'kind'=>'counterparty','native_key'=>$nativeKey,'command_sha256'=>str_repeat('a',64),'profile_sha256'=>$source['profile_sha256'],'binding_sha256'=>str_repeat('b',64),'prepared_sha256'=>basename($packetPath),'payload_path'=>$store->put('onec-admission-test',OnecMapping::json($payload)),'body_path'=>$store->put('onec-admission-test',$bodyRaw),'body_sha256'=>$bodySha,'prepared_path'=>$packetPath,'state'=>'saved','post_fence'=>$fence,'post_started'=>1,'ack_path'=>$ack,'readback_path'=>$read,'native_number'=>'DEMO','native_version'=>'fixture-1'];
  $insert('integration_native_intents',$intent);
  $bindings=new Modules\Integrations\OnecBindings($db,$store);$binding=$bindings->recordSavedReference($intentId);
+ $history=Modules\Integrations\OnecNativeService::project($db,$store)->readHistory($intentId,$actor);
+ ensureWrite($history['_proof_verified']===true&&$history['_source_current']===false,'HISTORY_WITHOUT_CURRENT_BUSINESS_PACKET');
+ $dto=Modules\Integrations\OnecOperations::result($history);ensureWrite($dto['historical']===true&&$dto['state']==='saved'&&$dto['written']===false,'HISTORICAL_PROOF_IS_NOT_NEW_WRITE_AUTHORITY');
  ensureWrite($bindings->recordSavedReference($intentId)===$binding,'SAVED_REFERENCE_REPLAY_NO_DUPLICATE');
  $observed=$bindings->observation($source,'parties','991991','counterparty');ensureWrite($observed['reference']['key']===$nativeKey,'SAVED_REFERENCE_USABLE_BY_NEXT_PAGE');
  $newRaw=OnecMapping::json(array_replace($facts,['DataVersion'=>'fixture-2']));$newPath=$store->put('onec-admission-test',$newRaw);
@@ -61,7 +64,8 @@ try{
  $bindings->recordSavedReference($intentId);ensureWrite($bindings->observation($source,'parties','991991','counterparty')['reference']['version']==='fixture-2','REPLAY_PRESERVES_NEWER_OBSERVATION');
  $bad=$store->spool(array_replace($context,['native_key'=>Support::uuid()])+['kind'=>'native-read-receipt','stage'=>'readback-test','http_status'=>200],$rawFacts);
  $db->prepare('UPDATE integration_native_intents SET readback_path=? WHERE id=?')->execute([$bad,$intentId]);
- try{$bindings->recordSavedReference($intentId);throw new LogicException('WRONG_READBACK_ACCEPTED');}catch(RuntimeException $e){ensureWrite($e->getMessage()==='ONEC_SAVED_REFERENCE_SCOPE_CHANGED','READBACK_SCOPE_GUARD');}
+ try{$bindings->recordSavedReference($intentId);throw new LogicException('WRONG_READBACK_ACCEPTED');}catch(RuntimeException $e){ensureWrite($e->getMessage()==='ONEC_NATIVE_EVIDENCE_SCOPE_CHANGED','READBACK_SCOPE_GUARD');}
+ try{Modules\Integrations\OnecNativeService::project($db,$store)->readHistory($intentId,$actor);throw new LogicException('WRONG_HISTORY_ACCEPTED');}catch(RuntimeException $e){ensureWrite($e->getMessage()==='ONEC_NATIVE_EVIDENCE_SCOPE_CHANGED','HISTORY_SCOPE_GUARD');}
  $db->prepare('UPDATE integration_native_intents SET readback_path=? WHERE id=?')->execute([$read,$intentId]);
  $foreignKey=Support::uuid();$db->prepare('UPDATE integration_native_bindings SET native_key=? WHERE id=?')->execute([$foreignKey,$binding]);
  try{$bindings->recordSavedReference($intentId);throw new LogicException('FOREIGN_BINDING_OVERWRITTEN');}catch(RuntimeException $e){ensureWrite($e->getMessage()==='ONEC_SAVED_REFERENCE_CONFLICT','EXISTING_BINDING_CONFLICT_GUARD');}

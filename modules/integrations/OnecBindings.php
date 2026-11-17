@@ -12,23 +12,12 @@ final class OnecBindings implements OnecReferenceSource {
         $q=$this->db->prepare('SELECT * FROM integration_native_intents WHERE id=? FOR UPDATE');$q->execute([$intentId]);$intent=$q->fetch(\PDO::FETCH_ASSOC);
         if(!$intent||!in_array($intent['state']??null,['saved','existing_verified'],true)
             ||!isset(OnecMapping::COLLECTIONS[$intent['kind']??'']))throw new \RuntimeException('ONEC_SAVED_REFERENCE_REQUIRED');
-        $proof=$this->store->verifySpool($intent['readback_path']??'');$c=$proof['context']??[];
-        foreach(['attempt_id'=>'id','source_instance'=>'source_instance','native_key'=>'native_key','request_key'=>'request_key','body_sha256'=>'body_sha256','post_fence'=>'post_fence']as$key=>$field)
-            if(($c[$key]??null)!==($intent[$field]??null))throw new \RuntimeException('ONEC_SAVED_REFERENCE_SCOPE_CHANGED');
-        if(($c['kind']??null)!=='native-read-receipt'||($c['http_status']??null)!==200||!str_starts_with($c['stage']??'','readback-'))throw new \RuntimeException('ONEC_SAVED_READBACK_REQUIRED');
-        if($intent['state']==='saved'){
-            $ack=$this->store->receiptFor($intent['id']);$a=$ack['receipt']['context']??[];
-            if(($a['http_status']??null)!==201||($a['source_instance']??null)!==$intent['source_instance']
-                ||($a['native_key']??null)!==$intent['native_key']||($a['body_sha256']??null)!==$intent['body_sha256']
-                ||($a['post_fence']??null)!==($intent['post_fence']??null))throw new \RuntimeException('ONEC_SAVED_ACK_REQUIRED');
-            $created=Support::decode(base64_decode($ack['receipt']['raw_base64'],true));$created=$created['d']??$created;
-            if(($created['Ref_Key']??null)!==$intent['native_key'])throw new \RuntimeException('ONEC_SAVED_ACK_KEY_CHANGED');
-        }
+        $verified=OnecNativeEvidence::readSaved($this->store,$intent);
         $source=$this->source();if($source['source_instance']!==$intent['source_instance'])throw new \RuntimeException('ONEC_SAVED_SOURCE_CHANGED');
         $payload=Support::decode($this->store->read($intent['payload_path']));
         $body=OnecMapping::build($intent['kind'],$payload,$intent['native_key'],$source['profile']);
         if(!hash_equals($intent['body_sha256'],hash('sha256',OnecMapping::json($body))))throw new \RuntimeException('ONEC_SAVED_BODY_CHANGED');
-        $raw=base64_decode($proof['raw_base64'],true);$facts=Support::decode($raw);$facts=$facts['d']??$facts;
+        $raw=$verified['raw'];$facts=$verified['facts'];
         if(!is_array($facts)||OnecMapping::compare($intent['kind'],$body,$facts))throw new \RuntimeException('ONEC_SAVED_REFERENCE_NOT_MATCHED');
         $q=$this->db->prepare('SELECT logical_document_id,source_instance,kind FROM integration_native_prepared WHERE id=?');$q->execute([$intent['prepared_id']]);$prepared=$q->fetch(\PDO::FETCH_ASSOC);
         $prefix=$intent['kind']==='counterparty'?'party:':'invoice:';
