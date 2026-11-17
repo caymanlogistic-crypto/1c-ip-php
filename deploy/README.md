@@ -10,7 +10,17 @@
 
 Новая .github/workflows/staging.yml сохраняет имя файла, но публикует только push main через существующий environment ui. Task/codex-ветки и PR собираются в build без деплоя. Повторно используются UI_DEPLOY_SSH_KEY и DEPLOY_HOST/DEPLOY_KNOWN_HOSTS. Интеграционный ключ workflow не использует.
 
-Receiver допускает только ui release с GitHub OIDC: repository/owner, refs/heads/main, точный commit/run_id, event=push и .github/workflows/staging.yml@refs/heads/main. Staging/task/PR и второй target отвергаются. Сохранены SHA256 архива, OCI commit, точный image_id, server flock, highest-run и возврат предыдущего образа. Main concurrency group не отменяет выполняющийся деплой; перед отправкой проверяется актуальный main. Следующая задача не сливается до проверки предыдущей публикации; локальная работа остальных продолжается.
+Receiver допускает только ui release с GitHub OIDC: repository/owner, refs/heads/main, точный commit/run_id, event=push и .github/workflows/staging.yml@refs/heads/main. Staging/task/PR и второй target отвергаются. Сохранены проверка digest (SHA256 архива для старого протокола), OCI commit, точный image_id, server flock, highest-run и возврат предыдущего образа. Main concurrency group не отменяет выполняющийся деплой; перед отправкой проверяется актуальный main. Следующая задача не сливается до проверки предыдущей публикации; локальная работа остальных продолжается.
+
+## Доставка слоёв через приватный GHCR
+
+Workflow публикует образ только для push main в `ghcr.io/caymanlogistic-crypto/1c-ip-php`. Task/PR проверяют сборку, но не публикуют образ, build cache или сайт. Main сохраняет registry build cache; метка SOURCE_COMMIT находится после runtime/vendor, поэтому они повторно используются при обычной правке кода.
+
+Вместо полного tar.gz по SSH идёт только короткий JSON-заголовок: OIDC, commit/run, точный config image_id и `registry_ref` с manifest digest. Receiver разрешает только фиксированный GHCR repository и digest, получает недостающие Docker-слои и сверяет config image_id/OCI revision до запуска. Пакет остаётся приватным (настройку видимости не менять). GITHUB_TOKEN ограничен сроком job; на сервере docker login использует отдельный временный DOCKER_CONFIG с удалением при успехе/ошибке. В state/artifact попадают только публичные реквизиты и метрики delivery, без токенов.
+
+Однократное внедрение: дождаться отсутствия активной публикации, сохранить установленный receiver и атомарно установить проверенный `deploy/server/deploy.py` root:root 0755 под существующим deploy.lock. Затем merge через GitHub и проверка main workflow, `/_ops.php`, входа и delivery в state/current.json. Старый archive-протокол совместим с уже начатыми workflow; новые сборки никогда не переключаются на него при ошибке registry. Откат приложения по-прежнему использует локальный предыдущий image_id без registry и не затрагивает БД/документы.
+
+Первый запуск заполняет registry/cache; на последующих сервер получает только новые слои. `delivery.pull_seconds`, `layers_downloaded` и `layers_already_present` позволяют проверить это фактически. Ошибка загрузки/проверки digest не переключает работающий app. Пересоздаётся только app (`--no-deps`), DB и data mounts сохраняются; SQL/миграции не выполняются.
 
 ## Выполненный одноразовый переход
 
