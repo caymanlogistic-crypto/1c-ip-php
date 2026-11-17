@@ -1,5 +1,11 @@
 # Текущие задачи и факты проекта
 
+## LOGIN-OBJECTS — кандидат, 18.11.2026
+
+- От актуального origin/main 51fec79 создан отдельный worktree 1c-ip-login-objects, ветка codex/login-objects. Auth::landing теперь возвращает /rental/objects для всех ролей с rental.read; прежний fallback /profile без доступа к аренде сохранён. Этот общий метод используется после успешного POST /login и при открытии корня сайта авторизованным пользователем. Права и интерфейс страницы не менялись.
+- PHP lint и diff --check — PASS. В своей минимальной тестовой БД ipphp_task_loginobjects проверены настоящие Auth::login/password_verify, сессия, landing и Access::pages(objects) для admin/manager/lawyer/accountant/director/viewer; неверный пароль отклонён, без rental.read landing=/profile и objects=403. Это адресная CLI-проверка авторизации на синтетических данных; браузерный вход, HTTP redirect и полный реестр с бизнес-данными не проверялись. Приватный сценарий/результаты — .local/check-login.php и login-check-result.json; конфигурация вне Git.
+- URL после публикации: https://ui.89.208.213.14.sslip.io/login, все роли с доступом к аренде. Сценарий: выйти → войти → открываются /rental/objects; переход на / также ведёт туда. Общий сайт не изменён; остаток — принятие кандидата и команда на публикацию.
+
 ## ZERO-POINT-DATES — даты и замена машиноместа (кандидат)
 
 - Прямое поручение: заполнить16 подтверждённых дат, учесть замену1.34 на1.14 в одном договоре33, обновить точку31.10.2026 и опубликовать. Worktree1c-ip-zero-point-dates, codex/zero-point-dates от45e2177, порт8889, собственная БД/пользователь ipphp_task_zero_dates. Серверный SQL до изменений: backup-20261118-010033-e01b112fc2419e9f.sql,41370486байт,SHA46b0256121c9824794f5221e0089d444c0eba5db88ffa1445cae114d46d0a706. Независимое восстановление115 таблиц/49269 строк: все DDL/row hashes PASS.
