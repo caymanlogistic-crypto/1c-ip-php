@@ -22,9 +22,9 @@ class QueueError(RuntimeError):
 
 
 class APIError(QueueError):
-    def __init__(self, status):
+    def __init__(self, status, method='', path=''):
         self.status = status
-        super().__init__('GitHub API HTTP '+str(status))
+        super().__init__('GitHub API HTTP '+str(status)+(f' at {method} {path.split("?")[0]}' if path else ''))
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -48,7 +48,7 @@ class GitHub:
                 return json.loads(raw) if raw else None
         except urllib.error.HTTPError as exc:
             # Never print request headers, arbitrary API responses or credentials.
-            raise APIError(exc.code) from None
+            raise APIError(exc.code, method, path) from None
         except urllib.error.URLError:
             raise QueueError('GITHUB_NETWORK_ERROR') from None
 
@@ -207,8 +207,16 @@ class Queue:
         raise QueueError('DISPATCH_RUN_NOT_FOUND')
 
     def wait_run(self, run_id, sha, deployment=False):
-        for _ in range(400):
-            run = self.api.request('GET', f'actions/runs/{run_id}')
+        for attempt in range(400):
+            try:
+                run = self.api.request('GET', f'actions/runs/{run_id}')
+            except APIError as exc:
+                # A dispatch response can precede the new run becoming visible to GET.
+                # Retry only this read, not dispatch/update/merge with an unknown result.
+                if exc.status == 404 and attempt < 8:
+                    self.sleep(3)
+                    continue
+                raise
             if run['head_sha'] != sha or run['path'] != '.github/workflows/staging.yml':
                 raise QueueError('WORKFLOW_SHA_OR_PATH_MISMATCH')
             if run['status'] == 'completed':

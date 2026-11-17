@@ -30,6 +30,8 @@ class FakeGitHub:
         self.fail_receipt = False
         self.change_head_during_check = False
         self.change_main_during_check = False
+        self.new_run_404 = False
+        self.visibility_delays = {}
 
     def add_pr(self, number, head):
         self.prs[number] = dict(number=number, state='open', draft=False, merged=False, mergeable=True,
@@ -102,6 +104,8 @@ class FakeGitHub:
                 self.runs[rid] = dict(id=rid, head_sha=data['inputs']['expected_sha'],
                     path='.github/workflows/staging.yml', status='completed',
                     conclusion='failure' if fail else 'success', event='workflow_dispatch', display_title=nonce)
+                if self.new_run_404:
+                    self.visibility_delays[rid] = 2
                 self.events.append((phase, rid))
                 if self.change_head_during_check and phase == 'check':
                     self.prs[int(data['ref'].split('/')[-1])]['head']['sha'] = 'f'*40
@@ -115,6 +119,9 @@ class FakeGitHub:
             return {'workflow_runs': copy.deepcopy(runs)}
         if parts[:2] == ['actions', 'runs']:
             rid = int(parts[2])
+            if self.visibility_delays.get(rid, 0):
+                self.visibility_delays[rid] -= 1
+                raise APIError(404, method, path)
             if parts[-1] == 'artifacts':
                 return {'artifacts': [{'id': rid, 'name': 'release-'+str(rid), 'expired': False}]}
             return copy.deepcopy(self.runs[rid])
@@ -242,6 +249,34 @@ class QueueTests(unittest.TestCase):
             self.queue.drain_one()
         self.assertIn(('wake', 0), self.api.events)
         self.assertEqual(self.queue.state(2)['stage'], 'queued')
+
+    def test_new_run_temporarily_invisible_is_read_again_without_redispatch(self):
+        self.enqueue(1); self.api.new_run_404 = True
+        self.queue.drain_one()
+        self.assertEqual(self.queue.state(1)['stage'], 'done')
+        self.assertEqual(len([p for p, _ in self.api.events if p == 'check']), 1)
+        self.assertEqual(len([p for p, _ in self.api.events if p == 'deploy']), 1)
+        self.assertEqual(self.api.events.count(('merge', 1)), 1)
+
+    def test_missing_run_has_a_bounded_read_retry_and_a_useful_error(self):
+        calls = []
+        def missing(method, path, data=None):
+            calls.append(path)
+            raise APIError(404, method, path)
+        self.api.request = missing
+        with self.assertRaisesRegex(APIError, 'GET actions/runs/999'):
+            self.queue.wait_run(999, 'b'*40)
+        self.assertEqual(len(calls), 9)
+
+    def test_denied_run_is_not_retried_as_if_it_were_new(self):
+        calls = []
+        def denied(method, path, data=None):
+            calls.append(path)
+            raise APIError(403, method, path)
+        self.api.request = denied
+        with self.assertRaises(APIError):
+            self.queue.wait_run(999, 'b'*40)
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == '__main__':
