@@ -66,7 +66,7 @@ final class OnecOperations
             if (!is_string($key)||!preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D',$key)) throw new RuntimeException('NATIVE_INPUT_REJECTED',400);
             $run=(new ProviderService($this->db,$this->store))->execute('onec','check',$actor,$key,[]);
             return ['state'=>$run['status'],'code'=>$run['result_code'],'written'=>false,'title'=>html_entity_decode(Controller::resultCode($run['result_code']??''),ENT_QUOTES,'UTF-8'),
-                'scope'=>'connection_read_only','write_enabled'=>Config::liveAllowed()&&getenv('IPPHP_ALLOW_ONEC_WRITE')==='owner-authorized-prepared-create'];
+                'scope'=>'connection_read_only','write_enabled'=>OnecWriteAdmission::createAllowed($this->db)];
         }
         $service=OnecNativeService::project($this->db,$this->store);
         if (in_array($action,['preview','prepare'],true)) {
@@ -78,7 +78,7 @@ final class OnecOperations
         if (!is_string($id)||!preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D',$id)) throw new RuntimeException('NATIVE_INPUT_REJECTED',400);
         $q=$this->db->prepare('SELECT kind,actor_id FROM integration_native_intents WHERE id=?');$q->execute([$id]);$intent=$q->fetch(PDO::FETCH_ASSOC);
         if (!$intent||$intent['kind']!==$definition['kind']||(int)$intent['actor_id']!==$actor) throw new RuntimeException('ONEC_ACTOR_DENIED',403);
-        if ($action==='dispatch'&&getenv('IPPHP_ALLOW_ONEC_WRITE')!=='owner-authorized-prepared-create') return ['state'=>'write_disabled','code'=>'NATIVE_WRITES_DISABLED','written'=>false,'title'=>'Запись в 1С пока не настроена. Данные не отправлялись.'];
+        if ($action==='dispatch'&&!OnecWriteAdmission::createAllowed($this->db)) return ['state'=>'write_disabled','code'=>'NATIVE_WRITES_DISABLED','written'=>false,'title'=>'Запись в 1С пока не настроена. Данные не отправлялись.'];
         return self::result(match($action){'dispatch'=>$service->dispatch($id,$actor),'reconcile'=>$service->reconcile($id,$actor),default=>$service->readExisting($id,$actor)});
     }
 

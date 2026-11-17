@@ -165,12 +165,10 @@ final class OnecNativeService
             $this->receipt($intent, 'reference-'.$name, $r);
             $facts = Support::decode($r['raw']); $facts = $facts['d'] ?? $facts;
             if ($r['status'] !== 200 || ($facts['Ref_Key'] ?? null) !== $ref['key'] || ($facts['DataVersion'] ?? null) !== $ref['version']
-                || ($facts['DeletionMark'] ?? null) !== false || ($facts['IsFolder'] ?? null) !== false) throw new RuntimeException('ONEC_NATIVE_REFERENCE_CHANGED');
+                || !OnecMapping::referenceFlags($ref['type'],$facts)) throw new RuntimeException('ONEC_NATIVE_REFERENCE_CHANGED');
             if ($name === 'organization' && ($facts['ИНН'] ?? null) !== $source['organization_inn']) throw new RuntimeException('ONEC_NATIVE_ORGANIZATION_CHANGED');
             if ($name === 'currency' && (string)($facts['Code'] ?? '') !== '643') throw new RuntimeException('ONEC_NATIVE_CURRENCY_CHANGED');
-            if ($name === 'contract' && (($facts['Организация_Key'] ?? null) !== $payload['organization']['key']
-                || ($facts['Owner_Key'] ?? null) !== $payload['counterparty']['key'] || ($facts['ВалютаВзаиморасчетов_Key'] ?? null) !== $payload['currency']['key']
-                || ($facts['Закрыт'] ?? null) !== false)) throw new RuntimeException('ONEC_NATIVE_CONTRACT_CHANGED');
+            if ($name === 'contract' && !OnecMapping::customerContract($facts,$payload['organization']['key'],$payload['counterparty']['key'],$payload['currency']['key'])) throw new RuntimeException('ONEC_NATIVE_CONTRACT_CHANGED');
         }
     }
 

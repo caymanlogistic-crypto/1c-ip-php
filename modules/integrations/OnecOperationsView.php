@@ -13,7 +13,7 @@ final class OnecOperationsView
         $canCheck=true;try{$service->authorize($connection,(int)$user['id'],'check');}catch(\RuntimeException){$canCheck=false;}
         $c=Config::get($db,'onec');$config=Support::decode($c['config_json']);
         $tab=($_GET['tab']??'data')==='history'?'history':'data';
-        $body='<section data-onec-operation="'.$e($connection).'" data-onec-csrf="'.$e(Http::csrf()).'" data-onec-write-enabled="'.(Config::liveAllowed()&&getenv('IPPHP_ALLOW_ONEC_WRITE')==='owner-authorized-prepared-create'?'true':'false').'">';
+        $body='<section data-onec-operation="'.$e($connection).'" data-onec-csrf="'.$e(Http::csrf()).'" data-onec-write-enabled="'.(OnecWriteAdmission::createAllowed($db)?'true':'false').'">';
         $body.=PageView::header($definition['title'],$definition['description'],'<button class="btn btn-secondary" type="button" data-dialog="onec-settings">Настройки</button>'.($canCheck?'<button class="btn btn-primary" type="button" data-onec-check>Проверить</button>':''));
         $body.='<div id="onec-operation-feedback" role="status" aria-live="polite"></div>'.PageView::tabs(['data'=>'Данные','history'=>'История'],$tab);
         if ($definition['kind']==='print') {
