@@ -1115,8 +1115,12 @@ final class Controller {
             if(!$actor)return '';
             $delivery=(new \Modules\Integrations\ObjectActivityMax(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
             if ($delivery===null) {
-                if(!\Modules\Integrations\WorkflowMaxEvent::postcommitModeAllowed(PHP_SAPI,getenv('IPPHP_RENTAL_MAX_POSTCOMMIT')))return '';
-                $delivery=(new \Modules\Integrations\WorkflowMaxEvent(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+                if(\Modules\Integrations\LocalWorkflowMax::configured()){
+                    $delivery=(new \Modules\Integrations\LocalWorkflowMax(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+                }else{
+                    if(!\Modules\Integrations\WorkflowMaxEvent::postcommitModeAllowed(PHP_SAPI,getenv('IPPHP_RENTAL_MAX_POSTCOMMIT')))return '';
+                    $delivery=(new \Modules\Integrations\WorkflowMaxEvent(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+                }
             }
             return match($delivery['status']??'uncertain'){
                 'disabled','skipped'=>'',
