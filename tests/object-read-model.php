@@ -10,7 +10,7 @@ if (!preg_match('/^ipphp_task_[a-z0-9_]+$/D',(string)$p->query('SELECT DATABASE(
 $check=static function(bool $ok,string $why):void {if (!$ok) throw new RuntimeException($why);};
 $session=$_SESSION ?? [];$get=$_GET;$server=$_SERVER;
 $selects=static fn()=>(int)$p->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch(PDO::FETCH_NUM)[1];
-$comparisons=0;$today=date('Y-m-d');
+$comparisons=0;$today=date('Y-m-d');$managerProjection=[];
 $p->beginTransaction();
 try {
     $actors=[];
@@ -27,6 +27,9 @@ try {
                 $before=$selects();$actual=ObjectFacts::project($object,$parent,$availability,$day,$read);
                 $check($selects()===$before,'Projection must not query inside the object loop');
                 $check($actual===$expected,'Single-record/batch mismatch: '.$role.' object '.$object['id'].' on '.$day);
+                $key=$day.':'.$object['id'];
+                if ($role==='manager') $managerProjection[$key]=$actual;
+                else $check($actual===$managerProjection[$key],'Every role must see the manager object projection: '.$role.' '.$key);
                 $comparisons++;
             }
         }

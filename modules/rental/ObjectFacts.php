@@ -13,11 +13,11 @@ final class ObjectFacts
         return (int)(new \DateTimeImmutable($object['free_since']))->diff(new \DateTimeImmutable($today))->days;
     }
 
-    public static function idleSeverity(?int $days,string $role): string
+    public static function idleSeverity(?int $days): string
     {
         if ($days===null) return '';
-        if ($days>=30 && in_array($role,['manager','director','admin'],true)) return 'red';
-        return $days>=14 && in_array($role,['manager','admin'],true)?'yellow':'';
+        if ($days>=30) return 'red';
+        return $days>=14?'yellow':'';
     }
 
     /** Use the directory's actual availability, including dates, holds and reservations. */
@@ -28,7 +28,9 @@ final class ObjectFacts
         foreach ($read->objects as $object) {
             $days=self::idleDays($object,$read->availability[$object['id']]['available'] ?? false,$today);
             foreach (['manager','director'] as $role) {
-                $severity=self::idleSeverity($days,$role);
+                $severity=self::idleSeverity($days);
+                // The common directory appearance does not reassign personal tasks.
+                if ($role==='director' && $severity==='yellow') continue;
                 if ($severity!=='') $signals[]=['id'=>(int)$object['id'],'role'=>$role,'severity'=>$severity,'text'=>'Простой '.self::days($days)];
             }
         }
@@ -70,8 +72,8 @@ final class ObjectFacts
         $previous=$read ? $read->previous((int)$object['id']) : (Controller::query('SELECT p.name FROM contract_terms t JOIN contracts c ON c.id=t.contract_id JOIN parties p ON p.id=c.party_id '
             .'LEFT JOIN contract_objects co ON co.contract_id=c.id AND co.object_id=t.object_id '
             .'WHERE '.ContractOccupancy::physicalPredicate('co').' AND t.object_id=? AND c.status IN (\'active\',\'reconciling\',\'closed\',\'ended\') AND t.end_date<=? ORDER BY t.end_date DESC,c.id DESC LIMIT 1',[$object['id'],$today])[0]['name'] ?? null);
-        $role=$read?->role ?? Auth::user()['role']; $severity=''; $recent=null;
-        if ($eligible) $severity=self::idleSeverity($days,$role);
+        $severity=''; $recent=null;
+        if ($eligible) $severity=self::idleSeverity($days);
         if ($eligible && !$free && $booking && str_contains($status,'бронир')) $severity='blue';
         if ($eligible && !$free && $lease && $lease['status']==='active' && !$booking && ($lease['term_start'] ?? $today)<=$today) {
             $event=$read ? $read->event((int)$lease['id']) : (Controller::query("SELECT DATE(MIN(created_at)) at FROM rental_events WHERE contract_id=? AND action IN ('contract.sign','contract.activated')",[$lease['id']])[0]['at'] ?? null);

@@ -2,20 +2,18 @@
 declare(strict_types=1);
 namespace Modules\Rental;
 
-use App\{Auth,ContractOccupancy};
+use App\ContractOccupancy;
 
 /** One explicitly owned read snapshot, never persisted across requests or commands. */
 final class ObjectReadModel
 {
     public readonly array $objects;
     public readonly array $availability;
-    public readonly string $role;
     private array $leases=[],$bookings=[],$previous=[],$events=[],$applied=[],$documents=[];
 
     public function __construct(public readonly string $today)
     {
         Service::date($today);
-        $this->role=Auth::user()['role'] ?? 'viewer';
         $this->objects=Controller::query('SELECT o.*,c.number cadastral,c.area parent_area,c.type parent_type,c.rentable parent_rentable,c.source_json parent_source '
             .'FROM rental_objects o JOIN cadastre c ON c.id=o.cadastre_id ORDER BY o.id');
         $availability=[];

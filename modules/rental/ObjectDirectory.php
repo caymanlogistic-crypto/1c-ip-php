@@ -165,7 +165,7 @@ final class ObjectDirectory
             .DirectoryUi::select('active','Состояние',['1'=>'Активен','0'=>'Неактивен'],$object['active'] ?? 1)
             .DirectoryUi::input('free_since','Дата освобождения / начала простоя',$object['free_since'] ?? ($object?'':date('Y-m-d')),'date');
         [$form,$actions]=DirectoryUi::form('object.save',$object,$body);
-        $form=str_replace('<form ', '<form data-rental-object-editor'.(!$object?' data-rental-new-object':'').' ', $form);
+        $form=str_replace('<form ', '<form class="registry-ui-modal-grid" data-rental-object-editor'.(!$object?' data-rental-new-object':'').' ', $form);
         return RentalUI::modal($object?'Редактировать объект':'Создать объект аренды',$form,$actions,'objects');
     }
 }

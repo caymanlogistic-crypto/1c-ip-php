@@ -12,10 +12,10 @@ $check=static function(bool $ok,string $why):void { if (!$ok) throw new RuntimeE
 $today=date('Y-m-d');
 foreach (['manager','director','lawyer','accountant','admin','viewer'] as $role) {
     foreach ([13,14,29,30] as $days) {
-        $expected=match($role) {'manager','admin'=>$days>=30?'red':($days>=14?'yellow':''),'director'=>$days>=30?'red':'',default=>''};
-        $check(ObjectFacts::idleSeverity($days,$role)===$expected,'Idle boundary '.$role.':'.$days);
+        $expected=$days>=30?'red':($days>=14?'yellow':'');
+        $check(ObjectFacts::idleSeverity($days)===$expected,'Common idle boundary '.$role.':'.$days);
     }
-    $check(ObjectFacts::idleSeverity(null,$role)==='','Unknown date must not be a task');
+    $check(ObjectFacts::idleSeverity(null)==='','Unknown date must not be a task');
 }
 $check(ObjectFacts::idleDays(['free_since'=>null],true,$today)===null,'Missing date');
 $check(ObjectFacts::idleDays(['free_since'=>date('Y-m-d',strtotime('+1 day'))],true,$today)===null,'Future date');
