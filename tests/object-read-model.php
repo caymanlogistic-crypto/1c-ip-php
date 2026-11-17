@@ -45,6 +45,13 @@ try {
     $afterRead=new ObjectReadModel($today);
     $check(!$afterRead->availability[$id]['available'],'New read must see the new reservation; no cross-request cache');
     $check($beforeRead->availability[$id]['available'],'A snapshot must not mutate under the renderer');
+    $p->prepare("INSERT INTO reservations(id,object_id,start_date,until_date,status,source_json) VALUES(?,?,?,?,'active','{}')")->execute([$booking+1,$id,$today,$today]);
+    $multiple=new ObjectReadModel($today);
+    $check(count($multiple->bookings($id))===2,'Batch read must retain all competing customer bookings');
+    foreach ($multiple->objects as $object) if ((int)$object['id']===$id) {
+        $parent=ObjectReadModel::parent($object);$availability=$multiple->availability[$id];
+        $check(ObjectFacts::project($object,$parent,$availability,$today,$multiple)===ObjectFacts::project($object,$parent,$availability,$today),'Multiple booking projection must match the authoritative single-record query');
+    }
     // The partial response uses the exact workspace renderer and keeps page authorization.
     $_GET=['flag'=>'work'];$_SERVER['REQUEST_METHOD']='GET';$_SERVER['HTTP_X_RENTAL_OBJECTS_FRAGMENT']='1';
     $before=$selects();$fragment=ObjectDirectory::page();

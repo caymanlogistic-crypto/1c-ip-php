@@ -42,7 +42,7 @@ final class DocumentCreator {
         $fid = 'rental-document-creator';
         $body = '<form id="'
         . $fid
-        . '" method="get" action="/rental/document-next" data-rental-document-creator>'
+        . '" class="registry-ui-modal-grid" method="get" action="/rental/document-next" data-rental-document-creator>'
         . '<label class="field">'
         . '<span class="field-label">Документ</span>'
         . '<select class="field-input field-select" name="documentType" data-rental-document-type>'

@@ -84,6 +84,10 @@ final class PagePolicy {
             'edit' => [
             ]
         ];
+        foreach(\Modules\Integrations\OnecOperations::CONNECTIONS as $key=>$definition)$pages['connections.'.$key]=[
+            'title'=>$definition['title'],'module'=>'Подключения','url'=>'/connections/'.$key,
+            'read'=>'integrations.read','edit'=>['integrations.write','finance.write'],
+        ];
         return $pages;
     }
     private static function coarse(string $roleId, string $permission):bool {
@@ -133,7 +137,8 @@ final class PagePolicy {
         ], true))return 'rental.reconciliation';
         if (in_array($action, [
             'contract.create',
-            'contract.edit'
+            'contract.edit',
+            'contract.delete'
         ], true) || (str_starts_with($action, 'booking.') || str_starts_with($action, 'reservation.')))return 'rental.contracts';
         if (str_starts_with($action, 'document.') && in_array($action, [
             'document.create',
@@ -167,7 +172,11 @@ final class PagePolicy {
             $key = 'connections.'
             . $provider;
         }
-        elseif(preg_match('~^/(?:connections|external-documents)/([a-z]+)$~D', $path, $m))$key = 'connections.'
+        elseif(preg_match('~^/integrations/onec-actions/(onec-counterparty|onec-invoice|onec-print)/([a-z]+)$~D',$path,$m)){
+            if($m[2]==='check')$key='connections.'.$m[1];
+            else{Auth::requirePermission('rental.read');return;} // The shared owner checks finance/packet authority.
+        }
+        elseif(preg_match('~^/(?:connections|external-documents)/([a-z-]+)$~D', $path, $m))$key = 'connections.'
         . $m[1];
         elseif(in_array($path, [
             '/email',

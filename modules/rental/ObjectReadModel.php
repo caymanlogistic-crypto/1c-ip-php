@@ -28,7 +28,7 @@ final class ObjectReadModel
         foreach (Controller::query('SELECT r.object_id,r.id,r.until_date,r.comment,COALESCE(NULLIF(r.client_name,\'\'),p.name) client_name '
             .'FROM reservations r LEFT JOIN parties p ON p.id=r.party_id WHERE '.Occupancy::reservationPredicate('r')
             ." AND r.status='active' AND r.until_date>=? ORDER BY r.id DESC",[$today]) as $row) {
-            $id=$row['object_id'];unset($row['object_id']);$this->bookings[$id]??=$row;
+            $id=$row['object_id'];unset($row['object_id']);$this->bookings[$id][]=$row;
         }
         foreach (Controller::query('SELECT t.object_id,p.name FROM contract_terms t JOIN contracts c ON c.id=t.contract_id JOIN parties p ON p.id=c.party_id '
             .'LEFT JOIN contract_objects co ON co.contract_id=c.id AND co.object_id=t.object_id '
@@ -47,7 +47,8 @@ final class ObjectReadModel
         return ['number'=>$object['cadastral'],'type'=>$object['parent_type'],'area'=>$object['parent_area'],'rentable'=>$object['parent_rentable'],'source_json'=>$object['parent_source']];
     }
     public function lease(int $id): ?array {return $this->leases[$id] ?? null;}
-    public function booking(int $id): ?array {return $this->bookings[$id] ?? null;}
+    public function booking(int $id): ?array {return $this->bookings[$id][0] ?? null;}
+    public function bookings(int $id): array {return $this->bookings[$id] ?? [];}
     public function previous(int $id): ?string {return $this->previous[$id] ?? null;}
     public function event(int $id): ?string {return $this->events[$id] ?? null;}
     public function applied(int $id): array {return $this->applied[$id] ?? [];}
