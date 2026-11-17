@@ -1,10 +1,13 @@
 # Текущие задачи и факты проекта
 
-## LOGIN-OBJECTS — кандидат, 18.11.2026
+## LOGIN-OBJECTS — опубликовано и проверено, 18.11.2026
 
 - От актуального origin/main 51fec79 создан отдельный worktree 1c-ip-login-objects, ветка codex/login-objects. Auth::landing теперь возвращает /rental/objects для всех ролей с rental.read; прежний fallback /profile без доступа к аренде сохранён. Этот общий метод используется после успешного POST /login и при открытии корня сайта авторизованным пользователем. Права и интерфейс страницы не менялись.
 - PHP lint и diff --check — PASS. В своей минимальной тестовой БД ipphp_task_loginobjects проверены настоящие Auth::login/password_verify, сессия, landing и Access::pages(objects) для admin/manager/lawyer/accountant/director/viewer; неверный пароль отклонён, без rental.read landing=/profile и objects=403. Это адресная CLI-проверка авторизации на синтетических данных; Полный реестр с бизнес-данными и браузер не проверялись. Перед публикацией проверен реальный HTTP через public/router.php на своей минимальной БД: шесть ролей POST /login → 303 /rental/objects, авторизованный GET / → тот же адрес, анонимный GET / → 303 /login. Приватный HTTP-сценарий/результат — .local/check-http.py и http-result.json; собственный тестовый PHP остановлен. Приватный сценарий/результаты — .local/check-login.php и login-check-result.json; конфигурация вне Git.
 - URL после публикации: https://ui.89.208.213.14.sslip.io/login, все роли с доступом к аренде. Сценарий: выйти → войти → открываются /rental/objects; переход на / также ведёт туда. Владелец поручил «выкладывай»; кандидат af5cd28 принят, актуальный origin/main 51fec79 уже входит в ветку. Прикладной diff — только Auth::landing. Далее PR и Queue-PR.ps1; до проверки опубликованной версии публикация не считается завершённой.
+
+- Публикация завершена через PR https://github.com/caymanlogistic-crypto/1c-ip-php/pull/37 и Queue-PR.ps1, статус queue:done. Опубликованный commit d4046a7c0ca9ffd505b2ae8d46990a69debfb29e; workflow https://github.com/caymanlogistic-crypto/1c-ip-php/actions/runs/44190317969 — SUCCESS. Image_id sha256:d55bc097a5badaf035d8f77159e6622a5935267785bb6b10ab139c1fd0bc64ea совпал с квитанцией очереди и /_ops.php всех шести ролей.
+- На общем сайте реальные входы admin/manager/lawyer/accountant/director/viewer дали HTTP 303 Location=/rental/objects; реестр затем HTTP 200 с заголовком «Объекты аренды». GET / всех шести ролей ведёт туда же; manager /users=403. Приватные доказательства .local/published-result.json и published-ops.json; credentials/cookies в отчёт не входят. Бизнес-записи, схема и внешние допуски не менялись. Завершено. Этот итоговый отчёт меняет только WORK.md; прикладной код совпадает с опубликованным d4046a7.
 
 ## ZERO-POINT-DATES — даты и замена машиноместа (кандидат)
 
