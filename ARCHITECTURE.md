@@ -12,6 +12,8 @@
 
 Доставка: `.github/workflows/staging.yml` сохраняет registry build cache и публикует main в приватный GHCR; `deploy/server/deploy.py` получает immutable digest через OIDC/SSH, загружает недостающие слои, проверяет image_id/commit и пересоздаёт только app. SOURCE_COMMIT после runtime/vendor сохраняет кеш между правками. SQL/миграций и переноса документов в этом пути нет; прежний image_id остаётся локально для отката. Порядок внедрения — deploy/README.md, проверенный статус — WORK.md.
 
+Автоматическая очередь: `Queue-PR.ps1` → `merge-queue.yml` → `deploy/merge_queue.py`. Ticket head/статус хранятся в PR, один Actions worker проводит update/check/merge/deploy и проверяет квитанцию фактической версии. `staging.yml` принимает точный workflow_dispatch на ветку кандидата (build) или main (deploy); OIDC receiver разрешает только push/dispatch main. Внешних БД/процессов очереди нет. Бесплатный GitHub не даёт защитить main; инструкции запрещают агентам обход, controller обнаруживает постороннее изменение main.
+
 ## 1. Форма системы
 
 Это модульный PHP/MySQL-монолит. В архиве 271 PHP-файл, примерно 31,4 тысячи строк PHP. Основные модули — аренда, подключения и вспомогательные источники.
@@ -151,8 +153,11 @@ Service::available имеет явный режим sharedCustomerBookings: до
 
 Важные ограничения:
 
+Ручная отправка `/email` → `Controller::action` → `Messaging::dispatchManualEmail` → `Messaging::dispatch` → `MessageTransport` допускает локальный `IPPHP_ALLOW_EMAIL=owner-authorized-email-access` или серверный EmailAdmission (`.local/email-admission.json`, только smtp.spaceweb.ru:465/TLS) при сохранении прав, CSRF, revision, spool/receipt и request_key. dispatchManualEmail проверяет POST, текущего пользователя, messaging.send и уровень страницы; адресат из формы разрешается только внутри текущей команды, без изменения private approved_recipients. Служебный dispatch и RentalOutbox сохраняют прежние ограничения получателей. Локальный Start-Local получает этот допуск только из собственного boolean `email_enabled`; preflight сверяет их. Общий gate и guards RentalOutbox/WorkflowMaxEvent этим параметром не включаются. SMTP SSL/TLS и STARTTLS проверяют сертификат; учётные данные и allowlist остаются вне Git.
+
 1. В ZIP среди private/integrations есть только key и max.enc. Остальные профили и .local не переданы; их фактическое наличие проверяется локально.
 2. WorkflowMaxEvent::dispatch привязан к старой R2-БД и порту. AutoMAX из CURRENT не является работающим. Общая проверка MAX и специальный MaxReadCheck — разные пути.
+   Локальный worktree может явно включить `LocalMaxReadCheck` через `bin/max-local-read-setup.php --enable`. Маршрут `/integrations/action`, provider=max/action=check использует этот путь только при наличии приватного `.local/max-read-access.json`. Доступ ограничен Windows CLI/cli-server, собственной `ipphp_task_*` БД/пользователем на 43061, сверенной копией, revision и hash vault, активными группами и правами пользователя. Разрешены только последовательные GET `/me` и `/chats/{chat_id}/members/me`, под общей блокировкой провайдера, с существующими claims/receipts/idempotency. Общий внешний допуск и WorkflowMaxEvent/RentalOutbox не включаются. Отдельное разрешение владельца и `--enable-manual-send` добавляют в приватный marker единственный разрешённый chat_id группы «ТЕСТОВАЯ»: `dispatchManual` допускает один POST `/messages?chat_id=...` с неизменным JSON тела конкретной команды, через обычный Messaging claim/receipt/idempotency. Другие адресаты, пути, методы и повтор HTTP в одной команде отвергаются. MaxSettings распознаёт сохранение прежних полей и сохраняет revision/привязку; ошибки spool/secret до входа в транспорт дают failed вместо ложного uncertain. На Linux этот локальный допуск отвергается.
 3. Отсутствие .local/onec-dev-transport.json выбирает direct. Не меняй транспорт молча при переносе.
 4. GET_LOCK использует ipphp-provider:{provider} на уровне MySQL-сервера; разные схемы могут конкурировать за один провайдер.
 5. Наличие другой pending-операции блокирует новые действия провайдера. Сначала выясняй прежний исход.

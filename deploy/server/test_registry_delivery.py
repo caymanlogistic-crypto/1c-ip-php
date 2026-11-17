@@ -101,7 +101,7 @@ class RegistryDeliveryTest(unittest.TestCase):
         self.assertNotIn('image.tar.gz', workflow)
         self.assertIn('--cache-from "type=registry,ref=$registry:buildcache"', workflow)
         self.assertIn('test "$GITHUB_REF" = refs/heads/main', workflow)
-        self.assertIn('if: github.event_name == \'push\' && github.ref == \'refs/heads/main\'', workflow)
+        self.assertIn("if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'", workflow)
 
 
 if __name__ == '__main__':

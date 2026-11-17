@@ -4,11 +4,14 @@ namespace Modules\Integrations;
 
 final class MessageTransport
 {
-    public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private ?MaxReadCheck $readCheck = null) {}
+    public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private MaxReadCheck|LocalMaxReadCheck|null $readCheck = null) {}
     public static function safeException(\Throwable $error): array
     {
         $classes=['RuntimeException','InvalidArgumentException','PDOException','JsonException','TypeError','Error','Exception'];
         $codes=['RENTAL_MAX_POSTCOMMIT_MARKER_INVALID','RENTAL_MAX_POSTCOMMIT_MARKER_REQUIRED','RENTAL_MAX_POSTCOMMIT_MARKER_CHANGED',
+            'LOCAL_MAX_SEND_NOT_AUTHORIZED','LOCAL_MAX_SEND_PATH_NOT_AUTHORIZED','LOCAL_MAX_READ_NOT_AUTHORIZED','LOCAL_MAX_READ_CONTEXT_CHANGED','LOCAL_MAX_READ_GROUP_CHANGED',
+            'LOCAL_MAX_READ_PATH_NOT_AUTHORIZED','LOCAL_MAX_READ_BUSY','LOCAL_MAX_READ_ACTOR_NOT_AUTHORIZED',
+            'LOCAL_MAX_READ_PENDING_REQUIRES_RECONCILIATION',
             'RENTAL_MAX_POSTCOMMIT_CONFIG_CHANGED','RENTAL_MAX_POSTCOMMIT_CONTEXT_CHANGED',
             'MAX_READ_SELECTOR_INVALID','MAX_READ_LOCAL_R2_ONLY','MAX_READ_PROJECT_EPOCH_CHANGED','MAX_READ_ACTOR_NOT_AUTHORIZED',
             'MAX_READ_REVISION_CHANGED','MAX_READ_APPROVED_GROUP_REQUIRED','MAX_READ_SOURCE_CHANGED','MAX_READ_SCOPE_NOT_AUTHORIZED',
@@ -37,10 +40,11 @@ final class MessageTransport
         foreach($attachments as $a){$filename=rawurlencode($a['name']);$h.='--'.$b."\r\nContent-Type: ".$a['mime']."\r\nContent-Disposition: attachment; filename*=UTF-8''".$filename."\r\nContent-Transfer-Encoding: base64\r\n\r\n".chunk_split(base64_encode($a['bytes']),76,"\r\n");}return $h.'--'.$b."--\r\n";
     }
     public function execute(string $provider,string $operation,array $config,array $secret,string $target,string $raw,string $remoteId,array $groups=[]): array {
+        if(!in_array($operation,['check','send'],true))throw new \InvalidArgumentException('INVALID_MESSAGE_OPERATION');
         if($this->workflowEvent!==null&&$this->readCheck!==null)throw new \RuntimeException('MAX_READ_OPERATION_NOT_AUTHORIZED');
         if($this->readCheck!==null)$this->readCheck->assertOperation($provider,$operation,$target,$raw,$groups);
         elseif($this->workflowEvent!==null)$this->workflowEvent->assertRequest($provider,$operation,$target,$raw);
-        elseif(!Config::liveAllowed())return ['status'=>'failed','code'=>'EXTERNAL_ACCESS_NOT_AUTHORIZED'];
+        elseif(!Config::liveAllowed()&&!($provider==='email'&&(Config::emailLiveAllowed()||EmailAdmission::allows($config))))return ['status'=>'failed','code'=>'EXTERNAL_ACCESS_NOT_AUTHORIZED'];
         if($operation==='send'){$allowed=$provider==='email'?($secret['approved_recipients']??[]):($secret['approved_chat_ids']??[]);if(!is_array($allowed)||!in_array($provider==='email'?strtolower($target):$target,array_map(static fn($v)=>$provider==='email'?strtolower((string)$v):(string)$v,$allowed),true))return ['status'=>'failed','code'=>'TARGET_NOT_APPROVED'];}
         if($provider==='max')return $this->max($operation,$secret,$target,$raw,$groups);
         if($provider!=='email')throw new \InvalidArgumentException('UNKNOWN_MESSAGE_PROVIDER');
