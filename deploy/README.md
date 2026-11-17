@@ -1,63 +1,44 @@
-# PHP staging operations
+# Один общий сайт, автодеплой из main
 
-Repository: https://github.com/caymanlogistic-crypto/1c-ip-php.
-Host: 89.208.213.14; root folder `/srv/1c-ip-php`.
+Репозиторий: https://github.com/caymanlogistic-crypto/1c-ip-php. Сервер: 89.208.213.14, существующий корень /srv/1c-ip-php.
 
-| Stand | Branch | HTTPS | Compose project | Private app | DB |
-|---|---|---|---|---|---|
-| UI | staging-ui | https://ui.89.208.213.14.sslip.io | ipphp-ui | 172.30.101.10:80 | ipphp_ui |
-| INTEGRATIONS | staging-integrations | https://integrations.89.208.213.14.sslip.io | ipphp-integrations | 172.30.102.10:80 | ipphp_integrations |
+Общий сайт использует https://ui.89.208.213.14.sslip.io, каталог ui, Compose ipphp-ui, БД ipphp_ui, прежние данные, TLS, обычную авторизацию и SSH-канал ipphp-ci-ui. Имена сохраняются, новый экземпляр не создаётся. Прежний integrations останавливается с сохранением данных; серверных экземпляров для агентов нет.
 
-Each project has its own app, MySQL 8.4.9, network, DB user, file secrets, documents, runtime/sessions, private data and logs. Containers have no published ports; only the host proxy can reach their private IPs. UI uses an internal Docker network. Only the host Apache HTTPS proxy is public. A dedicated TLS certificate covers the two sslip.io names; certbot.timer renews it and a scoped deploy hook reloads Apache. Existing sites, certificates and databases are retained. Application test accounts have distinct passwords per stand. There is no additional browser login. Credentials live only in private carriers, never in Git.
+## Публикация
 
-PHP 8.5.6 Apache image and MySQL are pinned by digest. Composer 2.8.9 installs the existing composer.lock without updates. Source comes from the image, not a writable checkout. `.dockerignore` starts from an allowlist; `.local`, private profiles/keys, SQL dumps, sessions, Git and vendor do not enter the context. Dependency vendor is built from lock.
+Свой worktree от main → локальная проверка → кандидат пользователю → «выкладывай» → свежий main в свою ветку → адресная проверка → PR и merge через GitHub → автодеплой main → проверка опубликованной версии и сценария → завершение.
 
-## Deploy a task
+Новая .github/workflows/staging.yml сохраняет имя файла, но публикует только push main через существующий environment ui. Task/codex-ветки и PR собираются в build без деплоя. Повторно используются UI_DEPLOY_SSH_KEY и DEPLOY_HOST/DEPLOY_KNOWN_HOSTS. Интеграционный ключ workflow не использует.
 
-1. Branch from current main into `task/<task-id>`. One task owner per stand. Commit/push runs the image build and PHP syntax checks without deploying.
-2. Incorporate current main and push the prepared commit to the appropriate staging branch. Do not force another owner's candidate off a stand. No deploy is triggered by main or task pushes.
-3. Wait for the GitHub Actions run to succeed; compare `/_ops.php` commit and image_id against its artifact/summary. Check login and the task scenario. Freeze the staging branch while the owner reviews. After acceptance, merge sequentially into main.
+Receiver допускает только ui release с GitHub OIDC: repository/owner, refs/heads/main, точный commit/run_id, event=push и .github/workflows/staging.yml@refs/heads/main. Staging/task/PR и второй target отвергаются. Сохранены SHA256 архива, OCI commit, точный image_id, server flock, highest-run и возврат предыдущего образа. Main concurrency group не отменяет выполняющийся деплой; перед отправкой проверяется актуальный main. Следующая задача не сливается до проверки предыдущей публикации; локальная работа остальных продолжается.
 
-The workflow ships a gzip Docker archive over SSH, checks its SHA256 and loads the declared image ID. Compose runs that exact immutable ID. `image_id` is the SHA256 Docker image config digest, not a registry manifest digest; no registry or owner PC is needed. Source commit is also embedded as an OCI label and release.json. Server receipt and diagnostics bind those values to the running container.
+## Одноразовый переход
 
-GitHub environment branch policies restrict UI and INTEGRATIONS secrets to their exact staging branches. Branch protection is unavailable on this private repository's current plan. Each deployment key is restricted to one forced command, has no Docker group membership, cannot forward ports or open an interactive shell, and can sudo only the corresponding receiver operation. The receiver verifies GitHub's signed OIDC token: repository/owner, exact staging ref, workflow path, event, commit and run ID. SSH host key is pinned. The app never mounts Docker socket.
+Подготовлено в task/simple-workflow, ещё не применено. Старый серверный receiver принимает staging, поэтому одного merge YAML недостаточно. После «выкладывай», до первого merge этой задачи:
 
-There is a separate GitHub concurrency group and server flock for each stand. In-progress deployments are not cancelled by later pushes. A stale branch head is skipped before mutation; a run ID older than the highest accepted server run is rejected. A rerun cannot replace a newer deployed run. No SQL or migrations are part of the receiver.
+1. Проверить отсутствие выполняющихся публикаций и чужого владельца. Сохранить текущие commit/image_id, root-owned receiver/ci-entry, Apache proxy config и GitHub environment policies. БД/документы не менять.
+2. В существующем GitHub environment ui заменить deployment branch policy staging-ui на только main, type=branch. Секреты/vars сохранить, значения не выводить. Build оставить для сборок. Убрать прежний допуск staging-integrations в его environment. Проверить policies через GitHub API.
+3. Установить проверенные deploy/server/deploy.py в /usr/local/sbin/ipphp-deploy и deploy/server/ci-entry.sh в /usr/local/bin/ipphp-ci-entry: root-owned, executable. Сохранить ограниченные forced-command/sudo для ipphp-ci-ui; отключить SSH-допуск прежнего ipphp-ci-integrations. Это не меняет работающий app image; staging refs после этого отвергаются.
+4. Штатно остановить только app и db проекта ipphp-integrations, сохранив контейнеры, volumes, БД, каталоги, документы, образы и очереди. Старый integrations URL направить редиректом на общий UI URL в существующем Apache proxy. Проверить apache2ctl configtest и reload; адрес не должен проксировать в выключенный app или попадать на чужой default vhost.
+5. Получить свежий main, объединить/проверить эту ветку, создать PR и слить через GitHub. Дождаться workflow и сверить artifact/summary с /_ops.php, проверить вход и адресный сценарий. Проверить, что integrations URL перенаправляет, а второго app-процесса нет.
+6. Записать фактический результат в START-HERE.md/WORK.md. После перехода общий сайт обновляется только из main. Удалять исторические staging-ветки и данные не требуется.
 
-## Diagnosis and image rollback
+До этих шагов сервер работает по прежней конфигурации. Сборка task-ветки не означает переключение. При сбое до merge сохрани работающий образ, сообщи блокер; восстановление сохранённых настроек — явный возврат процесса, не обход новой политики push в staging.
 
-`https://<stand-address>/_ops.php` requires an authenticated application session and reports stand, commit, image_id, deployment time, actual DB identity/readiness, PHP and external gates. It never reports credentials. Server receipts are in `<stand>/state/current.json`, previous.json and release-<run>.json. Compose configuration is root-owned and separate from application images.
+## Диагностика и возврат
 
-As the authorized server administrator:
+https://ui.89.208.213.14.sslip.io/_ops.php требует сессию и сообщает commit, SHA256 image config digest, deployed_at, БД и gates. Сверять с artifact workflow, /srv/1c-ip-php/ui/state/current.json и контейнером. HTTP 200 и /health не заменяют версию и сценарий.
+
+Авторизованный администратор возвращает предыдущий совместимый образ:
 
 ```sh
 sudo /usr/local/sbin/ipphp-deploy ui rollback
-sudo /usr/local/sbin/ipphp-deploy integrations rollback
 ```
 
-This activates the previous retained image, verifies it and preserves DB/documents. It is only an application-image rollback for a compatible schema. Automatic rollback to the current receipt is attempted if a deployment fails readiness. Do not prune the current/previous images. For an incompatible schema change, prepare an explicit backup and compatibility/return plan before deployment.
+Это откат приложения, не БД/документов/внешних эффектов/main. Исправление идёт через ту же задачу и GitHub. Не удалять текущий/предыдущий образ. Импорт SQL, миграции и восстановление старой БД поверх новых данных не входят в деплой. Исходники в работающем контейнере не правятся.
 
-## Initial transfer and external prerequisites
+## Сохраняемые ограничения
 
-Source: local T001 DB ip_ya_t001_20261117; fresh consistent snapshot 17 November 2026 17:52:31 Moscow, 115 tables / 48,548 rows. SHA256 SQL: `8c38177567fc96bac4f98dfc63ce2d26dda70a54d1b785a40e930bc5f318fe74`. `initial-backup` holds the SQL, receipt, file archive and manifest outside Git. Both copies were verified against every row/schema hash before separate test-account password rotation. Import uses explicit `time_zone='+03:00'`; the first failed UTC copy is preserved separately, not used. Source was not modified. An INITIAL_IMPORT_COMPLETE marker prevents accidental initialisation through the deploy path. Subsequent deployments only recreate app.
+Остаются PHP 8.5.6 Apache, MySQL 8.4.9, lock-зависимости, internal network общего сайта, данные и TLS. Не включать внешнюю сеть, admission, профили отправок и workers/outbox при смене процесса. Pending/attempts/outbox сохраняются и не проигрываются. Чтение провайдера и внешняя запись требуют своих поручений; guards сохраняются.
 
-164 source files were copied with hashes, including 10 document files (378,333 bytes). External integration keys/profiles were excluded from both stands. UI gets none. Necessary read profiles can be installed into INTEGRATIONS under a concrete provider task. Settings in the copied DB can still show enabled=1; runtime admission=false and no workers prevent inherited effects. Historical outbox/pending/attempts are data, not permission to replay.
-
-Transport for 1C is explicitly `direct` in each stand's private config. Server DNS resolves 1c.dltkmsk.ru to 89.208.213.32; TCP/TLS and anonymous HEAD succeeded without the Windows PC/VPN. This proves prerequisites, not 1C login, organization access or bank-statement reading.
-
-Host network preflight checked DNS/TCP/TLS and anonymous HEAD for 1C/bank, Diadoc/auth, Mosenergo, Mosvodokanal, PIK, MAX, CIAN, Yandex Realty, Morrow and Fortex; SMTP greeting/TLS was checked on the configured imap.spaceweb.ru:465. DNS/TCP succeeded for all. Default Linux trust rejected Mosvodokanal and MAX certificate chains; resolve the approved CA chain in their specific tasks, without disabling verification. HTTP 405/302 are connectivity observations, not authentication success. Report: `/srv/1c-ip-php/network-preflight.json`. No provider authentication, exchange, send or external write occurred.
-
-Automatic Word→PDF, historical guards and the actual accepted design gallery remain outside this infrastructure task.
-
-## Verified handoff
-
-Both stands run source commit `46bbca9f13706ef2d3c6272a12f18ee118283ccb`.
-
-| Stand | Immutable Docker image config digest | Successful Actions run |
-|---|---|---|
-| UI | sha256:13df53203397b93110b62bb8bbf83d9cc62b2a2508981f8ca49ba87d24f404ec | https://github.com/caymanlogistic-crypto/1c-ip-php/actions/runs/44112934353 |
-| INTEGRATIONS | sha256:b2c986d884d8dd385175522b9d2a49e42eaeea312aee42ee9a40841fc56894f3 | https://github.com/caymanlogistic-crypto/1c-ip-php/actions/runs/44112763217 |
-
-Verified: task push left both deployed versions unchanged; control UI push deployed 004b432 while INTEGRATIONS stayed on 022f46f. UI was switched to the previous 022f46f image and back to 004b432 with all 115 table hashes and 164 file hashes unchanged. Both stands were then deployed to 46bbca9. Queue/attempt/run hashes stayed equal to the initial source. Login, registry and new-contract form passed on both final stands; admin additionally passed on UI. No contract was created and no provider effect was sent. Server evidence: independent-deploy-proof.json and final-release-report.json under /srv/1c-ip-php.
-
-A documentation-only handoff commit in main may be newer than the running image commit; it does not replace the deployed images. No extra browser password is required. The service diagnostics require an authenticated application session. TLS hostnames use the public sslip.io DNS service; replace with owner-controlled DNS under a separate explicit change if needed.
+Первичный snapshot/receipt и резервные документы находятся в /srv/1c-ip-php/initial-backup вне Git; повторный начальный импорт не нужен. Прежние хеши/runs доступны в Git-истории. Витрина публикуется с приложением из того же main без отдельного сервиса.

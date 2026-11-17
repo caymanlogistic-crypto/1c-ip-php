@@ -9,15 +9,17 @@ function Open-LocalBrowser {
 }
 function Same-Time($a,$b){try{[long]$x=([DateTimeOffset]$a).UtcDateTime.Ticks;[long]$y=([DateTimeOffset]$b).UtcDateTime.Ticks;return($x-$x%10L)-eq($y-$y%10L)}catch{return $false}}
 function Owned($process,$record){return $process-and$process.ProcessId-eq$record.pid-and$process.ExecutablePath.Replace('\','/').ToLowerInvariant()-eq$php.ToLowerInvariant()-and(Same-Time $process.CreationDate.ToUniversalTime().ToString('o') $record.startUTC)-and$process.CommandLine.Replace('\','/').ToLowerInvariant().Contains(($root+'/public/router.php').Replace('\','/').ToLowerInvariant())}
-if(!(Test-Path -LiteralPath (Join-Path $root '.local/database.php'))-or!(Test-Path -LiteralPath (Join-Path $root 'vendor/autoload.php'))){throw 'CURRENT_CONFIG_OR_VENDOR_MISSING'}
 if($Plan){[ordered]@{root=$root;php=$php;port=$Port;databaseConfig=(Join-Path $root '.local/database.php');setup=0;restore=0;MySQLRestart=0}|ConvertTo-Json;exit 0}
+if(!(Test-Path -LiteralPath (Join-Path $root '.local/database.php'))-or!(Test-Path -LiteralPath (Join-Path $root 'vendor/autoload.php'))){throw 'CURRENT_CONFIG_OR_VENDOR_MISSING'}
 $listener=@(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
 if($listener.Count){
  if(!(Test-Path -LiteralPath $receipt)){throw 'PORT_BUSY_FOREIGN_NO_START'};$record=Get-Content -LiteralPath $receipt -Raw|ConvertFrom-Json;$process=Get-CimInstance Win32_Process -Filter ('ProcessId='+$record.pid)
  if($record.port-ne$Port-or@($listener|Where-Object OwningProcess -ne $record.pid).Count-or!(Owned $process $record)){throw 'PORT_BUSY_FOREIGN_NO_START'}
  if(!$NoBrowser){Open-LocalBrowser};[ordered]@{status='CURRENT_ALREADY_RUNNING';pid=$record.pid;port=$Port}|ConvertTo-Json;exit 0
 }
-foreach($name in @([Environment]::GetEnvironmentVariables('Process').Keys)){if($name-like'IPPHP_*'-or$name-like'DB_*'-or$name-like'APP_*ADMISSION*'-or$name-like'APP_INTEGRATION_*'){if(Test-Path -LiteralPath ('Env:'+$name)){Remove-Item -LiteralPath ('Env:'+$name)}}}
+foreach($name in @([Environment]::GetEnvironmentVariables('Process').Keys)){if($name-like'IPPHP_*'-or$name-like'DB_*'-or$name-like'APP_*ADMISSION*'-or$name-like'APP_INTEGRATION_*'-or$name-eq'APP_STAND'-or$name-eq'APP_LOCAL_SESSION_NAME'){if(Test-Path -LiteralPath ('Env:'+$name)){Remove-Item -LiteralPath ('Env:'+$name)}}}
+$sessionHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($root.ToLowerInvariant()+':'+$Port)))).Substring(0,16).ToLowerInvariant()
+$env:APP_LOCAL_SESSION_NAME='IPPHPSESSID_'+$sessionHash
 $env:APP_DB_CONFIG_FILE=Join-Path $root '.local/database.php';$env:APP_ARTIFACTS_ROOT=Join-Path $root 'artifacts'
 $settings=Get-Content -LiteralPath (Join-Path $root '.local/runtime-settings.json') -Raw|ConvertFrom-Json
 if($settings.port-ne$Port){throw 'T001_PORT_BINDING'}
