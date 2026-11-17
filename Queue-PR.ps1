@@ -3,8 +3,12 @@ $ErrorActionPreference = 'Stop'
 $repo = 'caymanlogistic-crypto/1c-ip-php'
 if (git status --porcelain) { throw 'Commit your candidate before enqueueing it.' }
 $candidateSha = (git rev-parse HEAD).Trim()
-$pr = gh pr view $PullRequest --repo $repo --json headRefOid,baseRefName,isDraft,state | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0) { throw 'Cannot read PR.' }
+for ($readAttempt=0; $readAttempt -lt 5; $readAttempt++) {
+    $pr = gh pr view $PullRequest --repo $repo --json headRefOid,baseRefName,isDraft,state | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot read PR.' }
+    if ($pr.headRefOid -eq $candidateSha) { break }
+    if ($readAttempt -lt 4) { Start-Sleep -Seconds 2 }
+}
 if ($pr.state -ne 'OPEN' -or $pr.isDraft -or $pr.baseRefName -ne 'main') { throw 'PR must be open, ready and target main.' }
 if ($pr.headRefOid -ne $candidateSha) { throw 'Push this exact candidate to its PR branch first.' }
 gh workflow run merge-queue.yml --repo $repo --ref main -f "pr=$PullRequest" -f "head=$candidateSha"
