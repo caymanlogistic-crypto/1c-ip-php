@@ -22,7 +22,7 @@ final class HttpTransport
         $ch=curl_init($url);$bytes='';$tooLarge=false;
         curl_setopt_array($ch,[CURLOPT_CUSTOMREQUEST=>$method,CURLOPT_HTTPHEADER=>$headers,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_PROXY=>'',CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_TIMEOUT=>$timeoutSeconds,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_WRITEFUNCTION=>static function($c,$chunk)use(&$bytes,&$tooLarge,$limit){if(strlen($bytes)+strlen($chunk)>$limit){$tooLarge=true;return 0;}$bytes.=$chunk;return strlen($chunk);}]);
         $mark('ca_select',['ca_configured'=>(bool)(getenv('IPPHP_CAFILE')?:getenv('APP_INTEGRATION_CAFILE')?:ini_get('curl.cainfo'))]);
-        $ca=Support::caFile();
+        $ca=$readCheck instanceof ServerObjectMax?$readCheck->caFile():Support::caFile();
         $effectiveCa=$ca?:ini_get('curl.cainfo');
         $ssl='';
         if($observer!==null)try{$ssl=curl_version()['ssl_version']??'';}catch(\Throwable){}

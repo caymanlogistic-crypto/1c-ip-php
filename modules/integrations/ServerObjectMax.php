@@ -15,6 +15,15 @@ final class ServerObjectMax
     private int $sent=0;
     public function __construct(private PDO $db) {}
 
+    public function caFile(): string
+    {
+        $path=Config::root().'/.local/certs/windows-trusted-roots.pem';
+        if (is_link($path)||!is_file($path)||!is_readable($path)
+            ||!hash_equals('b846c5f49517b6de22fcfaa239a9c0561185f22cb9ffc7e2b39ef8fb806c59e0',hash_file('sha256',$path)))
+            throw new RuntimeException('OBJECT_MAX_CA_REJECTED');
+        return $path;
+    }
+
     public static function validate(mixed $m): void
     {
         $keys=['schema','enabled','project_id','scope','stand','database','revision','group_id','group_name','chat_id','vault_sha256','event_floor'];
@@ -59,7 +68,9 @@ final class ServerObjectMax
         if ((int)$this->db->query("SELECT GET_LOCK('ipphp-provider:max',0)")->fetchColumn()!==1) throw new RuntimeException('OBJECT_MAX_BUSY');
         try {
             $key=ObjectActivityMax::requestKey($event);
-            $q=$this->db->prepare("SELECT COUNT(*) FROM messaging_attempts WHERE provider='max' AND status IN ('pending','uncertain') AND NOT(actor_id=? AND request_key=?)");$q->execute([$event['actor_id'],$key]);
+            // Never replay legacy claims. Their unknown outcome cannot duplicate a distinct,
+            // freshly committed object event; unresolved deliveries of this capability do block it.
+            $q=$this->db->prepare("SELECT COUNT(*) FROM messaging_attempts WHERE provider='max' AND (status='pending' OR (status='uncertain' AND request_key LIKE 'object-activity-%')) AND NOT(actor_id=? AND request_key=?)");$q->execute([$event['actor_id'],$key]);
             if ((int)$q->fetchColumn()>0) throw new RuntimeException('OBJECT_MAX_RECONCILIATION_REQUIRED');
             $this->scope=$this->context();$this->event=$event;$this->sent=0;$this->pending=null;
             $transport=fn($p,$o,$c,$s,$t,$r,$id,$g)=>(new MessageTransport(null,null,null,$this))->execute($p,$o,$c,$s,$t,$r,$id,$g);

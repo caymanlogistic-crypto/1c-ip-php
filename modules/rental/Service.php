@@ -113,14 +113,20 @@ final class Service {
         $u = Auth::user() ?? throw new RuntimeException('Требуется вход.');
         $key = (string)($in['command_key'] ?? '');
         if (!preg_match('/^[a-zA-Z0-9-]{16,100}$/D', $key))throw new RuntimeException('Отсутствует идентификатор команды.');
-        $fp = hash('sha256', Importer::json([
+        $epoch=(string)DB::pdo()->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn();
+        $fingerprintParts=[
             $u['id'],
             $action,
             $in
-        ]));
+        ];
+        // Preserve legacy retries until the first explicit baseline restore creates a new era.
+        if (DB::pdo()->query("SELECT 1 FROM rental_facts WHERE namespace='zero_point_runtime' AND source_key='active'")->fetchColumn()) $fingerprintParts[]=$epoch;
+        $fp = hash('sha256', Importer::json($fingerprintParts));
         $pendingEventId=null;
-        $result=DB::transaction(function(PDO $p)use($u, $key, $fp, $action, $in, &$pendingEventId) {
+        $result=DB::transaction(function(PDO $p)use($u, $key, $fp, $action, $in, $epoch, &$pendingEventId) {
             $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
+            if ((string)$p->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn()!==$epoch)
+                throw new RuntimeException('Данные восстановлены. Откройте форму заново.',409);
             $q = $p->prepare('SELECT * FROM rental_commands WHERE command_key=? FOR UPDATE');
             $q->execute([
                 $key
@@ -275,7 +281,7 @@ final class Service {
             }
             elseif($number === '') {
                 $numbers = $p->query('SELECT number FROM contracts')->fetchAll(PDO::FETCH_COLUMN);
-                $max = 0;
+                $max = \App\BusinessIds::numberFloor($p);
                 foreach ($numbers as $n)if (preg_match('/^([0-9]+)/', $n, $m))$max = max($max, (int)$m[1]);
                 $number = (string)($max+1);
             }
@@ -342,7 +348,7 @@ final class Service {
                     $id
                 ]);
                 else {
-                    $id = (int)$p->query('SELECT COALESCE(MAX(id),900000)+1 FROM contracts')->fetchColumn();
+                    $id = \App\BusinessIds::next($p,'contracts',900000,false);
                     if ($partRows !== null) $partEdit = \App\BillingPartTerms::beginCreation($p, 'contract', $id, [
                         'actor_id' => (int)$u['id'], 'command_key' => (string)$in['command_key'],
                         'source_rule_sha256' => \App\BillingPartAdmission::NATIVE_SOURCE,
@@ -653,7 +659,7 @@ final class Service {
             $party = self::get($p, 'parties', (int)$in['party_id']);
             $a = self::money($in['amount']);
             $date = self::date($in['payment_date']);
-            $id = (int)$p->query('SELECT COALESCE(MAX(id),9000000)+1 FROM payments')->fetchColumn();
+            $id = \App\BusinessIds::next($p,'payments',9000000,false);
             $creation=NativeOperatingWriter::begin($p,'payment',$id,'native-c-manual','service.payment.create',
                 $date,(string)($in['command_key'] ?? 'payment:'.$id),(int)$u['id']);
             $p->prepare("INSERT INTO payments(id,party_id,amount,payment_date,source,source_json) VALUES(?,?,?,?,'Ручной приход','{}')")->execute([

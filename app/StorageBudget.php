@@ -46,7 +46,8 @@ final class StorageBudget
             throw new \RuntimeException('LARGE_ARTIFACT_REQUIRES_DECLARED_EXTERNAL_ROOT');
         }
         $reserve = 536870912;
-        $free = disk_free_space($real);
+        // Windows PHP expects a directory; probing an existing artifact file returns false.
+        $free = disk_free_space(is_dir($real)?$real:dirname($real));
         if ($free === false || $free < $bytes + $reserve) throw new \RuntimeException('ARTIFACT_DESTINATION_SPACE_REQUIRED');
         $appFree = disk_free_space(APP_ROOT);
         if ($appFree === false || $appFree < $reserve) throw new \RuntimeException('APPLICATION_VOLUME_RESERVE_REQUIRED');
