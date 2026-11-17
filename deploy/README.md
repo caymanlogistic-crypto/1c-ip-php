@@ -20,6 +20,8 @@ Receiver допускает только ui release с GitHub OIDC: repository/o
 ./Queue-PR.ps1 -PullRequest 15
 ```
 
+Быстрый просмотр заявки: `gh pr view <номер> --repo caymanlogistic-crypto/1c-ip-php --json labels,url`. Подробный stage, проверенный head, deploy_run и image_id находятся в комментарии Actions этого PR. Статус всего intake workflow может быть cancelled, если GitHub заменил ожидающий worker: durable ticket и очередь при этом сохраняются; ориентируйся на ticket.
+
 Эквивалент: `gh workflow run merge-queue.yml --repo caymanlogistic-crypto/1c-ip-php --ref main -f pr=15 -f head=<полный-одобренный-SHA>`. Существующие открытые PR автоматически не принимаются. Постановка проверяет право отправителя, открытый ready PR из этого репозитория в main и точное совпадение head. Изменённый после постановки код без нового запроса не сливается.
 
 Intake сохраняет ticket в комментарии Actions и ставит queue:ready до ожидания worker. Один worker concurrency `ipphp-merge-deploy-queue` выполняет весь цикл для одного PR: подтверждает доставку текущего main, обновляет ветку через GitHub (только merge существующего main), запускает сборку точного нового head, перепроверяет head/base, сливает и явно dispatch-ит публикацию main. Это важно: merge через GITHUB_TOKEN сам по себе не запускает push workflow. Публикация проверяет expected_sha; receiver принимает только OIDC точного main workflow. Для перехода к следующему PR нужны успешный run и artifact с deployment.json, совпадающими commit/image_id, ui, database_ready и registry transport. Одного зелёного run с пропущенным деплоем недостаточно.
