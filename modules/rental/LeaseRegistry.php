@@ -48,7 +48,7 @@ final class LeaseRegistry
     public static function projection(array $contract,string $role,array $tasks,bool $closed,bool $ending,array $reviews=[]): array
     {
         $mine=array_values(array_filter($tasks,fn($task)=>$task['entity']==='contract' && (int)$task['id']===(int)$contract['id']
-            && $task['role']===$role && ($role!=='director' || $contract['status']==='reconciling' || !in_array($task['severity'],['red','yellow'],true))));
+            && ($task['role']===$role || $role==='admin') && ($role!=='director' || $contract['status']==='reconciling' || !in_array($task['severity'],['red','yellow'],true))));
         $comment=implode('; ',array_unique(array_column($mine,'text')));
         $completed=self::section($contract)==='contracts-completed';
         if ($comment==='' && $closed) $comment='Взаиморасчёты, юридическая проверка и акт возврата подтверждены.';
@@ -115,15 +115,11 @@ final class LeaseRegistry
                 RegistryState::date($contract['start_date']),RegistryState::date($view['end']),strip_tags($objects),$view['stage'],$view['comment'],$view['expiry_comment'],$contract['amount'],$responsible])) continue;
             $items[]=compact('contract','view','objects','responsible');
         }
-        $tabs=$active?['all'=>['Все',count($items)],'ending'=>['Заканчиваются',count(array_filter($items,fn($row)=>$row['view']['ending']))],
-            'review'=>['На завершении',count(array_filter($items,fn($row)=>$row['contract']['status']==='reconciling'))]]
-            :['all'=>['Все',count($items)],'ended'=>['Аренда завершена',count(array_filter($items,fn($row)=>$row['contract']['status']==='ended'))],
-            'closed'=>['Расчёты закрыты',count(array_filter($items,fn($row)=>$row['view']['closed']))]];
+        $tabs=self::tabs($items,$active);
         $rows=[];$sum='0.00';$known=0;
         foreach ($items as $item) {
             ['contract'=>$contract,'view'=>$view,'objects'=>$objects,'responsible'=>$responsible]=$item;
-            if ($flag==='ending' && !$view['ending'] || $flag==='review' && $contract['status']!=='reconciling'
-                || $flag==='ended' && $contract['status']!=='ended' || $flag==='closed' && !$view['closed']) continue;
+            if (!self::selected($item,$flag)) continue;
             if ($contract['amount']!==null) {$sum=bcadd($sum,$contract['amount'],2);$known++;}
             $rows[]=['_attrs'=>'class="'.RegistryState::rowClass($view['severity']).'" data-rental-url="/rental/contract?id='.(int)$contract['id'].'" tabindex="0"',
                 View::e($contract['number']),View::e($contract['party_name']),RegistryState::date($contract['start_date']),RegistryState::date($view['end']),$objects,
@@ -140,5 +136,33 @@ final class LeaseRegistry
                 ['Договор','Контрагент','Начало','Окончание','Объекты аренды','Стадия','Комментарий','Аренда с НДС','Ответственный'],$rows,
                 ['short','flex','short','code','flex','text','flex','money','text'],$controls,' · Аренда с НДС: <b>'.Controller::money($known?$sum:($rows?null:'0.00')).'</b>');
         return View::page($title,$body,$page);
+    }
+
+    private static function selected(array $item,string $flag): bool
+    {
+        return match($flag) {
+            'ending'=>$item['view']['ending'],
+            'review'=>$item['contract']['status']==='reconciling',
+            'ended'=>$item['contract']['status']==='ended',
+            'closed'=>$item['view']['closed'],
+            default=>true,
+        };
+    }
+
+    public static function tabs(array $items,bool $active): array
+    {
+        $tabs=[];
+        $labels=$active?['all'=>'Все','ending'=>'Заканчиваются','review'=>'На завершении']
+            :['all'=>'Все','ended'=>'Аренда завершена','closed'=>'Расчёты закрыты'];
+        foreach ($labels as $flag=>$label) {
+            $visible=array_filter($items,fn($item)=>self::selected($item,$flag));
+            $counts=[0,0,0,0];
+            foreach ($visible as $item) {
+                $index=array_search($item['view']['severity'],['red','yellow','green','blue'],true);
+                if ($index!==false) $counts[$index]++;
+            }
+            $tabs[$flag]=[$label,count($visible),$counts];
+        }
+        return $tabs;
     }
 }

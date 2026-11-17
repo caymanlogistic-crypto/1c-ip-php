@@ -22,4 +22,24 @@ foreach (['manager','admin','lawyer','accountant','director','viewer'] as $role)
     $plain=LeaseRegistry::projection($contract,$role,[],false,false);
     $check(LeaseRegistry::commentHtml($plain)==='—','No notice outside ending selection');
 }
-echo "PASS: remaining days, Russian plurals, today/past/missing date, six roles, existing comment and escaping\n";
+$items=[];
+for ($id=1;$id<=11;$id++) {
+    $record=$contract;$record['id']=$id;
+    $signal=$task;$signal['id']=$id;$signal['severity']=$id<=6?'red':'yellow';
+    $duplicate=$signal;$duplicate['text']='Второе действие того же договора';
+    $view=LeaseRegistry::projection($record,'admin',[$signal,$duplicate],false,true);
+    $check($view['severity']===$signal['severity'],'Admin sees assigned signal');
+    $manager=LeaseRegistry::projection($record,'manager',[$signal],false,true);
+    $check($view['severity']===$manager['severity'],'Admin and assigned manager row color');
+    $viewer=LeaseRegistry::projection($record,'viewer',[$signal],false,true);
+    $check($viewer['severity']==='','No other-role signal for viewer');
+    $items[]=['contract'=>$record,'view'=>$view];
+}
+$tabs=LeaseRegistry::tabs($items,true);
+$check($tabs['all']===['Все',11,[6,5,0,0]],'All flag colors and deduplication');
+$check($tabs['ending']===['Заканчиваются',11,[6,5,0,0]],'Ending flag colors');
+$check($tabs['review']===['На завершении',0,[0,0,0,0]],'Review flag excludes active rows');
+$items[0]['contract']['status']='reconciling';$items[0]['view']['ending']=false;
+$tabs=LeaseRegistry::tabs($items,true);
+$check($tabs['ending'][2]===[5,5,0,0] && $tabs['review'][2]===[1,0,0,0],'Each flag counts its selection');
+echo "PASS: rental expiry labels, six roles, escaping, admin/manager colors, other-role isolation, flag counts/deduplication\n";
