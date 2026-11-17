@@ -87,6 +87,8 @@ final class ZeroPoint
 
     public static function load(string $target='baseline'): array
     {
+        if (is_file(self::directory().'/revision-pending.json'))
+            throw new RuntimeException('Обновление точки не завершено. Требуется сверка квитанции обновления.',409);
         if ($target==='baseline') {
             $index=self::directory().'/installed.json';
             if (!is_file($index)) throw new RuntimeException('Нулевая точка ещё не подготовлена.',409);
@@ -194,6 +196,7 @@ final class ZeroPoint
         self::validate($db,$document);$order=self::order($db);
         $result=DB::transaction(function(PDO $p)use($input,$document,$user,$key,$target,$order) {
             $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
+            if (is_file(self::directory().'/revision-pending.json')) throw new RuntimeException('Обновление точки не завершено.',409);
             $query=$p->prepare("SELECT fact_json FROM rental_facts WHERE namespace='zero_point_operation' AND source_key=? FOR UPDATE");$query->execute([$key]);
             if ($old=$query->fetchColumn()) {
                 $prior=json_decode($old,true,512,JSON_THROW_ON_ERROR);
