@@ -1,0 +1,8 @@
+[Unit]
+Description=Restore admitted SMTP routes for the common PHP site
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ipphp-email-network
