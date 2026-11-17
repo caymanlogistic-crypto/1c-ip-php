@@ -1,5 +1,11 @@
 # Текущие задачи и факты проекта
 
+## LOGIN-OBJECTS — кандидат, 18.11.2026
+
+- От актуального origin/main 51fec79 создан отдельный worktree 1c-ip-login-objects, ветка codex/login-objects. Auth::landing теперь возвращает /rental/objects для всех ролей с rental.read; прежний fallback /profile без доступа к аренде сохранён. Этот общий метод используется после успешного POST /login и при открытии корня сайта авторизованным пользователем. Права и интерфейс страницы не менялись.
+- PHP lint и diff --check — PASS. В своей минимальной тестовой БД ipphp_task_loginobjects проверены настоящие Auth::login/password_verify, сессия, landing и Access::pages(objects) для admin/manager/lawyer/accountant/director/viewer; неверный пароль отклонён, без rental.read landing=/profile и objects=403. Это адресная CLI-проверка авторизации на синтетических данных; Полный реестр с бизнес-данными и браузер не проверялись. Перед публикацией проверен реальный HTTP через public/router.php на своей минимальной БД: шесть ролей POST /login → 303 /rental/objects, авторизованный GET / → тот же адрес, анонимный GET / → 303 /login. Приватный HTTP-сценарий/результат — .local/check-http.py и http-result.json; собственный тестовый PHP остановлен. Приватный сценарий/результаты — .local/check-login.php и login-check-result.json; конфигурация вне Git.
+- URL после публикации: https://ui.89.208.213.14.sslip.io/login, все роли с доступом к аренде. Сценарий: выйти → войти → открываются /rental/objects; переход на / также ведёт туда. Владелец поручил «выкладывай»; кандидат af5cd28 принят, актуальный origin/main 51fec79 уже входит в ветку. Прикладной diff — только Auth::landing. Далее PR и Queue-PR.ps1; до проверки опубликованной версии публикация не считается завершённой.
+
 ## ZERO-POINT-DATES — даты и замена машиноместа (кандидат)
 
 - Прямое поручение: заполнить16 подтверждённых дат, учесть замену1.34 на1.14 в одном договоре33, обновить точку31.10.2026 и опубликовать. Worktree1c-ip-zero-point-dates, codex/zero-point-dates от45e2177, порт8889, собственная БД/пользователь ipphp_task_zero_dates. Серверный SQL до изменений: backup-20261118-010033-e01b112fc2419e9f.sql,41370486байт,SHA46b0256121c9824794f5221e0089d444c0eba5db88ffa1445cae114d46d0a706. Независимое восстановление115 таблиц/49269 строк: все DDL/row hashes PASS.
