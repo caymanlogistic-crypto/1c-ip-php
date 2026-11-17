@@ -14,6 +14,7 @@ final class PageView
     private static function notice(): string {return !empty($_GET['result'])?'<div class="form-alert alert-info" role="status"><span class="alert-mark" aria-hidden="true">!</span><div class="alert-body"><div class="alert-body-title">'.Support::e($_GET['result']).'</div></div></div>':'';}
     private static function evidence(string $provider): string
     {
+        if ($provider === 'onec') return '';
         $evidence = (new ConnectionEvidence(DB::pdo(),Config::store()))->read($provider);
         $text = ConnectionEvidence::text($evidence);
         if ($evidence['checked_at'] !== null) $text .= ' Последний результат: '.date('d.m.Y H:i',strtotime($evidence['checked_at'])).'.';
@@ -30,6 +31,7 @@ final class PageView
             if($p==='mosenergo'&&$edit)$body.='<section class="table-card registry-ui-card"><section class="panel-section"><h2 class="section-title">Подтверждение входа</h2><div class="inline-actions"><form method="post" action="/integrations/action">'.self::hidden($p,'login').'<button class="btn btn-secondary">Начать вход</button></form><form method="post" action="/integrations/action">'.self::hidden($p,'send_code').'<button class="btn btn-secondary">Запросить код</button></form></div><form method="post" action="/integrations/action">'.self::hidden($p,'confirm').self::field('code','Код подтверждения','','text','inputmode="numeric" pattern="[0-9]{5}" required').'<button class="btn btn-primary">Подтвердить</button></form></section></section>';
         }
         else {$q=$db->prepare('SELECT *,TIMESTAMPDIFF(MICROSECOND,created_at,finished_at) DIV 1000 AS duration_ms FROM integration_runs WHERE provider=? ORDER BY created_at DESC LIMIT 100');$q->execute([$p]);$body.='<section role="tabpanel" id="history-panel" class="table-card registry-ui-card"><div class="table-scroll"><table class="table registry-ui-table registry-ui-data" data-column-profile="connection-history"><thead><tr><th scope="col">Начало</th><th scope="col">Результат</th><th scope="col">Время</th></tr></thead><tbody id="history-body">';$n=0;foreach($q as $r){$n++;$body.='<tr tabindex="0"><td>'.$e(date('d.m.Y H:i:s',strtotime($r['created_at']))).'</td><td>'.Controller::status($r['status']).'<span class="registry-ui-secondary"> '.Controller::resultCode($r['result_code']??'').'</span>'.($edit&&$r['operation']==='sync'&&in_array($r['status'],['failed','pending'],true)?'<form method="post" action="/integrations/action">'.self::hidden($p,'resume').'<input name="run_id" type="hidden" value="'.$e($r['id']).'"><button class="btn btn-toolbar">Продолжить</button></form>':'').'</td><td>'.$e($r['duration_ms']??'—').' мс</td></tr>';}if(!$n)$body.='<tr><td colspan="3">Проверок ещё не было.</td></tr>';$body.='</tbody></table></div></section>';}
+        if ($p === 'onec') $body .= '<script defer src="/design/system/palette-runtime.js"></script>';
         return View::page($title,$body,'connection-'.$p);
     }
     private static function messages(string $p): string {
