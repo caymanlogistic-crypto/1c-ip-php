@@ -7,8 +7,7 @@ use App\Audit;
 final class ExtraService {
 
     private static function next(PDO $p, string $table): int {
-        return (int)$p->query('SELECT GREATEST(COALESCE(MAX(id),0),9000000)+1 FROM '
-        . $table)->fetchColumn();
+        return \App\BusinessIds::next($p,$table,9000000);
     }
 
     private static function update(PDO $p, string $table, int $id, array $fields): void {
