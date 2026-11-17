@@ -80,15 +80,14 @@ source_json и fact_json сейчас содержат смешанные ист
 
 ## 4. Витрина и общая UI-база
 
-### Фактическое состояние снимка
+### Витрина текущего проекта
 
-Полноценная страница витрины и её действующий URL в архиве не найдены. FINAL3.html, design/planex и docs/ui/DESIGN_STANDARD.md, на которые ссылается CSS, отсутствуют. Существование оригиналов на компьютере владельца не проверено.
-
-Актуальность и принятие витрины: НЕ ПОДТВЕРЖДЕНЫ. Задача T002 должна заменить эту запись реальными сведениями:
-- путь и URL;
-- дата/commit проверенной версии;
-- принято владельцем или пока кандидат;
-- какие общие компоненты показаны.
+- URL кандидата: http://127.0.0.1:8766/design/demo/index.html; ссылка «Витрина» в папке «Администрирование». Принятие пользователем и публикация объединённого кандидата ещё ожидаются.
+- Источник: UI-SHOWCASE-CLEAN-20261117.zip; README.txt, INTEGRATE-PROMPT.txt, PACKAGE-NOTES.txt прочитаны. 21 общий файл совпал по содержимому (без учёта CRLF); более новые source-menu-counts.js и ui-shell.css сохранены. 15 отсутствовавших файлов перенесены адресно.
+- Каталог содержит 33 компонента с поиском, описаниями, селекторами и «Показать»; guide.html, layout-rules.html, charts.html — связанные страницы. Возврат «В приложение» ведёт на `/`.
+- HTML витрины проходит через существующую сессию: public/router.php локально; RewriteRule существующего Apache → public/index.php → App\Showcase на сервере. Без входа — /login; перечень HTML фиксирован. CSP демо запрещает сеть и отправку форм; демонстрационные данные остаются в памяти вкладки.
+- Общие CSS/шрифты/иконки — public/design/system; JS компонентов — public/assets/source-{date-picker,menu-counts,notifications,registry-components,registry-viewport}.js. Дополнительные общие компоненты: public/design/system/{palette-runtime,registry-ux,registry-interactions,table-reference-select,time-picker}.js и charts/. Они подключены там, где нужны, по одному разу; демонстрационные demo_runtime.js, messages-demo.js, charts-demo.js — только public/design/demo.
+- PACKAGE-NOTES: очищенная витрина использует общий каскад вместо старого встроенного CSS; опциональные .registry-ui-modal--probe и .registry-ui-data--invoices, а также порядок ui-controls не откатывались. Совпадение со старой встроенной версией по пикселям не заявляется.
 
 ### Источники оформления
 
@@ -97,7 +96,7 @@ source_json и fact_json сейчас содержат смешанные ист
 - registry-components.css, ui-controls.css, ui-shell.css, registry-viewport.css, notification-icons.css — общие компоненты/оболочка.
 - time-picker.css — также подключается на странице входа; проверяй фактическую потребность конкретного экрана.
 - public/design/demo/demo_geometry.css — несмотря на имя demo, используется рабочими страницами.
-- app/View.php — порядок подключения CSS и оболочка.
+- app/View.php — порядок подключения CSS, предзагрузка существующих шрифтов и общий renderer папок навигации. Подключения (включая Email/MAX) и Администрирование фильтруются прежними правами. app/views/workspace.php и public/assets/workspace-menu-restore.js восстанавливают папки до запуска отложенных обработчиков; логика и изоляция настроек остаются в source-menu-counts.js.
 - modules/rental/RentalUI.php — кнопки, сообщения, пары значений, модальные окна и другие общие HTML-компоненты.
 - public/assets — текущая JS-логика; подбирай фактический script по экрану.
 

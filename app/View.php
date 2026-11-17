@@ -39,6 +39,7 @@ final class View {
         }
         if($u&&($u['role_id']??null)==='admin')$administration.=self::navigationLink('/settings/roles','Роли и доступы');
         $nav.=self::navigationFolder('menu-connections','Подключения',$connections,$folder);
+        $administration.=self::navigationLink('/design/demo/index.html','Витрина');
         $nav.=self::navigationFolder('menu-administration','Администрирование',$administration,$folder);
         if(!$u)$nav='';
         $css=self::fontPreloads();foreach(['system/palette.css','system/css/erp-ui.css','system/css/registry-components.css','system/css/ui-controls.css','system/css/ui-shell.css','system/css/registry-viewport.css','system/css/notification-icons.css','demo/demo_geometry.css'] as $asset)$css.='<link rel="stylesheet" href="/design/'.$asset.'">';

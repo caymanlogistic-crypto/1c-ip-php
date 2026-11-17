@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Как пользоваться витриной</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<link rel="stylesheet" href="../system/palette.css">
+<link rel="stylesheet" href="../system/css/erp-ui.css">
+<link rel="stylesheet" href="../system/css/registry-components.css">
+<link rel="stylesheet" href="../system/css/ui-controls.css">
+<link rel="stylesheet" href="../system/css/ui-shell.css">
+<link rel="stylesheet" href="demo_geometry.css">
+</head>
+<body>
+<div class="app app--workspace">
+<aside class="sidebar" aria-label="Витрина интерфейса">
+<div class="sidebar-brand"><span class="logo-mark" aria-hidden="true"></span><span class="brand-name">ВИТРИНА</span></div>
+<nav><a class="nav-item" href="/"><span class="nav-label">В приложение</span></a><a class="nav-item" href="index.html"><span class="nav-label">Компоненты и примеры</span></a><a class="nav-item" href="layout-rules.html"><span class="nav-label">Правила вёрстки</span></a><a class="nav-item" href="charts.html"><span class="nav-label">Графики</span></a><a class="nav-item is-active" href="guide.html" aria-current="page"><span class="nav-label">Как пользоваться</span></a></nav>
+</aside>
+<main class="content ui-detail-card">
+<section class="demo-page demo-stack">
+<div class="page-head registry-ui-head"><div class="page-head-left"><h1 class="page-title">Один образец для всех страниц</h1><p class="page-summary">Найдите компонент, откройте пример и используйте его в задаче.</p></div></div>
+<section class="panel-section"><h2 class="section-title">Три действия</h2><ol><li>На главной странице откройте <strong>«Каталог · 33»</strong>. Поиск работает по названию, описанию и CSS-селектору.</li><li>Нажмите <strong>«Показать»</strong>, чтобы увидеть компонент в работающем примере. Для проверки пустого списка, загрузки или ошибки используйте «Состояния примера».</li><li>Дайте агенту страницу, нужный результат и компонент из витрины. Проверьте изменение. Команда <strong>«выкладывай»</strong> разрешает публикацию этой задачи.</li></ol><p>Изменение палитры в окне витрины действует только в этой вкладке. Скачанный palette.css нужно передать агенту для применения в проекте.</p></section>
+<section class="panel-section"><h2 class="section-title">Правило для агента</h2><p>Используй общие CSS, шрифты, иконки и существующие компоненты приложения. Новый вариант компонента и его пример в витрине меняй в одной задаче. Правка отдельной страницы не должна создавать отдельную палитру или копию компонента.</p><p>Витрина показывает оформление и поведение на вымышленных данных. Числа, роли, маршруты согласования и действия в примерах не задают бизнес-правила рабочей системы.</p></section>
+<section class="panel-section" id="behavior"><h2 class="section-title">Поведение</h2><ul><li>Успешное сохранение закрывает окно и обновляет нужную запись и итоги. Временная подсветка сохранения — системная коричневая; постоянные статусы сохраняются.</li><li>Если изменённая запись ушла из текущего фильтра, покажи поясняющее уведомление. Сохраняй выбранный фильтр.</li><li>«Сбросить фильтр» очищает поиск и реальные фильтры, сохраняя вкладку и сортировку.</li><li>Поиск, сортировка и итоги работают по полной выборке. Количество отрисованных строк не является количеством найденных записей.</li><li>Заголовки таблицы остаются видимыми при прокрутке своего контейнера. Заголовок и строки прокручиваются горизонтально согласованно.</li><li>Заголовки колонок читаются целиком в одну строку. Выбирай подходящую ширину или понятную короткую подпись; сохраняй полный текст данных.</li><li>Проверь нижние кнопки в коротком окне. Не добавляй hover title/data-tooltip; доступные имена, клавиатура и сообщения валидации сохраняются.</li></ul></section>
+<section class="panel-section" id="colors"><h2 class="section-title">Цвета и счётчики</h2><p><strong>Жёлтый</strong> — персональное предупреждение. <strong>Красный</strong> — ошибка или нарушение. <strong>Голубой</strong> — уведомление. <strong>Зелёный</strong> — положительное событие. Адресатов и условия конкретного сигнала задаёт бизнес-логика страницы.</p><p>Счётчики в меню располагаются справа одним рядом, показывают точные числа и используют одинаковые боксы 24 px. У раскрытой папки общий счётчик скрыт; у свёрнутой — агрегат дочерней модели с сохранением действующей логики подсчёта и прав. При первом входе папки свёрнуты, затем состояние сохраняется отдельно для реального пользователя проекта.</p></section>
+<section class="panel-section" id="charts"><h2 class="section-title">Графики</h2><p>Используй общий компонент PLANEX. Отсутствующее значение разрывает линию; ноль остаётся нулём. Примеры на странице графиков позволяют проверить обычные данные, пропуски, одну точку и пустую выборку.</p></section>
+<section class="panel-section"><h2 class="section-title">Лицензии</h2><p><a href="../system/fonts/OFL.txt">IBM Plex Sans — SIL Open Font License</a> · <a href="../system/icons/LICENSE.txt">Tabler Icons — MIT</a></p></section>
+</section>
+</main>
+</div>
+</body>
+</html>

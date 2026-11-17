@@ -1,0 +1,57 @@
+/* PLANEX chart family, mechanically adapted to the shared palette.
+   Provenance and exact upstream bytes: ../../planex-charts/SOURCE.json. */
+.planex-chart { min-width:0; font-variant-numeric:tabular-nums; }
+.planex-chart__body { position:relative; padding:8px 10px 7px; background:var(--surface-form); }
+.planex-chart svg { display:block; width:100%; height:auto; overflow:visible; cursor:crosshair; }
+.planex-chart .grid-line { stroke:var(--line-hair); stroke-width:1; }
+.planex-chart .axis-label { fill:var(--text-faint); font:6px var(--font); }
+.planex-chart__area { opacity:0; animation:planex-chart-area-in 480ms ease-out 120ms forwards; }
+.planex-chart__line { stroke-dasharray:1; stroke-dashoffset:1; animation:planex-chart-line-in 780ms cubic-bezier(.22,.78,.3,1) calc(var(--series-index) * 70ms) forwards; }
+.planex-chart__line.is-secondary { opacity:.82; }
+.planex-chart__node { opacity:0; outline:none; animation:planex-chart-node-in 260ms cubic-bezier(.2,.8,.2,1) calc(260ms + var(--series-index) * 70ms + var(--node-index) * 32ms) forwards; }
+.planex-chart__node circle { fill:var(--surface-strong); stroke:var(--node-color); stroke-width:2; transform-box:fill-box; transform-origin:center; transition:none; }
+.planex-chart__node.is-active circle,.planex-chart__node:focus circle { fill:var(--node-color); r:5.5px; }
+.planex-chart [data-series="0"] { --series-index:0; --node-color:var(--chart-1); }
+.planex-chart [data-series="1"] { --series-index:1; --node-color:var(--chart-2); }
+.planex-chart [data-series="2"] { --series-index:2; --node-color:var(--chart-3); }
+.planex-chart [data-node="0"] { --node-index:0; }
+.planex-chart [data-node="1"] { --node-index:1; }
+.planex-chart [data-node="2"] { --node-index:2; }
+.planex-chart [data-node="3"] { --node-index:3; }
+.planex-chart [data-node="4"] { --node-index:4; }
+.planex-chart [data-node="5"] { --node-index:5; }
+.planex-chart [data-node="6"] { --node-index:6; }
+.planex-chart [data-node="7"] { --node-index:7; }
+.planex-chart [data-node="8"] { --node-index:8; }
+.planex-chart [data-node="9"] { --node-index:9; }
+.planex-chart [data-node="10"] { --node-index:10; }
+.planex-chart [data-node="11"] { --node-index:11; }
+.planex-chart__guide { stroke:var(--chart-1); stroke-width:2; stroke-dasharray:5 4; opacity:0; pointer-events:none; transition:none; }
+.planex-chart__guide.is-visible { opacity:.95; }
+.planex-chart__popup { position:absolute; z-index:4; top:13px; box-sizing:border-box; width:260px; padding:7px 8px; border:1px solid var(--line-soft); background:var(--surface-strong); color:var(--text-main); box-shadow:0 2px 7px rgb(from var(--p-text) calc(r + 21) calc(g + 12) calc(b + 4) / .16); opacity:0; visibility:hidden; pointer-events:none; transition:none; }
+.planex-chart__popup.is-visible { opacity:1; visibility:visible; }
+.planex-chart__popup-title { display:block; padding-bottom:5px; font-size:10px; line-height:1.2; }
+.planex-chart__popup-item { display:flex; align-items:center; gap:6px; padding:4px 0; border-top:1px solid var(--line-hair); color:var(--node-color); }
+.planex-chart__popup-name { flex:0 0 75px; overflow:hidden; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.planex-chart__popup-values { display:grid; flex:1; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; min-width:0; text-align:right; }
+.planex-chart__popup-values span,.planex-chart__popup-values b,.planex-chart__popup-values small { display:block; white-space:nowrap; }
+.planex-chart__popup-values b { font-size:10px; }
+.planex-chart__popup-values small { color:inherit; font-size:8px; font-weight:600; }
+@media(max-width:760px) {
+ .planex-chart__popup { top:8px; width:176px; max-width:calc(100% - 8px); padding:5px 6px; }
+ .planex-chart__popup-title { padding-bottom:3px; font-size:9.5px; }
+ .planex-chart__popup-item { align-items:stretch; flex-direction:column; gap:1px; padding:3px 0; }
+ .planex-chart__popup-name { flex:none; font-size:8.5px; }
+ .planex-chart__popup-values { flex:none; text-align:center; }
+ .planex-chart__popup-values b { font-size:9px; }
+ .planex-chart__popup-values small { font-size:7.5px; }
+}
+.planex-chart__legend { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:7px 16px; padding:3px 8px 6px; color:var(--text-muted); font-size:9.5px; }
+.planex-chart__legend span { display:flex; align-items:center; gap:6px; }
+.planex-chart__legend i { width:16px; height:2px; background:var(--node-color); }
+@keyframes planex-chart-line-in { to { stroke-dashoffset:0; } }
+@keyframes planex-chart-area-in { to { opacity:1; } }
+@keyframes planex-chart-node-in { from { opacity:0; } to { opacity:1; } }
+@media(prefers-reduced-motion:reduce) {
+ .planex-chart__area,.planex-chart__line,.planex-chart__node { animation:none; opacity:1; stroke-dashoffset:0; }
+}

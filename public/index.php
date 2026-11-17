@@ -9,6 +9,8 @@ try {
     if($path==='/health'){try{$p=DB::pdo();$p->query('SELECT 1');$m=(int)$p->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn();Http::json(['status'=>'ok','database'=>true,'migrations'=>$m,'live_sends'=>'disabled']);}catch(Throwable){Http::json(['status'=>'not_ready','database'=>false],503);}}
     if($path==='/')Http::redirect(Auth::user()?Auth::landing():'/login');
     if($path!=='/login'&&!Auth::user())Http::redirect('/login');
+    if($path==='/design/demo')Http::redirect('/design/demo/index.html');
+    if(preg_match('~^/design/demo/[^/]+\.html$~D',$path))\App\Showcase::page($path);
     if($path==='/api/menu-counts'){Auth::requirePermission('rental.read');$control=\Modules\Rental\InvoiceSignals::refreshForRequest(DB::pdo());Http::json(\App\Menu::counts(Auth::user())+['invoice_control'=>$control]);}
     if($_SERVER['REQUEST_METHOD']==='POST')Http::checkCsrf();
     \App\PagePolicy::guard($path,$_SERVER['REQUEST_METHOD']);
