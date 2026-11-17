@@ -49,8 +49,8 @@ final class ServerWorkflowMax
         $current=Auth::user();
         if(!$current||(int)$current['id']!==(int)($actor['id']??0)||$event['actor_id']!==(int)$current['id']
             ||$event['auth_version']!==(int)$current['auth_version']||$event['command_key']!==$commandKey)throw new RuntimeException('WORKFLOW_MAX_ACTOR_CHANGED');
-        $key=WorkflowMaxEvent::select($event);
-        $proof=(new WorkflowMaxEvent($this->db))->plan($eventId,$scope['group_id'],$scope['revision'],$scope['catalog_versions'][$key]);
+        $key=CurrentContractMaxProof::select($event);
+        $proof=(new CurrentContractMaxProof($this->db))->plan($eventId,$scope['group_id'],$scope['revision'],$scope['catalog_versions'][$key]);
         return ['event_id'=>$eventId,'command_key'=>$commandKey,'actor_id'=>$event['actor_id'],'text'=>$proof['catalog']['body'],'proof_sha256'=>$proof['sha256']];
     }
 

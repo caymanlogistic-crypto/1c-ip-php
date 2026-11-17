@@ -49,6 +49,7 @@
 | /rental/documents и /rental/document | AddendumController::listing / card | Документы/ДС |
 | /rental/addendum-form и /rental/addendum-action | AddendumController::editor / action | Создание/команды ДС |
 | /rental/approvals | ApprovalRegistry::page | Реестр согласований |
+| /rental/action-form?action=contract.legal | SourceCards::action → LegalReview | Проверка условий/актуального файла; POST /rental/action → Service::command; повторное согласование после возврата B→L |
 | /rental/contracts-active и /rental/contracts-completed | LeaseRegistry::page | Действующие/завершённые договоры |
 | /rental/operations и /rental/operation-action | OperationsRegistry::page / OperationActionController::action | Операции и их обработка |
 | /rental/generate, /rental/download, /rental/upload | Documents::generate / download / upload | Генерация и файлы |
@@ -129,6 +130,7 @@ Service::available имеет явный режим sharedCustomerBookings: до
 - public/design/demo/demo_geometry.css — несмотря на имя demo, используется рабочими страницами.
 - app/View.php — порядок подключения CSS, предзагрузка существующих шрифтов и общий renderer папок навигации. Подключения (включая Email/MAX) и Администрирование фильтруются прежними правами. app/views/workspace.php и public/assets/workspace-menu-restore.js восстанавливают папки до запуска отложенных обработчиков; логика и изоляция настроек остаются в source-menu-counts.js.
 - modules/rental/RentalUI.php — кнопки, сообщения, пары значений, модальные окна и другие общие HTML-компоненты.
+- `RentalUI::modal(tableOnly:true)` и общий `.registry-ui-modal--table` — табличный просмотр без внешних полей (условия договора). Пример: витрина → карточка объекта → Просмотреть параметры → Таблица без полей. `workspace-ui.js` сохраняет родительский rental-попап при вложенном открытии; кнопка/крестик/Escape возвращают его DOM, фокус и прокрутку. После успешной команды старый стек удаляется, показывается актуальный результат.
 - app/views/workspace.php подключает общий design/system/palette-runtime.js для SVG-стрелок селектов и лупы поиска из витрины. DirectoryUi::registry(filterForm: true) строит панель как GET-форму без дополнительной вложенности, search(grouped: true) использует штатную registry-ui-search-group; опции применены в объектах аренды, прежние вызовы сохраняют свою композицию.
 - Подписи цветных счётчиков: app/Menu.php → attentionLabels; PHP меню/вкладки и workspace-ui.js используют один набор (JS получает его в data-count-labels оболочки). Для объектов подписи уточняют простой, недавнюю сдачу и бронь. Простой в Indicators и строках использует общие ObjectFacts::idleDays/idleSeverity и Availability; красный срок договора остаётся отдельным текстовым выделением.
 - public/assets — текущая JS-логика; подбирай фактический script по экрану.
@@ -215,6 +217,8 @@ $attempts = (new Messaging(DB::pdo(), Config::store()))->dispatchManualEmail(
 <a id="max-module"></a>
 
 ### MAX: общий модуль для других страниц
+
+Серверный workflow proof выделен в `CurrentContractMaxProof`: проект/контракт/команда/actor/auth_version/актуальная версия/каталог проверяются прежней семантикой, epoch сверяется с текущим rental_runtime_context. Legacy WorkflowMaxEvent::select/dispatch остаются со своей фиксированной R2-эпохой. Это разные допуски; epoch не подменяется для прохождения старого guard.
 
 По явному поручению включить MAX согласований на общем сайте используется отдельный `ServerWorkflowMax`: Linux/ui/ipphp_ui, приватный workflow-max-admission.json, event_floor при включении, одна TEST-группа, revision/vault и версии восьми утверждённых шаблонов. Свежая команда Controller → proof WorkflowMaxEvent::plan → общий Messaging/MessageTransport; старый R2 dispatch guard не меняется. Транспорт допускает только один POST с точным текстом, повтор проверяет существующую попытку. Старые события, ДС, workers/outbox и ручная рассылка этим допуском не включаются. Отдельные CLI update-contract-max-templates (dry-run по умолчанию) и server-workflow-max-setup --enable применяют согласованные тексты через историю каталога и формируют marker для операторской атомарной установки. /_ops.php отражает contract_workflow_max отдельно.
 
