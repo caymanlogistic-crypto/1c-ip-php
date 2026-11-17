@@ -5,6 +5,25 @@ namespace Modules\Integrations;
 final class Messaging
 {
     public function __construct(private \PDO $db,private PrivateStore $store,private mixed $transport=null) {}
+    /** A signed-in user's explicit form submission approves these recipients for this command only. */
+    public function dispatchManualEmail(int $actor,string $requestKey,array $targets,string $text,string $subject,array $attachments=[]): array {
+        $user=\App\Auth::user();
+        if(($_SERVER['REQUEST_METHOD']??'')!=='POST'||!$user||(int)$user['id']!==$actor
+            ||!\App\Auth::can('messaging.send')
+            ||\App\PagePolicy::level('connections.email',$user)<2)
+            throw new \RuntimeException('Недостаточно прав для отправки письма.',403);
+        \App\Http::checkCsrf();
+        $approved=array_map('strval',$targets);$transport=$this->transport;
+        $manualTransport=static function(string $provider,string $operation,array $config,array $secret,string $target,string $raw,string $remoteId,array $groups)use($approved,$transport):array {
+            if($provider!=='email'||$operation!=='send'||!in_array($target,$approved,true))
+                throw new \RuntimeException('MANUAL_EMAIL_SCOPE_CHANGED');
+            // Never persist the form's recipients in the shared SMTP profile or authorize other send paths.
+            $secret['approved_recipients']=[$target];
+            return is_callable($transport)?$transport($provider,$operation,$config,$secret,$target,$raw,$remoteId,$groups)
+                :(new MessageTransport())->execute($provider,$operation,$config,$secret,$target,$raw,$remoteId,$groups);
+        };
+        return(new self($this->db,$this->store,$manualTransport))->dispatch('email',$actor,$requestKey,'send',$targets,$text,$subject,$attachments);
+    }
     public static function exceptionResult(string $operation, string $stage, \Throwable $error): array {
         // Before entering the transport no provider request can have happened.
         if (in_array($stage, ['claim_spool_verify','secret_revision'], true)) {
