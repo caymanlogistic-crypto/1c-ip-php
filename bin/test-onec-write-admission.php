@@ -52,6 +52,17 @@ try{
  $read=$store->spool($context+['kind'=>'native-read-receipt','stage'=>'readback-test','http_status'=>200],$rawFacts);
  $intent=['id'=>$intentId,'project_id'=>CaptureReader::PROJECT,'source_instance'=>$source['source_instance'],'prepared_id'=>$preparedId,'request_key'=>$request,'actor_id'=>$actor,'kind'=>'counterparty','native_key'=>$nativeKey,'command_sha256'=>str_repeat('a',64),'profile_sha256'=>$source['profile_sha256'],'binding_sha256'=>str_repeat('b',64),'prepared_sha256'=>basename($packetPath),'payload_path'=>$store->put('onec-admission-test',OnecMapping::json($payload)),'body_path'=>$store->put('onec-admission-test',$bodyRaw),'body_sha256'=>$bodySha,'prepared_path'=>$packetPath,'state'=>'saved','post_fence'=>$fence,'post_started'=>1,'ack_path'=>$ack,'readback_path'=>$read,'native_number'=>'DEMO','native_version'=>'fixture-1'];
  $insert('integration_native_intents',$intent);
+ $loadedSource=(new Modules\Integrations\OnecBindings($db,$store))->source();$bindingSource=$loadedSource;unset($bindingSource['profile']);$intent['binding_sha256']=hash('sha256',OnecMapping::json($bindingSource));
+ $db->prepare('UPDATE integration_native_intents SET binding_sha256=? WHERE id=?')->execute([$intent['binding_sha256'],$intentId]);
+ $frozen=['source'=>$loadedSource,'prepared_sha256'=>$intent['prepared_sha256']];
+ $historicalOwner=new class($frozen) implements Modules\Integrations\OnecPreparedOwner{
+  public function __construct(private array $frozen){}
+  public function prepare(int $actor,string $kind,array $businessIdentity):array{throw new RuntimeException('UNUSED_TEST_METHOD');}
+  public function current(array $intent,string $action):array{if($action==='read_existing')return $this->frozen;throw new RuntimeException('CURRENT_BUSINESS_PACKET_REMOVED');}
+  public function confirmation(array $intent):array{throw new RuntimeException('UNUSED_TEST_METHOD');}
+ };
+ $historyWithFrozenRead=(new Modules\Integrations\OnecNativeService($db,$store,$historicalOwner))->readHistory($intentId,$actor);
+ ensureWrite($historyWithFrozenRead['_proof_verified']===true&&$historyWithFrozenRead['_source_current']===false,'FROZEN_READ_IS_NOT_CURRENT_WRITE_VALIDATION');
  $bindings=new Modules\Integrations\OnecBindings($db,$store);$binding=$bindings->recordSavedReference($intentId);
  $history=Modules\Integrations\OnecNativeService::project($db,$store)->readHistory($intentId,$actor);
  ensureWrite($history['_proof_verified']===true&&$history['_source_current']===false,'HISTORY_WITHOUT_CURRENT_BUSINESS_PACKET');
