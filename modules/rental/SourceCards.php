@@ -193,9 +193,9 @@ final class SourceCards {
             'admin',
             'lawyer'
         ], true)) {
-            if ($c['status'] === 'legal') {
-                $add('Вернуть на доработку', 'contract.return');
-                $add('Согласовано', 'contract.legal', true);
+            if (LegalReview::assigned($c)) {
+                if ($c['status'] === 'legal')$add('Вернуть на доработку', 'contract.return');
+                $add('Проверить и согласовать', 'contract.legal', true);
             }
             if ($c['status'] === 'returned' && $c['return_to'] === 'lawyer')$add('Передать замечания менеджеру', 'contract.forward');
             if (in_array($c['status'], [
@@ -312,6 +312,13 @@ final class SourceCards {
             'reconcile.legal' => 'Претензий нет'
         ];
         $title = $allowed[$action] ?? throw new RuntimeException('Действие не найдено.', 404);
+        $legalFile=null;
+        if ($action==='contract.legal') {
+            Service::roles(['lawyer']);
+            Auth::requirePermission('rental.approve.legal');
+            if (!LegalReview::assigned($c))throw new RuntimeException('Договор не у юриста.',409);
+            $legalFile=LegalReview::file($c);
+        }
         $fields = RentalUI::pairs([
             [
                 'Договор',
@@ -323,6 +330,7 @@ final class SourceCards {
             ]
         ]);
         $extra = '';
+        if ($action==='contract.legal')$fields.=LegalReview::context($c).LegalReview::fileFields($legalFile);
         if ($action === 'contract.packet') {
             $fields .= PacketForm::preview('contract', $id);
         }
@@ -352,7 +360,7 @@ final class SourceCards {
             . '<span>Документ и состав пакета проверены</span>'
             . '</label>';
             else {
-                $extra = AuxController::uploadForm($c, 'lawyer-file', 'Актуальный Word или PDF')
+                $extra = LegalReview::upload($c)
                 . '<form method="post" action="/rental/generate"><input type="hidden" name="_csrf" value="'
                 . View::e(Http::csrf())
                 . '"><input type="hidden" name="id" value="'
@@ -360,7 +368,7 @@ final class SourceCards {
                 . '"><input type="hidden" name="version" value="'
                 . $c['version']
                 . '"><button class="btn btn-secondary" name="format" value="docx">Сформировать Word</button>'
-                . '<button class="btn btn-secondary" name="format" value="pdf">Сформировать PDF</button></form>';
+                . '</form>';
             }
         }
         if (in_array($action, [
@@ -385,7 +393,7 @@ final class SourceCards {
         . '&action=contract.handed');
         $body = '<form id="'
         . $formId
-        . '" method="post" action="/rental/action"><input type="hidden" name="_csrf" value="'
+        . '"'.($action==='contract.legal'?' class="registry-ui-modal-grid"':'').' method="post" action="/rental/action"><input type="hidden" name="_csrf" value="'
         . View::e(Http::csrf())
         . '"><input type="hidden" name="id" value="'
         . $id
@@ -401,7 +409,8 @@ final class SourceCards {
         . $extra;
         $foot = '<button class="btn btn-primary" type="submit" form="'
         . $formId
-        . '">Подтвердить</button>';
+        . '"'.($action==='contract.legal' && !$legalFile?' disabled':'').'>'
+        . ($action==='contract.legal'?'Согласовать и передать бухгалтеру':'Подтвердить').'</button>';
         return RentalUI::modal($title, $body, $foot);
     }
 }

@@ -43,6 +43,7 @@
 | /rental/documents и /rental/document | AddendumController::listing / card | Документы/ДС |
 | /rental/addendum-form и /rental/addendum-action | AddendumController::editor / action | Создание/команды ДС |
 | /rental/approvals | ApprovalRegistry::page | Реестр согласований |
+| /rental/action-form?action=contract.legal | SourceCards::action → LegalReview | Проверка условий/актуального файла; POST /rental/action → Service::command; повторное согласование после возврата B→L |
 | /rental/contracts-active и /rental/contracts-completed | LeaseRegistry::page | Действующие/завершённые договоры |
 | /rental/operations и /rental/operation-action | OperationsRegistry::page / OperationActionController::action | Операции и их обработка |
 | /rental/generate, /rental/download, /rental/upload | Documents::generate / download / upload | Генерация и файлы |
