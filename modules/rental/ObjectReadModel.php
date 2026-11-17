@@ -9,7 +9,7 @@ final class ObjectReadModel
 {
     public readonly array $objects;
     public readonly array $availability;
-    private array $leases=[],$bookings=[],$previous=[],$events=[],$applied=[],$documents=[];
+    private array $leases=[],$bookings=[],$previous=[],$historical=[],$events=[],$applied=[],$documents=[];
 
     public function __construct(public readonly string $today)
     {
@@ -30,10 +30,12 @@ final class ObjectReadModel
             ." AND r.status='active' AND r.until_date>=? ORDER BY r.id DESC",[$today]) as $row) {
             $id=$row['object_id'];unset($row['object_id']);$this->bookings[$id][]=$row;
         }
-        foreach (Controller::query('SELECT t.object_id,p.name FROM contract_terms t JOIN contracts c ON c.id=t.contract_id JOIN parties p ON p.id=c.party_id '
+        foreach (Controller::query('SELECT t.object_id,p.name,t.end_date FROM contract_terms t JOIN contracts c ON c.id=t.contract_id JOIN parties p ON p.id=c.party_id '
             .'LEFT JOIN contract_objects co ON co.contract_id=c.id AND co.object_id=t.object_id '
-            .'WHERE '.ContractOccupancy::physicalPredicate('co')." AND c.status IN ('active','reconciling','closed','ended') AND t.end_date<=? ORDER BY t.end_date DESC,c.id DESC",[$today]) as $row) $this->previous[$row['object_id']]??=$row['name'];
-        foreach (Controller::query("SELECT contract_id,DATE(MIN(created_at)) at FROM rental_events WHERE action IN ('contract.sign','contract.activated') GROUP BY contract_id") as $row) $this->events[$row['contract_id']]=$row['at'];
+            .'WHERE '.ContractOccupancy::physicalPredicate('co')." AND c.status IN ('active','reconciling','closed','ended') AND t.end_date<=? ORDER BY t.end_date DESC,c.id DESC",[$today]) as $row) $this->previous[$row['object_id']]??=$row;
+        foreach (Controller::query("SELECT source_key,fact_json FROM rental_facts WHERE namespace='zero_point_data' AND source_key LIKE 'last_occupant:%'") as $row)
+            $this->historical[(int)substr($row['source_key'],strlen('last_occupant:'))]=json_decode($row['fact_json'],true);
+        foreach (Controller::query("SELECT contract_id,DATE(MIN(created_at)) at FROM rental_events WHERE id>? AND action IN ('contract.sign','contract.activated') GROUP BY contract_id",[ZeroPoint::eventFloor(\App\DB::pdo())]) as $row) $this->events[$row['contract_id']]=$row['at'];
         foreach (Controller::query("SELECT d.contract_id,DATE(a.created_at) at,a.after_json FROM audit_log a JOIN rental_documents d ON d.id=a.entity_id WHERE a.action='document.objects-applied' AND a.entity_type='document' AND d.applied=1 AND d.status='signed'") as $row) {
             $id=$row['contract_id'];unset($row['contract_id']);$this->applied[$id][]=$row;
         }
@@ -49,7 +51,7 @@ final class ObjectReadModel
     public function lease(int $id): ?array {return $this->leases[$id] ?? null;}
     public function booking(int $id): ?array {return $this->bookings[$id][0] ?? null;}
     public function bookings(int $id): array {return $this->bookings[$id] ?? [];}
-    public function previous(int $id): ?string {return $this->previous[$id] ?? null;}
+    public function previous(int $id): ?string {return ObjectFacts::previousTenant($this->previous[$id] ?? null,$this->historical[$id] ?? null,$this->today);}
     public function event(int $id): ?string {return $this->events[$id] ?? null;}
     public function applied(int $id): array {return $this->applied[$id] ?? [];}
     public function document(int $contract,int $object): ?array {return $this->documents[$contract.':'.$object] ?? null;}

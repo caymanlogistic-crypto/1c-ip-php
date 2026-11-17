@@ -84,6 +84,8 @@ final class PagePolicy {
             'edit' => [
             ]
         ];
+        $pages['core.zero-point']=['title'=>'Нулевая точка','module'=>'Администрирование',
+            'url'=>'/administration/zero-point','read'=>'identity.permissions','edit'=>['identity.permissions']];
         foreach(\Modules\Integrations\OnecOperations::CONNECTIONS as $key=>$definition)$pages['connections.'.$key]=[
             'title'=>$definition['title'],'module'=>'Подключения','url'=>'/connections/'.$key,
             'read'=>'integrations.read','edit'=>['integrations.write','finance.write'],
@@ -183,6 +185,7 @@ final class PagePolicy {
             '/max'
         ], true))$key = 'connections.'
         . substr($path, 1);
+        elseif(str_starts_with($path,'/administration/zero-point'))$key='core.zero-point';
         elseif($path === '/roles' || $path === '/permissions')$key = 'core.permissions';
         elseif(in_array($path, [
             '/rental/new-contract',
