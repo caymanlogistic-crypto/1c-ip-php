@@ -1,0 +1,11 @@
+[Unit]
+Description=Maintain the common site's admitted SMTP routes after restarts
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=15s
+AccuracySec=1s
+Unit=ipphp-email-network.service
+
+[Install]
+WantedBy=timers.target

@@ -10,6 +10,8 @@ try {
     if($s['project_id']!=='f6e21e3c-d974-4604-82fb-333da66559d2'
         ||strtolower(str_replace('\\','/',$s['app_root']))!==strtolower(str_replace('\\','/',APP_ROOT))
         ||(!$legacy&&!$task)
+        ||(isset($s['email_enabled'])&&!is_bool($s['email_enabled']))
+        ||(\Modules\Integrations\Config::emailLiveAllowed() !== (($s['email_enabled']??false)===true))
         ||$s['max_enabled']!==false||$s['billing_part_admission_sha256']!==null
         ||getenv('IPPHP_ALLOW_EXTERNAL')||getenv('IPPHP_RENTAL_MAX_POSTCOMMIT'))throw new RuntimeException('T001_BINDING_OR_EXTERNAL_MODE');
     foreach(['pdo_mysql','bcmath','mbstring','dom','xml','zip','openssl','curl','fileinfo','intl'] as $e)
@@ -25,5 +27,5 @@ try {
         ||($task&&(($v['isolated_test_data']??false)!==true||strtolower(str_replace('\\','/',$v['app_root']??''))!==strtolower(str_replace('\\','/',APP_ROOT)))))throw new RuntimeException('T001_COPY_NOT_VERIFIED');
     foreach(['schema_migrations','users','roles','role_profiles','role_permissions','role_page_grants'] as $t)
         $p->query('SELECT 1 FROM `'.$t.'` LIMIT 1');
-    echo "Local worktree binding/extensions/DB grants OK; external access and AutoMAX disabled\n";
+    echo "Local worktree binding/extensions/DB grants OK; general external access and AutoMAX disabled; manual SMTP ".(\Modules\Integrations\Config::emailLiveAllowed()?'enabled':'disabled')."\n";
 } catch(Throwable $e) {fwrite(STDERR,$e->getMessage()."\n");exit(1);}
