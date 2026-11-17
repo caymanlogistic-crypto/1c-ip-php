@@ -4,11 +4,14 @@ namespace Modules\Integrations;
 
 final class MessageTransport
 {
-    public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private ?MaxReadCheck $readCheck = null) {}
+    public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private MaxReadCheck|LocalMaxReadCheck|null $readCheck = null) {}
     public static function safeException(\Throwable $error): array
     {
         $classes=['RuntimeException','InvalidArgumentException','PDOException','JsonException','TypeError','Error','Exception'];
         $codes=['RENTAL_MAX_POSTCOMMIT_MARKER_INVALID','RENTAL_MAX_POSTCOMMIT_MARKER_REQUIRED','RENTAL_MAX_POSTCOMMIT_MARKER_CHANGED',
+            'LOCAL_MAX_SEND_NOT_AUTHORIZED','LOCAL_MAX_SEND_PATH_NOT_AUTHORIZED','LOCAL_MAX_READ_NOT_AUTHORIZED','LOCAL_MAX_READ_CONTEXT_CHANGED','LOCAL_MAX_READ_GROUP_CHANGED',
+            'LOCAL_MAX_READ_PATH_NOT_AUTHORIZED','LOCAL_MAX_READ_BUSY','LOCAL_MAX_READ_ACTOR_NOT_AUTHORIZED',
+            'LOCAL_MAX_READ_PENDING_REQUIRES_RECONCILIATION',
             'RENTAL_MAX_POSTCOMMIT_CONFIG_CHANGED','RENTAL_MAX_POSTCOMMIT_CONTEXT_CHANGED',
             'MAX_READ_SELECTOR_INVALID','MAX_READ_LOCAL_R2_ONLY','MAX_READ_PROJECT_EPOCH_CHANGED','MAX_READ_ACTOR_NOT_AUTHORIZED',
             'MAX_READ_REVISION_CHANGED','MAX_READ_APPROVED_GROUP_REQUIRED','MAX_READ_SOURCE_CHANGED','MAX_READ_SCOPE_NOT_AUTHORIZED',
