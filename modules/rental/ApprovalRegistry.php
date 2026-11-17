@@ -46,16 +46,16 @@ final class ApprovalRegistry
                 View::e($contract['party_name']),RegistryState::date($record['start_date']),RegistryState::date($record['end_date']),View::e($entry['objects']),
                 View::e($view['stage']),$comment,Controller::money($record['amount']),View::e($view['responsible']?\App\People::workflowName($view['responsible']):'—')];
         }
-        $controls='<form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'.View::e($flag).'">'
+        $controls='<input type="hidden" name="flag" value="'.View::e($flag).'">'
             .'<button class="registry-ui-reset" type="submit" name="reset" value="1"'.($query==='' && $filter==='all'?' hidden':'').'>Сбросить фильтры</button>'
-            .'<select class="field-select toolbar-select" id="status-filter" name="filter" aria-label="Стадия"><option value="all">Все стадии</option>';
+            .'<select class="toolbar-select" id="status-filter" name="filter" aria-label="Стадия"><option value="all">Все стадии</option>';
         foreach ($stages as $key=>$label) $controls.='<option value="'.View::e($key).'"'.($filter===$key?' selected':'').'>'.View::e($label).'</option>';
-        $controls.='</select>'.DirectoryUi::search($query).'</form>';
+        $controls.='</select>'.DirectoryUi::search($query,true);
         $create=in_array($role,['admin','manager'],true) && PagePolicy::level('rental.contracts',Auth::user())>=2?RentalUI::button('Создать договор','/rental/document-creator',true):'';
         $body=Controller::heading('Согласование документов','Назначенные проверки, ожидание подписания и история решений.',$create)
             .Controller::tabs($tabs,$flag,true,['filter'=>$filter])
             .DirectoryUi::registry('rental-approvals',['Документ','Контрагент','Начало','Окончание','Объекты аренды','Стадия','Комментарий','Аренда с НДС','Ответственный'],$rows,
-                ['short','flex','short','code','flex','text','flex','money','text'],$controls);
+                ['short','flex','short','code','flex','text','flex','money','text'],$controls,filterForm:true);
         return View::page('Согласование документов',$body,'approvals');
     }
 
