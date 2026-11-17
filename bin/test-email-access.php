@@ -2,13 +2,21 @@
 declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 
-use Modules\Integrations\{Config, MessageTransport};
+use Modules\Integrations\{Config, EmailAdmission, MessageTransport};
 
 // No network calls: rejected gates/targets, or invalid SMTP config before connect.
 $external=getenv('IPPHP_ALLOW_EXTERNAL');
 $email=getenv('IPPHP_ALLOW_EMAIL');
 $assert=static function(bool $ok):void {if(!$ok)throw new RuntimeException('EMAIL_ACCESS_TEST_FAILED');};
 try {
+    $marker=['enabled'=>true,'project_id'=>'f6e21e3c-d974-4604-82fb-333da66559d2',
+        'provider'=>'email','scope'=>'manual-smtp','stand'=>'ui','smtp_host'=>'smtp.spaceweb.ru','smtp_port'=>465];
+    EmailAdmission::validate($marker);
+    foreach(['enabled'=>1,'stand'=>'integrations','provider'=>'max','scope'=>'outbox',
+        'smtp_host'=>'other.example.invalid','smtp_port'=>25] as $key=>$value){
+        try {EmailAdmission::validate(array_replace($marker,[$key=>$value]));throw new RuntimeException('MISSING_SERVER_EMAIL_GUARD');}
+        catch(RuntimeException $e){$assert($e->getMessage()==='EMAIL_ADMISSION_INVALID');}
+    }
     putenv('IPPHP_ALLOW_EXTERNAL');
     putenv('IPPHP_ALLOW_EMAIL');
     $transport=new MessageTransport();
@@ -27,7 +35,7 @@ try {
     $assert($execute('max','send')['code']==='EXTERNAL_ACCESS_NOT_AUTHORIZED');
     try {$execute('email','other');throw new RuntimeException('MISSING_OPERATION_GUARD');}
     catch(InvalidArgumentException $e){$assert($e->getMessage()==='INVALID_MESSAGE_OPERATION');}
-    echo "Email gate: default deny, explicit opt-in, recipient guard, MAX isolation OK\n";
+    echo "Email gate: default deny, explicit opt-in, recipient guard, MAX isolation, server marker binding OK\n";
 } finally {
     putenv($external===false?'IPPHP_ALLOW_EXTERNAL':'IPPHP_ALLOW_EXTERNAL='.$external);
     putenv($email===false?'IPPHP_ALLOW_EMAIL':'IPPHP_ALLOW_EMAIL='.$email);

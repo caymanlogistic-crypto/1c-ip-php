@@ -41,7 +41,7 @@ final class MessageTransport
         if($this->workflowEvent!==null&&$this->readCheck!==null)throw new \RuntimeException('MAX_READ_OPERATION_NOT_AUTHORIZED');
         if($this->readCheck!==null)$this->readCheck->assertOperation($provider,$operation,$target,$raw,$groups);
         elseif($this->workflowEvent!==null)$this->workflowEvent->assertRequest($provider,$operation,$target,$raw);
-        elseif(!Config::liveAllowed()&&!($provider==='email'&&Config::emailLiveAllowed()))return ['status'=>'failed','code'=>'EXTERNAL_ACCESS_NOT_AUTHORIZED'];
+        elseif(!Config::liveAllowed()&&!($provider==='email'&&(Config::emailLiveAllowed()||EmailAdmission::allows($config))))return ['status'=>'failed','code'=>'EXTERNAL_ACCESS_NOT_AUTHORIZED'];
         if($operation==='send'){$allowed=$provider==='email'?($secret['approved_recipients']??[]):($secret['approved_chat_ids']??[]);if(!is_array($allowed)||!in_array($provider==='email'?strtolower($target):$target,array_map(static fn($v)=>$provider==='email'?strtolower((string)$v):(string)$v,$allowed),true))return ['status'=>'failed','code'=>'TARGET_NOT_APPROVED'];}
         if($provider==='max')return $this->max($operation,$secret,$target,$raw,$groups);
         if($provider!=='email')throw new \InvalidArgumentException('UNKNOWN_MESSAGE_PROVIDER');

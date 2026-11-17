@@ -27,6 +27,18 @@ Receiver допускает только ui release с GitHub OIDC: repository/o
 
 ## Диагностика и возврат
 
+### Ручная SMTP-почта
+
+Публикуется тем же main workflow. Серверный opt-in — приватный `ui/data/local/email-admission.json`:
+
+```json
+{"enabled":true,"project_id":"f6e21e3c-d974-4604-82fb-333da66559d2","provider":"email","scope":"manual-smtp","stand":"ui","smtp_host":"smtp.spaceweb.ru","smtp_port":465}
+```
+
+EmailAdmission проверяет scope/проект/сайт/host/port/TLS; `approved_recipients` и пароль остаются в encrypted email.enc. Маркер не включает RentalOutbox, MAX или общий external gate. Настройки SMTP в БД и секреты сохраняются вне образа; миграций и импорта при деплое нет. `/_ops.php` сообщает `manual_email` отдельно от `external_access` и `automated_sends`.
+
+Инфраструктурные файлы из принятого main устанавливаются root-owned: `deploy/server/email-network.py` → `/usr/local/sbin/ipphp-email-network` (0755), service/timer из той же папки → `/etc/systemd/system/` (0644), receiver `deploy.py` → `/usr/local/sbin/ipphp-deploy` (0755). После `systemctl daemon-reload` включают `ipphp-email-network.timer`. Receiver восстанавливает маршруты при автодеплое, timer — после перезапуска контейнера/сервера. Действующий внутренний backend сохраняется; helper проверяет контейнер, интерфейс и отсутствие чужого маршрута, добавляет только три закреплённых `/32` SMTP-адреса на TCP/465, без default route. TLS продолжает проверять имя smtp.spaceweb.ru. Изменение DNS-пула требует сверки и обновления pins отдельной правкой; не открывать общий egress ради SMTP.
+
 https://ui.89.208.213.14.sslip.io/_ops.php требует сессию и сообщает commit, SHA256 image config digest, deployed_at, БД и gates. Сверять с artifact workflow, /srv/1c-ip-php/ui/state/current.json и контейнером. HTTP 200 и /health не заменяют версию и сценарий.
 
 Авторизованный администратор возвращает предыдущий совместимый образ:
