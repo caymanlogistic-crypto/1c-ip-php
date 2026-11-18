@@ -254,6 +254,7 @@ final class Service {
         if ($action==='zero-point.correct') return ZeroPointCorrection::execute($p,$in);
         if ($action==='zero-point.continuity') return ZeroPointContinuity::execute($p,$in);
         if ($action==='zero-point.clarify') return ZeroPointClarification::execute($p,$in);
+        if ($action==='zero-point.parties') return ZeroPointPartyEnrichment::execute($p,$in);
         $id = (int)($in['id'] ?? 0);
         foreach(['document.'=>'rental_documents','booking.'=>'reservations','reservation.'=>'reservations','object.'=>'rental_objects'] as $prefix=>$table) {
             if($id>0 && str_starts_with($action,$prefix) && WorkspaceReset::hidden(self::get($p,$table,$id)))throw new RuntimeException('Запись убрана из текущей работы.',404);
