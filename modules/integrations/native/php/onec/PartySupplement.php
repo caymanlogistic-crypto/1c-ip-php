@@ -18,16 +18,18 @@ trait PartySupplement
         foreach($rows as $row){$key=$row['Ref_Key']??null;if(!in_array($key,$keys,true)||isset($out[$key])||($row['DeletionMark']??null)!==false||!is_string($row['DataVersion']??null)||$row['DataVersion']==='')throw new \RuntimeException('READ_KEY_INVALID');$out[$key]=$row;}
         return $out;
     }
-    public function partySupplement(array $keys): array
+    public function partySupplement(array $keys,array $observedContactKeys=[]): array
     {
         if(!$keys || count($keys)>100 || count($keys)!==count(array_unique($keys)))throw new \RuntimeException('READ_SCHEMA_OR_LIMIT');
         $parties=$this->supplementRefs('Catalog_Контрагенты',$keys,'Ref_Key,DataVersion,DeletionMark,IsFolder,Code,Description,ИНН,КПП,НаименованиеПолное,ОсновнойБанковскийСчет_Key,ОсновноеКонтактноеЛицо_Key,КонтактнаяИнформация');
         if(count($parties)!==count($keys))throw new \RuntimeException('READ_SCHEMA_OR_LIMIT');
         // Only related contacts; birthdays, identity documents and account passwords are not selected.
-        [$contacts,$more]=$this->readRows('Catalog_КонтактныеЛица',['$format'=>'json','$top'=>'201',
-            '$select'=>'Ref_Key,DataVersion,DeletionMark,Description,Должность,Роль_Key,ОбъектВладелец,ОбъектВладелец_Type,КонтактнаяИнформация',
-            '$filter'=>"DeletionMark eq false and ОбъектВладелец_Type eq 'StandardODATA.Catalog_Контрагенты' and (".implode(' or ',array_map(static fn($k)=>"ОбъектВладелец eq '".$k."'",$keys)).')'],201);
-        if($more || count($contacts)>200)throw new \RuntimeException('READ_SCHEMA_OR_LIMIT');$contactMap=[];
+        // OneC's polymorphic owner does not compare as a plain GUID string. Read
+        // explicit current primary references plus already observed linked IDs,
+        // then independently verify every returned owner against the party scope.
+        $contacts=$this->supplementRefs('Catalog_КонтактныеЛица',[...array_column($parties,'ОсновноеКонтактноеЛицо_Key'),...$observedContactKeys],
+            'Ref_Key,DataVersion,DeletionMark,Description,Должность,Роль_Key,ОбъектВладелец,ОбъектВладелец_Type,КонтактнаяИнформация');
+        $contactMap=[];
         foreach($contacts as $c){if(!in_array($c['ОбъектВладелец']??null,$keys,true)||($c['ОбъектВладелец_Type']??'')!=='StandardODATA.Catalog_Контрагенты'||($c['DeletionMark']??null)!==false||!preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D',$c['Ref_Key']??'')||!is_string($c['DataVersion']??null)||$c['DataVersion']===''||isset($contactMap[$c['Ref_Key']??'']))throw new \RuntimeException('READ_KEY_INVALID');$contactMap[$c['Ref_Key']]=$c;}
         $banks=$this->supplementRefs('Catalog_БанковскиеСчета',array_column($parties,'ОсновнойБанковскийСчет_Key'),
             'Ref_Key,DataVersion,DeletionMark,Description,Owner,Owner_Type,НомерСчета,Банк_Key,БанкДляРасчетов_Key,Валютный,ВалютаДенежныхСредств_Key,ДатаОткрытия,ДатаЗакрытия');
