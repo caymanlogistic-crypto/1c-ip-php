@@ -18,7 +18,7 @@ final class ApprovalRegistry
         foreach (Controller::query("SELECT c.*,COALESCE(p.name,'—') party_name,p.inn party_inn FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.status IN ('legal','accounting','returned','approved','sent','cancelled') AND ".ContractDraft::visibleSql()." ORDER BY c.id") as $contract) {
             $entries[]=self::entry('contract',$contract,$contract,$role,$tasks);
         }
-        foreach (Controller::query("SELECT d.* FROM rental_documents d WHERE d.status<>'draft' ORDER BY d.id") as $document) {
+        foreach (Controller::query("SELECT d.* FROM rental_documents d WHERE d.status<>'draft' AND ".WorkspaceReset::visibleSql('d')." ORDER BY d.id") as $document) {
             $contract=Controller::query('SELECT c.*,COALESCE(p.name,\'—\') party_name,p.inn party_inn FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.id=?',[$document['contract_id']])[0] ?? null;
             if ($contract) $entries[]=self::entry('document',$document,$contract,$role,$tasks);
         }
@@ -48,7 +48,7 @@ final class ApprovalRegistry
         }
         $controls='<input type="hidden" name="flag" value="'.View::e($flag).'">'
             .'<button class="registry-ui-reset" type="submit" name="reset" value="1"'.($query==='' && $filter==='all'?' hidden':'').'>Сбросить фильтры</button>'
-            .'<select class="field-select toolbar-select" id="status-filter" name="filter" aria-label="Стадия"><option value="all">Все стадии</option>';
+            .'<select class="toolbar-select" id="status-filter" name="filter" aria-label="Стадия"><option value="all">Все стадии</option>';
         foreach ($stages as $key=>$label) $controls.='<option value="'.View::e($key).'"'.($filter===$key?' selected':'').'>'.View::e($label).'</option>';
         $controls.='</select>'.DirectoryUi::search($query,true);
         $create=in_array($role,['admin','manager'],true) && PagePolicy::level('rental.contracts',Auth::user())>=2?RentalUI::button('Создать договор','/rental/document-creator',true):'';

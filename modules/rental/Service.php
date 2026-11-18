@@ -250,8 +250,13 @@ final class Service {
     }
 
     private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
+        if(in_array($action,['workspace.reset','workspace.undo','workspace.remove-test-object'],true))return WorkspaceReset::execute($p,$u,$action,$in);
         if ($action==='zero-point.correct') return ZeroPointCorrection::execute($p,$in);
+        if ($action==='zero-point.continuity') return ZeroPointContinuity::execute($p,$in);
         $id = (int)($in['id'] ?? 0);
+        foreach(['document.'=>'rental_documents','booking.'=>'reservations','reservation.'=>'reservations','object.'=>'rental_objects'] as $prefix=>$table) {
+            if($id>0 && str_starts_with($action,$prefix) && WorkspaceReset::hidden(self::get($p,$table,$id)))throw new RuntimeException('Запись убрана из текущей работы.',404);
+        }
         if ($action === 'contract.create' || $action === 'contract.edit') {
             self::roles([
                 'manager'

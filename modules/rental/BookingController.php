@@ -13,6 +13,7 @@ final class BookingController {
         $r = Controller::query('SELECT r.*,o.name object_name FROM reservations r JOIN rental_objects o ON o.id=r.object_id WHERE r.id=?', [
             $id
         ])[0] ?? throw new RuntimeException('Бронь не найдена.', 404);
+        if(WorkspaceReset::hidden($r))throw new RuntimeException('Бронь не найдена.',404);
         if ($r['document_id'] !== null)throw new RuntimeException('Бронь относится к допсоглашению.', 403);
         return $r;
     }

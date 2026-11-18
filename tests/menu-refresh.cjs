@@ -128,3 +128,12 @@ test('save during periodic read upgrades the coalesced follow-up to an explicit 
   f.controller.requestRefresh();resolveRead({});await flush();
   assert.deepEqual(reasons,[false,true,false]);resolveRead({});await flush();f.controller.destroy();
 });
+test('restored epoch shows only events after its explicit boundary, without popup repeats',()=>{
+  const values=new Map(),shown=[];
+  const notices=Notices.create({storage:{getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v)},component:{setTemplateResolver(){},show:n=>shown.push(n)}});
+  const dto={schema:1,project:'test',surface:'test',identity:'1',epoch:'restored',bootstrap_epoch:'restored',bootstrap_event_id:1090,catalog:{},events:[
+    {id:'old',event_id:1089,severity:'yellow',where:'approvals',text:'Old',version:[1]},
+    {id:'new',event_id:1091,severity:'yellow',where:'approvals',text:'New',version:[1]}]};
+  for(let i=0;i<30;i++)notices.update(dto);
+  assert.equal(shown.length,1);assert.equal(shown[0].message,'New');
+});

@@ -107,6 +107,7 @@ final class Indicators {
         if ($contractWhere)foreach (Controller::query('SELECT * FROM contracts WHERE '
         . implode(' OR ', $contractWhere)
         . ' ORDER BY id') as $c) {
+            if(ContractDraft::deleted($c))continue;
             $id = (int)$c['id'];
             $raw = json_decode($c['source_json'], true);
             $managed = empty($raw['imported']);
@@ -169,7 +170,11 @@ final class Indicators {
                 'director'
             ] as $role)$add('contract', $id, $role, 'red', 'reconciliation', 'Финальная сверка: нужны актуальные финансовая и юридическая проверки и акт возврата', $id);
         }
-        if ($allow('invoices') || $allow('invoice-list') || $allow('payments'))foreach (Controller::query("SELECT i.*,c.source_json contract_source FROM invoices i JOIN contracts c ON c.id=i.contract_id WHERE i.status<>'revoked' ORDER BY i.id") as $i) {
+        if ($allow('invoices') || $allow('invoice-list') || $allow('payments')) {
+        $invoiceRows=Controller::query("SELECT i.*,c.source_json contract_source FROM invoices i JOIN contracts c ON c.id=i.contract_id WHERE i.status<>'revoked' ORDER BY i.id");
+        $reviews=InvoiceCalculation::reviewFacts(DB::pdo(),array_column(array_filter($invoiceRows,static fn($r)=>!empty($r['manual_review'])),'id'));
+        foreach ($invoiceRows as $i) {
+            $i['_calculation_review']=$reviews[(int)$i['id']] ?? null;
             $raw = json_decode($i['source_json'], true);
             $i['_delivery']=InvoiceDelivery::presentation(DB::pdo(),(int)$i['id']);
             $sendError=InvoiceFacts::view($i)['send_error'];
@@ -178,27 +183,15 @@ final class Indicators {
                 || ($i['manual_review'] && !empty($contractSource['financialReview']))) continue;
             $error = $i['manual_review'] || !empty($raw['issueError']) || !empty($raw['mismatch']) || $sendError;
             $severity = $error?'red':'';
-            if (!$error && $i['status']==='active' && !$i['control_closed'] && $i['amount'] !== null && $i['paid'] !== null && bccomp($i['amount'], $i['paid'], 2)>0 && $time >= '13:00') {
-                $from = $i['initial_invoice']?$i['issued']:$i['due'];
-                if ($from && $from <= $today) {
-                    try {
-                        $n = self::workdays($i['initial_invoice']?$from:(new \DateTimeImmutable($from
-                        . ' -1 day'))->format('Y-m-d'), $today, $calendar);
-                        $severity = $n >= 3?'red':($n >= ($i['initial_invoice']?2:1)?'yellow':'');
-                    }
-                    catch (\RuntimeException $e) {
-                        if ($e instanceof \PDOException)throw $e;
-                        $severity = '';
-                    }
-                }
-            }
-            if (!$error && $i['status']==='active' && !$i['control_closed'] && $i['amount'] !== null && $i['paid'] !== null && bccomp($i['amount'], $i['paid'], 2)>0 && $time<'13:00')$severity = InvoiceSignals::cached(DB::pdo(), $i);
+            if (!$error && $time >= '13:00') $severity = InvoiceFacts::overdueSeverity($i,$today);
+            if (!$error && InvoiceFacts::overdueDays($i,$today)>0 && $time<'13:00')$severity = InvoiceSignals::cached(DB::pdo(), $i);
             $owners = !empty($raw['issueError']) ? ['accountant']
                 : (!empty($raw['mismatch']) ? ['manager','accountant','director'] : ['manager','accountant']);
             $view=InvoiceFacts::view($i,$severity);
             if ($severity) foreach ($owners as $role) {
                 $add('invoice',(int)$i['id'],$role,$severity,'invoices',$view['state'].': '.$view['explanation'],(int)$i['contract_id']);
             }
+        }
         }
         // Signed documents drill down through contracts-active, not the aggregate registry grant.
         // Check the actual user's READ scope before selecting these otherwise private records.

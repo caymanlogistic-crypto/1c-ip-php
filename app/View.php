@@ -41,6 +41,7 @@ final class View {
         }
         if($u&&($u['role_id']??null)==='admin')$administration.=self::navigationLink('/settings/roles','Роли и доступы');
         if($u&&($u['role_id']??null)==='admin')$administration.=self::navigationLink('/administration/zero-point','Нулевая точка');
+        if($u&&\Modules\Integrations\TemplateView::allowed())foreach(\Modules\Integrations\TemplateView::CHANNELS as $channel=>$label)$administration.=self::navigationLink(\Modules\Integrations\TemplateView::url($channel),$label);
         $nav.=self::navigationFolder('menu-connections','Подключения',$connections,$folder);
         $administration.=self::navigationLink('/design/demo/index.html','Витрина');
         $nav.=self::navigationFolder('menu-administration','Администрирование',$administration,$folder);

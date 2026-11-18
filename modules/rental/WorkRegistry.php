@@ -47,7 +47,7 @@ final class WorkRegistry {
             'booking'
         ], true))$flag = 'all';
         $contracts = Controller::query("SELECT c.*,COALESCE(p.name,'—') party_name FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.status='draft' AND ".ContractDraft::visibleSql()." ORDER BY c.id DESC");
-        $documents = Controller::query("SELECT d.*,c.number base_number,c.document_date base_document_date,p.name party_name FROM rental_documents d JOIN contracts c ON c.id=d.contract_id JOIN parties p ON p.id=c.party_id WHERE d.status='draft' AND JSON_UNQUOTE(JSON_EXTRACT(d.source_json,'$.entryMode'))='current' ORDER BY d.id DESC");
+        $documents = Controller::query("SELECT d.*,c.number base_number,c.document_date base_document_date,p.name party_name FROM rental_documents d JOIN contracts c ON c.id=d.contract_id JOIN parties p ON p.id=c.party_id WHERE d.status='draft' AND ".WorkspaceReset::visibleSql('d')." AND JSON_UNQUOTE(JSON_EXTRACT(d.source_json,'$.entryMode'))='current' ORDER BY d.id DESC");
         $bookings = [
         ];
         foreach (Controller::query("SELECT r.*,o.name object_name,o.type object_type,o.active object_active,o.source_json object_source,c.number cadastre_number,c.type cadastre_type,c.rentable cadastre_rentable,c.source_json cadastre_source FROM reservations r JOIN rental_objects o ON o.id=r.object_id JOIN cadastre c ON c.id=o.cadastre_id WHERE r.status='active' AND r.document_id IS NULL AND r.contract_id IS NULL AND r.until_date>=CURRENT_DATE ORDER BY r.id DESC") as $r)if (DirectoryScope::signals([

@@ -270,8 +270,7 @@ final class Addenda {
                 $period,
                 $amount,
                 $issued,
-                date('Y-m-d',
-                strtotime('+3 days')),
+                InvoiceDueDate::automatic($issued,$period,true),
                 $key
             ]);
             $p->prepare('UPDATE invoices SET document_id=? WHERE id=?')->execute([

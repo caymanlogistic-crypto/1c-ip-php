@@ -16,8 +16,10 @@ final class ObjectDirectory
     private static function record(int $id,int $level=1): array
     {
         Access::pages(['objects'],$level);
-        return Controller::query('SELECT o.*,c.number cadastral,c.area parent_area,c.type parent_type,c.rentable parent_rentable,c.source_json parent_source '
+        $row=Controller::query('SELECT o.*,c.number cadastral,c.area parent_area,c.type parent_type,c.rentable parent_rentable,c.source_json parent_source '
             .'FROM rental_objects o JOIN cadastre c ON c.id=o.cadastre_id WHERE o.id=?',[$id])[0] ?? throw new RuntimeException('Объект не найден.',404);
+        if(WorkspaceReset::hidden($row))throw new RuntimeException('Объект не найден.',404);
+        return $row;
     }
 
     private static function parent(array $row): array

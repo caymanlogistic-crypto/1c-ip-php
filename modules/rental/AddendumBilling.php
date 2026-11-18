@@ -294,7 +294,7 @@ final class AddendumBilling
             $source=isset($plan['invoice_targets'])?['native_invoice_targets'=>\App\BillingInvoiceTargets::producerMarker($plan['invoice_targets'],'addendum','document',(int)$document['id'])]:new \stdClass();
             $db->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,initial_invoice,coverage_key,document_id,planning_document_id,source_json) VALUES(?,?,?,?,?,?,0,?,?,'active',?,?,?,?, ?)")
                 ->execute([$id,'Д-'.$id,$contract['id'],$plan['kind'],$plan['period'],$plan['amount'],$issued,
-                    $plan['document_id']?date('Y-m-d',strtotime('+3 days')):$plan['period'].'-01',
+                    InvoiceDueDate::automatic($issued,$plan['period'],(bool)$plan['document_id']),
                     $plan['document_id']?1:0,$plan['coverage_key'],$plan['document_id'],$plan['planning_document_id'],Importer::json($source)]);
             foreach ($plan['objects'] as $object) $db->prepare('INSERT INTO invoice_objects(invoice_id,object_id) VALUES(?,?)')->execute([$id,$object]);
             foreach ($plan['coverage'] as $segment) $db->prepare('INSERT INTO invoice_coverage(invoice_id,object_id,start_date,end_date) VALUES(?,?,?,?)')
