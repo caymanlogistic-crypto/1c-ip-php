@@ -113,14 +113,20 @@ final class Service {
         $u = Auth::user() ?? throw new RuntimeException('Требуется вход.');
         $key = (string)($in['command_key'] ?? '');
         if (!preg_match('/^[a-zA-Z0-9-]{16,100}$/D', $key))throw new RuntimeException('Отсутствует идентификатор команды.');
-        $fp = hash('sha256', Importer::json([
+        $epoch=(string)DB::pdo()->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn();
+        $fingerprintParts=[
             $u['id'],
             $action,
             $in
-        ]));
+        ];
+        // Preserve legacy retries until the first explicit baseline restore creates a new era.
+        if (DB::pdo()->query("SELECT 1 FROM rental_facts WHERE namespace='zero_point_runtime' AND source_key='active'")->fetchColumn()) $fingerprintParts[]=$epoch;
+        $fp = hash('sha256', Importer::json($fingerprintParts));
         $pendingEventId=null;
-        $result=DB::transaction(function(PDO $p)use($u, $key, $fp, $action, $in, &$pendingEventId) {
+        $result=DB::transaction(function(PDO $p)use($u, $key, $fp, $action, $in, $epoch, &$pendingEventId) {
             $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
+            if ((string)$p->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn()!==$epoch)
+                throw new RuntimeException('Данные восстановлены. Откройте форму заново.',409);
             $q = $p->prepare('SELECT * FROM rental_commands WHERE command_key=? FOR UPDATE');
             $q->execute([
                 $key
@@ -130,6 +136,7 @@ final class Service {
                 return json_decode($r['result_json'], true);
             }
             $eventContext = WorkflowEvents::before($p, $action, $in);
+            $objectContext = ObjectActivity::before($p,$action,$in);
             $validatedPacket = NativePacket::validateBeforeB($p, $u, $action, $in);
             $r = self::execute($p, $u, $action, $in);
             $p->prepare('INSERT INTO rental_commands(command_key,action,fingerprint,result_json) VALUES(?,?,?,?)')->execute([
@@ -140,6 +147,7 @@ final class Service {
             ]);
             NativePacket::captureAfterB($p, $u, $action, $in, $r, $key, $validatedPacket);
             $pendingEventId=WorkflowEvents::record($p, $u, $action, $in, $r, $key, $eventContext);
+            if ($objectContext!==null) $pendingEventId=ObjectActivity::record($p,$u,$in,$r,$key,$objectContext);
             return $r;
         });
         // Only the transaction owner can publish a completed commit. Nested fixtures/callers
@@ -242,7 +250,13 @@ final class Service {
     }
 
     private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
+        if(in_array($action,['workspace.reset','workspace.undo','workspace.remove-test-object'],true))return WorkspaceReset::execute($p,$u,$action,$in);
+        if ($action==='zero-point.correct') return ZeroPointCorrection::execute($p,$in);
+        if ($action==='zero-point.continuity') return ZeroPointContinuity::execute($p,$in);
         $id = (int)($in['id'] ?? 0);
+        foreach(['document.'=>'rental_documents','booking.'=>'reservations','reservation.'=>'reservations','object.'=>'rental_objects'] as $prefix=>$table) {
+            if($id>0 && str_starts_with($action,$prefix) && WorkspaceReset::hidden(self::get($p,$table,$id)))throw new RuntimeException('Запись убрана из текущей работы.',404);
+        }
         if ($action === 'contract.create' || $action === 'contract.edit') {
             self::roles([
                 'manager'
@@ -256,6 +270,7 @@ final class Service {
                     'returned',
                     'active'
                 ], true))throw new RuntimeException('Условия на согласовании менять нельзя.');
+                if ($old['status']==='returned' && $old['return_to']==='lawyer')throw new RuntimeException('Исправление назначено юристу. Дождитесь передачи замечаний менеджеру.',409);
                 if ($old['status'] === 'active' && array_diff(array_keys($in), [
                     'id',
                     'version',
@@ -273,7 +288,7 @@ final class Service {
             }
             elseif($number === '') {
                 $numbers = $p->query('SELECT number FROM contracts')->fetchAll(PDO::FETCH_COLUMN);
-                $max = 0;
+                $max = \App\BusinessIds::numberFloor($p);
                 foreach ($numbers as $n)if (preg_match('/^([0-9]+)/', $n, $m))$max = max($max, (int)$m[1]);
                 $number = (string)($max+1);
             }
@@ -340,7 +355,7 @@ final class Service {
                     $id
                 ]);
                 else {
-                    $id = (int)$p->query('SELECT COALESCE(MAX(id),900000)+1 FROM contracts')->fetchColumn();
+                    $id = \App\BusinessIds::next($p,'contracts',900000,false);
                     if ($partRows !== null) $partEdit = \App\BillingPartTerms::beginCreation($p, 'contract', $id, [
                         'actor_id' => (int)$u['id'], 'command_key' => (string)$in['command_key'],
                         'source_rule_sha256' => \App\BillingPartAdmission::NATIVE_SOURCE,
@@ -437,9 +452,11 @@ final class Service {
                 case 'contract.legal':self::roles([
                     'lawyer'
                 ]);
-                if ($status !== 'legal')throw new RuntimeException('Договор не у юриста.');
+                if (!LegalReview::assigned($c))throw new RuntimeException('Договор не у юриста.');
                 if (empty($in['counterparty_confirmed']) || empty($in['financial_confirmed']))throw new RuntimeException('Подтвердите контрагента и финансовые условия.');
                 $legalFile = Evidence::latest($p, 'contract', $id, 'lawyer-file', (int)$c['version']);
+                if (empty($in['document_confirmed']))throw new RuntimeException('Подтвердите проверку актуального файла договора.');
+                if (($in['legal_file_id'] ?? '') !== $legalFile['id'])throw new RuntimeException('Файл договора изменился. Откройте проверку повторно и проверьте актуальный файл.',409);
                 $fileId = $legalFile['id'];
                 $signature = Evidence::approvalSignature($p, $id, $fileId);
                 $p->prepare("INSERT INTO rental_approvals(entity_type,entity_id,role,baseline_hash,file_id,actor_id) VALUES('contract',?,'lawyer',?,?,?) ON DUPLICATE KEY UPDATE baseline_hash=VALUES(baseline_hash),file_id=VALUES(file_id),actor_id=VALUES(actor_id)")->execute([
@@ -651,7 +668,7 @@ final class Service {
             $party = self::get($p, 'parties', (int)$in['party_id']);
             $a = self::money($in['amount']);
             $date = self::date($in['payment_date']);
-            $id = (int)$p->query('SELECT COALESCE(MAX(id),9000000)+1 FROM payments')->fetchColumn();
+            $id = \App\BusinessIds::next($p,'payments',9000000,false);
             $creation=NativeOperatingWriter::begin($p,'payment',$id,'native-c-manual','service.payment.create',
                 $date,(string)($in['command_key'] ?? 'payment:'.$id),(int)$u['id']);
             $p->prepare("INSERT INTO payments(id,party_id,amount,payment_date,source,source_json) VALUES(?,?,?,?,'Ручной приход','{}')")->execute([

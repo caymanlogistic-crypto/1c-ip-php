@@ -426,6 +426,6 @@ final class BillingPartTerms
     private static function nextId(PDO $pdo,string $kind): int
     {
         $pdo->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
-        return (int)$pdo->query('SELECT COALESCE(MAX(id),0)+1 FROM '.self::table($kind))->fetchColumn();
+        return BusinessIds::next($pdo,self::table($kind));
     }
 }

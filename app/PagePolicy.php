@@ -84,6 +84,8 @@ final class PagePolicy {
             'edit' => [
             ]
         ];
+        $pages['core.zero-point']=['title'=>'Нулевая точка','module'=>'Администрирование',
+            'url'=>'/administration/zero-point','read'=>'identity.permissions','edit'=>['identity.permissions']];
         foreach(\Modules\Integrations\OnecOperations::CONNECTIONS as $key=>$definition)$pages['connections.'.$key]=[
             'title'=>$definition['title'],'module'=>'Подключения','url'=>'/connections/'.$key,
             'read'=>'integrations.read','edit'=>['integrations.write','finance.write'],
@@ -122,6 +124,7 @@ final class PagePolicy {
         return self::levelForRole($u['role_id'] ?? $u['role'], $u['role'], !empty($u['grants_configured']), $key);
     }
     public static function commandPage(string $action):string {
+        if(str_starts_with($action,'workspace.'))return 'core.zero-point';
         if (in_array($action, ['operation.retry', 'operation.manual'], true))return 'rental.operations';
         if (str_starts_with($action, 'payment.'))return 'rental.invoices';
         if (str_starts_with($action, 'invoice.'))return 'rental.invoice-list';
@@ -183,6 +186,7 @@ final class PagePolicy {
             '/max'
         ], true))$key = 'connections.'
         . substr($path, 1);
+        elseif(str_starts_with($path,'/administration/zero-point'))$key='core.zero-point';
         elseif($path === '/roles' || $path === '/permissions')$key = 'core.permissions';
         elseif(in_array($path, [
             '/rental/new-contract',

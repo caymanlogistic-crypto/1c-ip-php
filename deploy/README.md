@@ -59,7 +59,13 @@ Workflow публикует образ только для main (push или wor
 
 ## Диагностика и возврат
 
-### Ручная SMTP-почта
+### MAX — события активности объектов только в ТЕСТОВАЯ
+
+Отдельно разрешённый владельцем Linux opt-in: приватный `ui/data/local/object-max-admission.json` содержит schema=1, enabled=true, project_id проекта, scope=object-activity, stand=ui, database=ipphp_ui, revision профиля, group_id, group_name=ТЕСТОВАЯ, chat_id, vault_sha256 и event_floor. Настройки и токен MAX остаются вне образа; encrypted max.enc шифруется существующим серверным ключом, ключ/Email/1С не заменяются. `ServerObjectMax` разрешает только свежий committed переход активности, точный текст события и один POST сообщения; чужие группы, изменение профиля/версии/квитанции, pending и uncertain другого object-activity уведомления закрывают отправку. Исторические uncertain иных операций сохраняются и не воспроизводятся; новый тип события не повторяет их payload/key. Общий gate, ручные MAX-рассылки, WorkflowMaxEvent и RentalOutbox не включаются. /_ops.php отражает object_activity_max отдельно. Для TLS только этого транспорта применяется существующий одобренный CA bundle из .local/certs/windows-trusted-roots.pem с фиксированным SHA256; системное доверие и остальные провайдеры не меняются.
+
+Сеть: текущий подтверждённый pin platform-api2.max.ru → 155.212.204.149 в compose; TLS проверяет исходное имя. Root-owned `object-max-network.py` устанавливается как `/usr/local/sbin/ipphp-object-max-network`, соответствующие service/timer — в `/etc/systemd/system/`. Timer поддерживает только /32 TCP/443 в существующей internal-сети приложения, без default route; чужой маршрут отвергается. Перед включением проверяются актуальный DNS и pin. При изменении адреса требуется новая сверка, не общий egress. Compose дополняется до штатного обновления app через очередь; receiver и доставка образа не меняются. Старые события ниже event_floor не воспроизводятся.
+
+### Ручная SMTP-почта — настройки
 
 Публикуется тем же main workflow. Серверный opt-in — приватный `ui/data/local/email-admission.json`:
 
@@ -82,6 +88,12 @@ sudo /usr/local/sbin/ipphp-deploy ui rollback
 Это откат приложения, не БД/документов/внешних эффектов/main. Исправление идёт через ту же задачу и GitHub. Не удалять текущий/предыдущий образ. Импорт SQL, миграции и восстановление старой БД поверх новых данных не входят в деплой. Исходники в работающем контейнере не правятся.
 
 ## Сохраняемые ограничения
+
+### MAX — согласования договоров в ТЕСТОВАЯ
+
+Только по отдельному разрешению владельца: после принятой выкладки выполнить из опубликованного образа `php bin/update-contract-max-templates.php --database=ipphp_ui` (проверка), затем ту же команду с `--apply`. Обновляются только восемь текстов из defaults/contract-max-templates.json, с штатной историей каталога; SQL-импорт не используется. Сохранить приватный backup прежних восьми записей. Существующие токен/ключ, группа, object-max-admission и сеть не меняются.
+
+`php bin/server-workflow-max-setup.php --enable` в Linux/ui сверяет прежний разрешённый TEST-профиль, vault/revision и точные согласованные тексты, выдаёт JSON для `/srv/1c-ip-php/ui/data/local/workflow-max-admission.json`. Записать через временный файл/rename, root:33, 0640. Marker закрепляет event_floor на момент включения, catalog_versions и единственную группу. Он не содержит токена. Сеть использует уже установленный узкий MAX /32:443 и прежний CA pin; общая сеть/ручная рассылка/очереди остаются закрыты. Отключение — убрать только workflow-max-admission.json. /_ops.php должен показать contract_workflow_max=true. Старые события не пересылаются. Обновление каталога в будущем требует пересверки marker; несовпадение версии закрывает отправку.
 
 Остаются PHP 8.5.6 Apache, MySQL 8.4.9, lock-зависимости, internal network общего сайта, данные и TLS. Не включать внешнюю сеть, admission, профили отправок и workers/outbox при смене процесса. Pending/attempts/outbox сохраняются и не проигрываются. Чтение провайдера и внешняя запись требуют своих поручений; guards сохраняются.
 

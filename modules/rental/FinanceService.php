@@ -14,8 +14,7 @@ final class FinanceService {
         ]);
     }
     private static function next(PDO $p, string $table):int {
-        return (int)$p->query('SELECT GREATEST(COALESCE(MAX(id),0),900000)+1 FROM '
-        . $table)->fetchColumn();
+        return \App\BusinessIds::next($p,$table,900000);
     }
     private static function changed(PDO $p, int $contract, int $invoice):void {
         $p->prepare('UPDATE invoices SET manual_review=1,control_closed=0 WHERE id=?')->execute([

@@ -7,8 +7,7 @@ use App\Audit;
 final class ExtraService {
 
     private static function next(PDO $p, string $table): int {
-        return (int)$p->query('SELECT GREATEST(COALESCE(MAX(id),0),9000000)+1 FROM '
-        . $table)->fetchColumn();
+        return \App\BusinessIds::next($p,$table,9000000);
     }
 
     private static function update(PDO $p, string $table, int $id, array $fields): void {
@@ -115,7 +114,11 @@ final class ExtraService {
                 }
                 if (!$fields['name'])throw new RuntimeException('Укажите наименование объекта.');
                 if ($old && (int)$old['active'] !== $active) {
-                    $date = date('Y-m-d');
+                    $date = Service::date((string)($in['active_on'] ?? ''));
+                    if ($date>date('Y-m-d')) throw new RuntimeException('Дата изменения состояния не может быть в будущем.',422);
+                    $q=$p->prepare('SELECT MAX(started_on) FROM rental_object_periods WHERE object_id=?');$q->execute([$id]);
+                    $last=$q->fetchColumn();
+                    if ($last && $date<$last) throw new RuntimeException('Дата изменения состояния раньше последнего изменения.',422);
                     $p->prepare('UPDATE rental_object_periods SET ended_on=? WHERE object_id=? AND ended_on IS NULL')->execute([
                         $date,
                         $id
@@ -291,6 +294,7 @@ final class ExtraService {
         $d = $id?Service::get($p, 'rental_documents', $id):null;
         if ($d)Service::version($d, $in);
         $c = Service::get($p, 'contracts', (int)($d['contract_id'] ?? $in['contract_id'] ?? 0));
+        if(ContractDraft::deleted($c))throw new RuntimeException('Договор не найден.',404);
         if ($action==='document.send') {
             if (!$d) throw new RuntimeException('Документ не найден.',404);
             Service::roles(['accountant']);

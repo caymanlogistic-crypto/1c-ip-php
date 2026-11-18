@@ -32,11 +32,22 @@
     if (floor && parent && floor.value === '') floor.value = parent.selectedOptions[0]?.dataset.floor || '';
   }
 
+  function syncObjectActivity(form) {
+    if (!form?.matches('[data-rental-object-editor]')) return;
+    const state = form.querySelector('[name="active"]');
+    const date = form.querySelector('input[name="active_on"]');
+    if (!state || !date) return;
+    const changed = state.value !== form.dataset.originalActive;
+    date.disabled = !changed;
+    date.required = changed;
+  }
+
   function enhance(container) {
     for (const form of container.querySelectorAll('form')) {
       syncAddress(form);
       syncRecipients(form);
       syncObjectFloor(form);
+      syncObjectActivity(form);
     }
   }
 
@@ -49,6 +60,7 @@
   }, true);
 
   document.addEventListener('change', event => {
+    if (event.target.matches('select[name="active"]')) syncObjectActivity(event.target.closest('form'));
     if (event.target.matches('select[name="cadastre_id"]')) syncObjectFloor(event.target.closest('form'));
     // Source default applies only to a new cadastre until the user chooses it.
     const cadastre = event.target.closest('[data-rental-cadastre-editor][data-rental-new-cadastre]');

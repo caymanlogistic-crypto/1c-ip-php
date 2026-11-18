@@ -1,0 +1,11 @@
+[Unit]
+Description=Maintain the common site's admitted MAX routes after restarts
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=15s
+AccuracySec=1s
+Unit=ipphp-object-max-network.service
+
+[Install]
+WantedBy=timers.target

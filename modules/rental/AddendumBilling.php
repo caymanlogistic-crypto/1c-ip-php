@@ -287,7 +287,7 @@ final class AddendumBilling
                 $ids[]=(int)$plan['existing'][0]['id'];continue;
             }
             if(isset($plan['invoice_targets']))\App\BillingInvoiceTargets::assertSelection($db,(int)$contract['id'],$plan['invoice_targets'],['kind'=>'document','id'=>(int)$document['id']]);
-            $id=(int)$db->query('SELECT GREATEST(COALESCE(MAX(id),0),900000)+1 FROM invoices')->fetchColumn();
+            $id=\App\BusinessIds::next($db,'invoices',900000);
             $issued=NativeOperatingWriter::today($db);
             $origin=$plan['document_id']?'native-c-initial':'native-c-monthly';
             $creation=NativeOperatingWriter::begin($db,'invoice',$id,$origin,'addendum.invoice.create',$issued,$plan['coverage_key']);

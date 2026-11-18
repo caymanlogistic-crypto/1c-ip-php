@@ -1,0 +1,60 @@
+<?php
+declare(strict_types=1);
+require dirname(__DIR__).'/app/bootstrap.php';
+use App\{DB,Http};
+use Modules\Rental\{Access,ContractDraft,DirectoryScope,Service,WorkspaceReset,WorkspaceResetController,ZeroPoint};
+$p=DB::pdo();
+if($p->query('SELECT DATABASE()')->fetchColumn()!=='ipphp_task_workspace_reset' || !in_array('--apply-isolated',$argv,true))throw new RuntimeException('Own isolated database required');
+$checks=0;$check=static function(bool $ok,string $why)use(&$checks){if(!$ok)throw new RuntimeException($why);$checks++;};
+$expect=static function(callable $fn,int $code)use($check){try{$fn();}catch(RuntimeException $e){$check($e->getCode()===$code,$e->getMessage());return;}throw new RuntimeException('Expected denial '.$code);};
+$login=static function(string $role)use($p){$q=$p->prepare('SELECT id,auth_version FROM users WHERE role=? AND active=1 ORDER BY id LIMIT 1');$q->execute([$role]);$u=$q->fetch();$_SESSION=['user_id'=>$u['id'],'auth_version'=>$u['auth_version']];};
+$hash=static function()use($p){$out=[];foreach(['parties','contracts','invoices','invoice_objects','invoice_coverage','payments','payment_allocations','rental_files','rental_delivery_intents','integration_native_intents','integration_native_receipts','messaging_attempts','messaging_receipts','users','roles','organization'] as $t){$rows=$p->query('SELECT * FROM '.$t)->fetchAll(PDO::FETCH_ASSOC);if($t==='contracts')$rows=array_values(array_filter($rows,static fn($r)=>!in_array($r['status'],['draft','legal','accounting','returned','approved','sent','cancelled'],true)));usort($rows,static fn($a,$b)=>strcmp(ZeroPoint::json($a),ZeroPoint::json($b)));$out[$t]=ZeroPoint::digest($rows);}return $out;};
+$p->beginTransaction();
+try {
+    $login('manager');$expect(WorkspaceReset::preview(...),403);$expect(static fn()=>Service::command('workspace.reset',['command_key'=>bin2hex(random_bytes(16)),'plan'=>[]]),403);
+    $login('admin');$_SERVER['REQUEST_METHOD']='GET';$expect(WorkspaceResetController::preview(...),405);
+    $_SERVER['REQUEST_METHOD']='POST';$_POST=[];$expect(WorkspaceResetController::preview(...),403);
+    $before=$hash();$plan=WorkspaceReset::preview();$check(count($plan['changes'])===1,'Only actual QA project is selected');
+    $key=bin2hex(random_bytes(16));$expect(static fn()=>WorkspaceReset::run($plan,$key,''),422);
+    $p->exec('SAVEPOINT finance_guard_case');
+    $financial=(int)$p->query('SELECT MIN(contract_id) FROM invoices')->fetchColumn();
+    $p->prepare("UPDATE contracts SET status='cancelled',signed=0,source_json='{}' WHERE id=?")->execute([$financial]);
+    $financialPlan=WorkspaceReset::preview();
+    $check(in_array('Есть финансовые документы',array_column($financialPlan['blocked'],'reason'),true),'Even cancelled contracts with invoices are protected');
+    $p->exec('ROLLBACK TO SAVEPOINT finance_guard_case');
+    // Each working status, an unsigned addendum on an active lease, and a customer booking.
+    $party=(int)$p->query('SELECT MIN(id) FROM parties')->fetchColumn();$active=(int)$p->query("SELECT MIN(id) FROM contracts WHERE status='active'")->fetchColumn();
+    $ids=[];foreach(['draft','legal','accounting','returned','approved','sent','cancelled'] as $i=>$s){$id=9901000+$i;$ids[]=$id;$p->prepare("INSERT INTO contracts(id,party_id,number,status,signed,source_json) VALUES(?,?,?, ?,0,'{}')")->execute([$id,$party,'RESET-QA-'.$s,$s]);}
+    $p->prepare("INSERT INTO contracts(id,party_id,number,status,signed,source_json) VALUES(9901010,?,'RESET-SIGNED','sent',1,'{}')")->execute([$party]);
+    $p->prepare("INSERT INTO rental_documents(id,contract_id,number,kind,status,source_json) VALUES(9901020,?,'RESET-DS','renewal','returned','{}'),(9901021,?,'RESET-SIGNED-DS','renewal','signed','{}')")->execute([$active,$active]);
+    $p->prepare("INSERT INTO reservations(id,object_id,party_id,start_date,end_date,until_date,status,source_json) VALUES(9901030,1084,?,'2026-11-18','2026-12-18','2026-11-30','active','{}')")->execute([$party]);
+    $expect(static fn()=>WorkspaceReset::run($plan,$key,'ОЧИСТИТЬ'),409);
+    $plan=WorkspaceReset::preview();$check(count($plan['changes'])===10,'All seven statuses, original QA, addendum and booking selected');$check(count($plan['blocked'])===1,'Signed contract protected');
+    $before=$hash();$result=WorkspaceReset::run($plan,$key,'ОЧИСТИТЬ');$check($result['count']===10,'Ten records archived');
+    $check($before===$hash(),'Money, live leases, signed evidence, users and outgoing receipts preserved');
+    $check(ZeroPoint::json($result)===ZeroPoint::json(WorkspaceReset::run($plan,$key,'ОЧИСТИТЬ')),'Replay returns exact receipt without another clear');
+    $check((int)$p->query('SELECT COUNT(*) FROM contracts c WHERE c.id BETWEEN 9901000 AND 9901006 AND '.ContractDraft::visibleSql())->fetchColumn()===0,'Cleared contracts hidden from all registry SQL');
+    $check($p->query('SELECT status FROM reservations WHERE id=9901030')->fetchColumn()==='cancelled','Booking releases occupancy');
+    foreach($ids as $id)$expect(static fn()=>Access::contract($id),404);
+    $expect(static fn()=>Access::document(9901020),404);
+    $expect(static fn()=>Service::command('document.edit',['id'=>9901020,'version'=>2,'command_key'=>bin2hex(random_bytes(16))]),404);
+    $expect(static fn()=>Service::command('contract.submit',['id'=>9901000,'version'=>2,'command_key'=>bin2hex(random_bytes(16))]),404);
+    $check($p->query('SELECT status FROM rental_documents WHERE id=9901021')->fetchColumn()==='signed','Signed addendum retained');
+    Service::command('workspace.undo',['command_key'=>bin2hex(random_bytes(16)),'target'=>$key]);
+    $check($p->query('SELECT status FROM reservations WHERE id=9901030')->fetchColumn()==='active','Undo restores booking');
+    foreach($ids as $id)$check(!ContractDraft::deleted(Access::contract($id)),'Undo restores working contract');
+    $check($p->query('SELECT status FROM rental_documents WHERE id=9901020')->fetchColumn()==='returned','Undo restores addendum');
+    $key2=bin2hex(random_bytes(16));WorkspaceReset::run(WorkspaceReset::preview(),$key2,'ОЧИСТИТЬ');
+    $p->prepare("INSERT INTO contracts(id,party_id,number,status,source_json) VALUES(9901040,?,'NEW-AFTER-RESET','draft','{}')")->execute([$party]);
+    $expect(static fn()=>Service::command('workspace.undo',['command_key'=>bin2hex(random_bytes(16)),'target'=>$key2]),409);
+    $check($p->query('SELECT number FROM contracts WHERE id=9901040')->fetchColumn()==='NEW-AFTER-RESET','New work is not overwritten by undo');
+    $relations=(int)$p->query('SELECT COUNT(*) FROM contract_objects WHERE object_id=9000001')->fetchColumn();$objectKey=bin2hex(random_bytes(16));$objectBefore=$p->query('SELECT * FROM rental_objects WHERE id=9000001')->fetch(PDO::FETCH_ASSOC);
+    Service::command('workspace.remove-test-object',['command_key'=>$objectKey]);$row=$p->query('SELECT * FROM rental_objects WHERE id=9000001')->fetch(PDO::FETCH_ASSOC);
+    $check(WorkspaceReset::hidden($row) && !DirectoryScope::realObject($row,['number'=>'real','source_json'=>'{}']),'Only named QA object removed from registry');
+    $check((int)$p->query('SELECT COUNT(*) FROM contract_objects WHERE object_id=9000001')->fetchColumn()===$relations,'Historical object relation retained');
+    $expect(static fn()=>Service::command('object.save',['id'=>9000001,'version'=>$row['version'],'command_key'=>bin2hex(random_bytes(16))]),404);
+    Service::command('workspace.undo',['command_key'=>bin2hex(random_bytes(16)),'target'=>$objectKey]);
+    $check(!WorkspaceReset::hidden($p->query('SELECT * FROM rental_objects WHERE id=9000001')->fetch(PDO::FETCH_ASSOC)),'Object recovery available');
+    $check($before===$hash(),'All protected data remains identical');
+    echo json_encode(['passed'=>$checks,'external_calls'=>0,'persisted_test_rows'=>0]).PHP_EOL;
+}finally{$p->rollBack();}

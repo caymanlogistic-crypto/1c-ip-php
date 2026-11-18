@@ -18,7 +18,7 @@ final class ApprovalRegistry
         foreach (Controller::query("SELECT c.*,COALESCE(p.name,'—') party_name,p.inn party_inn FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.status IN ('legal','accounting','returned','approved','sent','cancelled') AND ".ContractDraft::visibleSql()." ORDER BY c.id") as $contract) {
             $entries[]=self::entry('contract',$contract,$contract,$role,$tasks);
         }
-        foreach (Controller::query("SELECT d.* FROM rental_documents d WHERE d.status<>'draft' ORDER BY d.id") as $document) {
+        foreach (Controller::query("SELECT d.* FROM rental_documents d WHERE d.status<>'draft' AND ".WorkspaceReset::visibleSql('d')." ORDER BY d.id") as $document) {
             $contract=Controller::query('SELECT c.*,COALESCE(p.name,\'—\') party_name,p.inn party_inn FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.id=?',[$document['contract_id']])[0] ?? null;
             if ($contract) $entries[]=self::entry('document',$document,$contract,$role,$tasks);
         }

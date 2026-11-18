@@ -8,6 +8,7 @@ services:
       APP_ARTIFACTS_ROOT: /opt/app/artifacts
     extra_hosts:
       - "smtp.spaceweb.ru:77.222.41.51"
+      - "platform-api2.max.ru:155.212.204.149"
     volumes:
       - ./data/local:/opt/app/.local:ro
       - ./data/private:/opt/app/private

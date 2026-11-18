@@ -6,6 +6,35 @@ final class OnecBindings implements OnecReferenceSource {
     public function __construct(private \PDO $db,
         private PrivateStore $store) {
     }
+    /** Retain the native reference only from a verified journal result, never from a caller GUID. */
+    public function recordSavedReference(string $intentId): string {
+        if(!$this->db->inTransaction())throw new \RuntimeException('ONEC_SAVED_REFERENCE_TRANSACTION_REQUIRED');
+        $q=$this->db->prepare('SELECT * FROM integration_native_intents WHERE id=? FOR UPDATE');$q->execute([$intentId]);$intent=$q->fetch(\PDO::FETCH_ASSOC);
+        if(!$intent||!in_array($intent['state']??null,['saved','existing_verified'],true)
+            ||!isset(OnecMapping::COLLECTIONS[$intent['kind']??'']))throw new \RuntimeException('ONEC_SAVED_REFERENCE_REQUIRED');
+        $verified=OnecNativeEvidence::readSaved($this->store,$intent);
+        $source=$this->source();if($source['source_instance']!==$intent['source_instance'])throw new \RuntimeException('ONEC_SAVED_SOURCE_CHANGED');
+        $payload=Support::decode($this->store->read($intent['payload_path']));
+        $body=OnecMapping::build($intent['kind'],$payload,$intent['native_key'],$source['profile']);
+        if(!hash_equals($intent['body_sha256'],hash('sha256',OnecMapping::json($body))))throw new \RuntimeException('ONEC_SAVED_BODY_CHANGED');
+        $raw=$verified['raw'];$facts=$verified['facts'];
+        if(!is_array($facts)||OnecMapping::compare($intent['kind'],$body,$facts))throw new \RuntimeException('ONEC_SAVED_REFERENCE_NOT_MATCHED');
+        $q=$this->db->prepare('SELECT logical_document_id,source_instance,kind FROM integration_native_prepared WHERE id=?');$q->execute([$intent['prepared_id']]);$prepared=$q->fetch(\PDO::FETCH_ASSOC);
+        $prefix=$intent['kind']==='counterparty'?'party:':'invoice:';
+        if(!$prepared||$prepared['source_instance']!==$intent['source_instance']||$prepared['kind']!==$intent['kind']
+            ||!preg_match('/^'.preg_quote($prefix,'/').'([1-9][0-9]*)$/D',$prepared['logical_document_id'],$m))throw new \RuntimeException('ONEC_SAVED_SUBJECT_CHANGED');
+        $collection=$intent['kind']==='counterparty'?'parties':'invoices';$logical=$m[1];$type=OnecMapping::COLLECTIONS[$intent['kind']];
+        $q=$this->db->prepare("SELECT id,native_key,native_type FROM integration_native_bindings WHERE source_instance=? AND collection=? AND logical_id=? AND purpose='' FOR UPDATE");$q->execute([$intent['source_instance'],$collection,$logical]);$existing=$q->fetch(\PDO::FETCH_ASSOC);
+        if($existing&&($existing['native_key']!==$intent['native_key']||$existing['native_type']!==$type))throw new \RuntimeException('ONEC_SAVED_REFERENCE_CONFLICT');
+        // A replayed historical receipt must not replace a newer native observation.
+        if($existing){$this->db->prepare('UPDATE integration_native_subjects SET mapping_id=? WHERE prepared_id=? AND source_instance=?')->execute([$existing['id'],$intent['prepared_id'],$intent['source_instance']]);return $existing['id'];}
+        if(!$existing&&$intent['state']==='existing_verified')throw new \RuntimeException('ONEC_EXISTING_BINDING_REQUIRED');
+        $path=$this->store->put('onec-native-references',$raw);$receipt=$this->store->spool(['kind'=>'native-reference-get','method'=>'GET','http_status'=>200,'source_instance'=>$intent['source_instance'],'native_type'=>$type,'native_key'=>$intent['native_key'],'journal_readback'=>$intent['readback_path']],$raw);
+        $id=Support::uuid();
+        $this->db->prepare("INSERT INTO integration_native_bindings(id,source_instance,collection,logical_id,purpose,native_type,native_key,native_version,evidence_path,evidence_sha256,evidence_hmac_path,evidence_ref) VALUES(?,?,?,?,'',?,?,?,?,?,?,?)")->execute([$id,$intent['source_instance'],$collection,$logical,$type,$intent['native_key'],$facts['DataVersion'],$path,hash('sha256',$raw),$receipt,'native-intent:'.$intent['id']]);
+        $this->db->prepare('UPDATE integration_native_subjects SET mapping_id=? WHERE prepared_id=? AND source_instance=?')->execute([$id,$intent['prepared_id'],$intent['source_instance']]);
+        return $id;
+    }
     private static function gap(string ...$fields): never {
         throw new OnecSetupGap($fields);
     }

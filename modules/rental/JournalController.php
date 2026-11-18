@@ -35,16 +35,18 @@ final class JournalController
     {
         self::guard();
         $query=isset($_GET['reset'])?'':trim((string)($_GET['q'] ?? ''));
+        $floor=ZeroPoint::eventFloor(\App\DB::pdo());$archive=($_GET['archive'] ?? '')==='1';
         $entries=[];
         foreach (Controller::query('SELECT e.id,e.created_at,e.actor_name,e.actor_role,e.description,e.action,c.number contract_number '
             .'FROM rental_events e LEFT JOIN contracts c ON c.id=e.contract_id '
-            .'WHERE e.contract_id IS NULL OR c.id IS NOT NULL ORDER BY e.created_at DESC,e.id DESC') as $row) {
+            .'WHERE '.($archive?'e.id<='.(int)$floor:'e.id>'.(int)$floor.' AND (e.contract_id IS NULL OR c.id IS NOT NULL)').' ORDER BY e.created_at DESC,e.id DESC') as $row) {
             $entry=self::entryRow($row);
             if (WorkRegistry::matches($query,[$entry['employee'],$entry['description'],$entry['contract_number']])) {
                 $entries[]=$entry;
             }
         }
-        return View::page('Журнал',JournalView::registry($entries,$query),'journal');
+        $switch=$floor>0?'<div class="demo-row"><a class="btn btn-secondary" href="/rental/journal">Текущая работа</a><a class="btn btn-secondary" href="/rental/journal?archive=1">История до восстановления</a></div>':'';
+        return View::page('Журнал',$switch.JournalView::registry($entries,$query,$archive),'journal');
     }
 
     public static function entry(): string
@@ -56,7 +58,7 @@ final class JournalController
         }
         $row=Controller::query('SELECT e.id,e.created_at,e.actor_name,e.actor_role,e.description,e.action,c.number contract_number '
             .'FROM rental_events e LEFT JOIN contracts c ON c.id=e.contract_id '
-            .'WHERE e.id=? AND (e.contract_id IS NULL OR c.id IS NOT NULL)',[$id])[0] ?? throw new RuntimeException('Запись журнала не найдена.',404);
+            .'WHERE e.id=? AND (e.contract_id IS NULL OR c.id IS NOT NULL OR e.id<=?)',[$id,ZeroPoint::eventFloor(\App\DB::pdo())])[0] ?? throw new RuntimeException('Запись журнала не найдена.',404);
         return JournalView::entry(self::entryRow($row));
     }
 }

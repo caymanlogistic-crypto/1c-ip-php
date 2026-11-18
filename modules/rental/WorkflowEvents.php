@@ -94,7 +94,7 @@ final class WorkflowEvents
     public static function latest(PDO $db,string $kind,int $id,bool $handoffOnly=false): ?array
     {
         if(!in_array($kind,['contract','document'],true))throw new RuntimeException('Invalid workflow entity.');
-        $sql="SELECT id,source_json,created_at FROM rental_events WHERE JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.kind'))='committed-rental-workflow-event' AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.entity_kind'))=? AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.entity_id'))=?";
+        $sql="SELECT id,source_json,created_at FROM rental_events WHERE JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.kind'))='committed-rental-workflow-event' AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.epoch'))=(SELECT epoch FROM rental_runtime_context WHERE id=1) AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.entity_kind'))=? AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.entity_id'))=?";
         if($handoffOnly)$sql.=" AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.event_kind')) IN ('submit','resubmit')";
         $q=$db->prepare($sql.' ORDER BY id DESC LIMIT 1');$q->execute([$kind,(string)$id]);$row=$q->fetch(PDO::FETCH_ASSOC);
         return $row?self::decode($row):null;

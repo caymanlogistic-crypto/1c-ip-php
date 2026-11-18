@@ -11,11 +11,26 @@ final class WorkflowNotices
     public const EPOCH='ade3db93-e169-11f1-918c-00155dadf05b';
     public const BASELINE=1008;
 
+    /** A restored epoch has an explicit persisted boundary; never mute at current MAX(id). */
+    public static function baselineFor(string $epoch,?array $restored):array
+    {
+        if($epoch!==self::EPOCH&&($restored['epoch']??null)===$epoch
+            &&is_int($restored['event_floor']??null)&&$restored['event_floor']>=0)
+            return ['epoch'=>$epoch,'event_floor'=>$restored['event_floor']];
+        return ['epoch'=>self::EPOCH,'event_floor'=>self::BASELINE];
+    }
+
     public static function projection(PDO $db,array $user,array $tasks,array $allowedPages): array
     {
         $catalog=[];
         foreach($db->query("SELECT source_key,title,body_text,version FROM integration_template_catalog WHERE channel='top'")->fetchAll(PDO::FETCH_ASSOC) as $row)$catalog[$row['source_key']]=$row;
         $epoch=(string)$db->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn();
+        $restored=null;
+        if($epoch!==self::EPOCH){
+            $raw=$db->query("SELECT fact_json FROM rental_facts WHERE namespace='zero_point_runtime' AND source_key='active'")->fetchColumn();
+            $restored=$raw===false?null:json_decode($raw,true,32,JSON_THROW_ON_ERROR);
+        }
+        $baseline=self::baselineFor($epoch,$restored);
         $events=[];
         $best=self::selectTasks($tasks,$user,$allowedPages);
         foreach($best as $task){
@@ -28,7 +43,7 @@ final class WorkflowNotices
         // Retain the one existing pending command until overwrite/logout. Rendering or an aborted
         // registry response is not proof of client consumption; client fingerprints deduplicate it.
         if(is_string($command)){
-            $q=$db->prepare("SELECT id,source_json,created_at FROM rental_events WHERE JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.command_key'))=? ORDER BY id DESC LIMIT 1");
+            $q=$db->prepare("SELECT id,source_json,created_at FROM rental_events WHERE JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.epoch'))=(SELECT epoch FROM rental_runtime_context WHERE id=1) AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.command_key'))=? ORDER BY id DESC LIMIT 1");
             $q->execute([$command]);$row=$q->fetch(PDO::FETCH_ASSOC);$event=$row?WorkflowEvents::decode($row):null;
             if($event&&in_array($event['entity_kind'],['contract','document'],true)&&(int)$event['actor_id']===(int)$user['id']){
                 $table=$event['entity_kind']==='contract'?'contracts':'rental_documents';
@@ -39,7 +54,7 @@ final class WorkflowNotices
             }
         }
         return ['schema'=>1,'project'=>WorkflowEvents::PROJECT,'surface'=>'php-rental','identity'=>(string)$user['id'],
-            'epoch'=>$epoch,'bootstrap_epoch'=>self::EPOCH,'bootstrap_event_id'=>self::BASELINE,
+            'epoch'=>$epoch,'bootstrap_epoch'=>$baseline['epoch'],'bootstrap_event_id'=>$baseline['event_floor'],
             'catalog'=>$catalog,'events'=>$events,'sender'=>$sender];
     }
 

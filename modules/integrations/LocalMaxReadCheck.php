@@ -5,7 +5,7 @@ namespace Modules\Integrations;
 use PDO;
 use RuntimeException;
 
-/** Worktree-only MAX scope. Manual sends require a separately approved test destination. */
+/** Worktree-only MAX scope. Sends require the approved test destination and a bounded capability. */
 final class LocalMaxReadCheck
 {
     private ?array $scope = null;
@@ -13,6 +13,9 @@ final class LocalMaxReadCheck
     private ?string $pending = null;
     private string $operation = 'check';
     private ?string $sendBody = null;
+    private ?array $objectActivity = null;
+    private ?array $workflow = null;
+    private ?string $sendChat = null;
 
     public function __construct(private PDO $db) {}
 
@@ -88,12 +91,20 @@ final class LocalMaxReadCheck
     {
         $scope = $this->current();
         if ($this->operation === 'send') {
-            self::assertSendPath($this->next, $method, $path, $body, $scope['manual_send_chat_id'], $this->sendBody ?? '');
+            self::assertSendPath($this->next, $method, $path, $body, $this->sendChat ?? '', $this->sendBody ?? '');
         } else self::assertPath($this->next, $method, $path, $body, $scope['chat_ids']);
     }
 
     public function assertOperation(string $provider, string $operation, string $target, string $raw, array $groups): void
     {
+        if ($this->workflow!==null) {
+            $fresh=(new LocalWorkflowMax($this->db))->plan($this->workflow['event_id'],$this->workflow['command_key'],\App\Auth::user() ?? []);
+            if ($fresh!==$this->workflow || $raw!==Support::json(['text'=>$fresh['text']])) throw new RuntimeException('LOCAL_MAX_SEND_NOT_AUTHORIZED');
+        }
+        if ($this->objectActivity!==null) {
+            $fresh=(new ObjectActivityMax($this->db))->plan($this->objectActivity['event_id'],$this->objectActivity['command_key'],\App\Auth::user() ?? []);
+            if ($fresh!==$this->objectActivity || $raw!==Support::json(['text'=>$fresh['text']])) throw new RuntimeException('LOCAL_MAX_SEND_NOT_AUTHORIZED');
+        }
         $scope = $this->current();
         sort($groups, SORT_STRING);
         if ($provider !== 'max' || $operation !== $this->operation || $groups !== $scope['chat_ids']) {
@@ -103,7 +114,7 @@ final class LocalMaxReadCheck
             if ($target !== '@connection' || $raw !== '') throw new RuntimeException('LOCAL_MAX_READ_NOT_AUTHORIZED');
         } else {
             $body = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
-            if ($target !== ($scope['manual_send_chat_id'] ?? null) || !is_array($body) || array_keys($body) !== ['text']
+            if ($target !== $this->sendChat || !is_array($body) || array_keys($body) !== ['text']
                 || !is_string($body['text']) || trim($body['text']) === '') throw new RuntimeException('LOCAL_MAX_SEND_NOT_AUTHORIZED');
             $this->sendBody = $raw;
         }
@@ -137,14 +148,30 @@ final class LocalMaxReadCheck
         return $this->command($actor, $key, 'send', $targets, $text);
     }
 
-    private function command(int $actor, string $key, string $operation, array $targets, string $text): array
+    /** Domain capability: no free text, no arbitrary actor/key, no manual-send permission grant. */
+    public function dispatchObjectActivity(array $event,array $targets): array
+    {
+        $fresh=(new ObjectActivityMax($this->db))->plan((int)($event['event_id'] ?? 0),(string)($event['command_key'] ?? ''),\App\Auth::user() ?? []);
+        if ($fresh===null || $fresh!==$event) throw new RuntimeException('LOCAL_MAX_SEND_NOT_AUTHORIZED');
+        return $this->command($fresh['actor_id'],ObjectActivityMax::requestKey($fresh),'send',$targets,$fresh['text'],$fresh);
+    }
+
+    public function dispatchWorkflow(array $plan):array
+    {
+        $fresh=(new LocalWorkflowMax($this->db))->plan((int)($plan['event_id']??0),(string)($plan['command_key']??''),\App\Auth::user()??[]);
+        if($fresh===null||$fresh!==$plan)throw new RuntimeException('LOCAL_MAX_SEND_NOT_AUTHORIZED');
+        return $this->command($fresh['actor_id'],LocalWorkflowMax::requestKey($fresh),'send',[$fresh['group_id']],$fresh['text'],null,$fresh);
+    }
+
+    private function command(int $actor, string $key, string $operation, array $targets, string $text,?array $objectActivity=null,?array $workflow=null): array
     {
         $context = $this->context();
         if ($operation === 'send') {
-            if (count($targets) !== 1 || !is_string($context['manual_send_chat_id'] ?? null)) throw new RuntimeException('LOCAL_MAX_SEND_NOT_AUTHORIZED');
+            $chat=$workflow['chat_id']??$context['manual_send_chat_id']??null;
+            if (count($targets) !== 1 || !is_string($chat) || !in_array($chat,$context['chat_ids'],true)) throw new RuntimeException('LOCAL_MAX_SEND_NOT_AUTHORIZED');
             $q = $this->db->prepare("SELECT chat_id FROM messaging_groups WHERE provider='max' AND enabled=1 AND name='ТЕСТОВАЯ' AND id=?");
             $q->execute([reset($targets)]);
-            if ($q->fetchColumn() !== $context['manual_send_chat_id']) throw new RuntimeException('LOCAL_MAX_SEND_NOT_AUTHORIZED');
+            if ($q->fetchColumn() !== $chat) throw new RuntimeException('LOCAL_MAX_SEND_NOT_AUTHORIZED');
         }
         $q = $this->db->prepare("SELECT u.id,u.active,u.role role_id,r.grants_configured,CASE WHEN u.role='admin' THEN 'admin' ELSE COALESCE(rp.kind,'viewer') END role FROM users u JOIN roles r ON r.id=u.role LEFT JOIN role_profiles rp ON rp.role_id=u.role WHERE u.id=?");
         $q->execute([$actor]);
@@ -153,14 +180,17 @@ final class LocalMaxReadCheck
         $permissions->execute([$user['role_id'] ?? '']);
         $grants = $permissions->fetchAll(PDO::FETCH_COLUMN);
         if (!$user || !$user['active']
-            || (!in_array('*', $grants, true) && array_diff(['messaging.read','messaging.send'], $grants))
-            || \App\PagePolicy::levelForRole($user['role_id'], $user['role'], (bool)$user['grants_configured'], 'connections.max') < 2) {
+            || ($objectActivity===null && $workflow===null && ((!in_array('*', $grants, true) && array_diff(['messaging.read','messaging.send'], $grants))
+            || \App\PagePolicy::levelForRole($user['role_id'], $user['role'], (bool)$user['grants_configured'], 'connections.max') < 2))) {
             throw new RuntimeException('LOCAL_MAX_READ_ACTOR_NOT_AUTHORIZED');
         }
         if ((int)$this->db->query("SELECT GET_LOCK('ipphp-provider:max',0)")->fetchColumn() !== 1) throw new RuntimeException('LOCAL_MAX_READ_BUSY');
         try {
             $this->scope = $this->context();
             $this->operation = $operation;
+            $this->objectActivity = $objectActivity;
+            $this->workflow = $workflow;
+            $this->sendChat = $operation==='send'?$chat:null;
             $this->sendBody = null;
             $this->next = 0;
             $this->pending = null;
@@ -177,6 +207,9 @@ final class LocalMaxReadCheck
             $this->pending = null;
             $this->sendBody = null;
             $this->db->query("SELECT RELEASE_LOCK('ipphp-provider:max')");
+            $this->objectActivity = null;
+            $this->workflow = null;
+            $this->sendChat = null;
         }
     }
 }
