@@ -87,6 +87,25 @@ final class DocxTemplate
         }
     }
 
+    public static function fields(string $path): array
+    {
+        self::validate($path);$zip=new ZipArchive();$zip->open($path);$fields=[];
+        try {
+            for($i=0;$i<$zip->numFiles;$i++) {
+                $name=$zip->getNameIndex($i);if(!str_starts_with($name,'word/')||!str_ends_with($name,'.xml'))continue;
+                foreach(self::paragraphs(self::xml($zip->getFromIndex($i))) as [$nodes,$text]) {
+                    preg_match_all('/\{\{([^{}]+)\}\}/u',$text,$matches);
+                    foreach($matches[1] as $field) {
+                        if(!preg_match('/^[a-z][a-z0-9_]{0,63}$/D',$field))throw new RuntimeException('Имя поля Word: латинские буквы, цифры и подчёркивание, до 64 знаков.',422);
+                        $fields[$field]=true;
+                        if(count($fields)>200)throw new RuntimeException('В шаблоне допускается до 200 различных полей.',422);
+                    }
+                }
+            }
+        } finally {$zip->close();}
+        return array_keys($fields);
+    }
+
     /** Replace only token characters; surrounding runs retain their own formatting. */
     private static function fillParagraph(DOMDocument $document,array $texts,string $text,array $values): bool
     {

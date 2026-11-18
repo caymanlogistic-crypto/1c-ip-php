@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Modules\Rental;
 
 use RuntimeException;
+use PDO;
 
 /** The owner's retained Word layouts, with bounded named data slots. */
 final class OriginalDocuments
@@ -11,6 +12,7 @@ final class OriginalDocuments
         'office'=>'Договор аренды помещений', 'parking'=>'Договор аренды машино-места',
         'services'=>'Договор оказания услуг', 'handover'=>'Акт приёма-передачи помещений',
         'room-change'=>'Допсоглашение о смене номера помещения',
+        'parking-handover'=>'Акт приёма-передачи машино-места',
     ];
 
     public static function catalog(): array
@@ -24,6 +26,35 @@ final class OriginalDocuments
         $path=__DIR__.'/templates/'.$definition['filename'];
         if (!hash_equals($definition['sha256'],hash_file('sha256',$path)))throw new RuntimeException('Исходный Word-шаблон изменился.',409);
         return $definition+['path'=>$path];
+    }
+
+    public static function choices(PDO $db,string $kind): array
+    {
+        self::source($kind);$result=[];
+        foreach($db->query('SELECT * FROM rental_templates WHERE version>0 AND word_file_id IS NOT NULL ORDER BY approved_at DESC,id DESC') as $row) {
+            $meta=json_decode($row['source_json'],true)?:[];
+            if(($meta['generation_kind']??null)===$kind)$result[(int)$row['id']]=$row['name'].' · версия '.$row['version'];
+        }
+        $result[0]='Исходник владельца · '.self::TITLES[$kind];return $result;
+    }
+
+    public static function resolve(PDO $db,string $kind,int $templateId): array
+    {
+        if(!$templateId)return self::source($kind)+['template_id'=>0,'template_version'=>1,'kind'=>$kind];
+        $q=$db->prepare('SELECT * FROM rental_templates WHERE id=?');$q->execute([$templateId]);$row=$q->fetch();
+        if(!$row||!$row['word_file_id']||(int)$row['version']<1||(json_decode($row['source_json'],true)['generation_kind']??null)!==$kind)throw new RuntimeException('Утверждённый шаблон этого вида не найден.',422);
+        $asset=TemplateAssets::file($db,$templateId,$row['word_file_id']);$fields=DocxTemplate::fields($asset['path']);
+        if(!$fields)throw new RuntimeException('В шаблоне нет полей для подстановки.',422);
+        return $asset+['fields'=>$fields,'template_id'=>$templateId,'template_version'=>(int)$row['version'],'kind'=>$kind,
+            'template_values'=>['custom_clauses'=>(string)$row['body'],'template_version'=>(string)$row['version']]];
+    }
+
+    public static function buildSource(array $source,array $values,string $target): void
+    {
+        $values=array_replace($values,$source['template_values']??[]);
+        $required=array_values(array_diff($source['fields'],['custom_clauses']));
+        foreach($required as $key)if(!is_string($values[$key]??null)||trim($values[$key])==='')throw new RuntimeException('Заполните: '.self::label($key),422);
+        DocxTemplate::build($source['path'],array_intersect_key($values,array_flip($source['fields'])),$source['kind'],$target,$required);
     }
 
     public static function missing(array $kinds,array $values): array
@@ -45,10 +76,16 @@ final class OriginalDocuments
     {
         return [
             'number'=>'Номер договора', 'date'=>'Дата договора', 'date_words'=>'Дата договора прописью',
+            'clause_reference'=>'Номер изменяемого пункта действующего договора (например, 2.1)',
             'end_date_words'=>'Окончание аренды прописью', 'area'=>'Общая площадь, м²',
             'room_numbers'=>'Внутренние номера помещений / машино-мест', 'building_room_numbers'=>'Номера помещений по документам здания',
             'cadastre_numbers'=>'Кадастровые номера', 'floor'=>'Этаж', 'floor_words'=>'Этаж прописью (на каком этаже)',
             'ownership_record'=>'Номер записи ЕГРН о праве собственности', 'ownership_date_words'=>'Дата записи ЕГРН прописью',
+            'organization_full_name'=>'Полное наименование Арендодателя', 'organization_short_name'=>'Краткое наименование Арендодателя',
+            'organization_signer_short'=>'Подписант Арендодателя, фамилия и инициалы','organization_signer_genitive'=>'Подписант Арендодателя в обороте «в лице кого»',
+            'organization_ogrnip'=>'ОГРНИП Арендодателя','organization_inn'=>'ИНН Арендодателя','organization_address'=>'Юридический адрес Арендодателя',
+            'organization_postal_address'=>'Почтовый адрес Арендодателя','organization_account'=>'Расчётный счёт Арендодателя','organization_bank'=>'Банк Арендодателя',
+            'organization_correspondent'=>'Корреспондентский счёт Арендодателя','organization_bik'=>'БИК банка Арендодателя','organization_registration_date'=>'Дата свидетельства ОГРНИП (дд.мм.гггг)',
             'party_full_name'=>'Полное наименование арендатора', 'party_short_name'=>'Краткое наименование арендатора',
             'party_signer_title'=>'Должность подписанта', 'party_signer_title_genitive'=>'Должность в обороте «в лице кого»',
             'party_signer_genitive'=>'ФИО подписанта в обороте «в лице кого»', 'party_signer_short'=>'Фамилия и инициалы в подписи',

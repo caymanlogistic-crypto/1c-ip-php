@@ -35,10 +35,12 @@ final class LegalReview
     public static function fileFields(?array $file): string
     {
         if (!$file) return RentalUI::alert('Нужен актуальный файл','Сформируйте Word или загрузите готовый DOC, DOCX или PDF. Затем откройте проверку юристом повторно.','warning');
+        $pack=WordPack::evidence(DB::pdo(),$file['id']);
         return RentalUI::pairs([['Файл для согласования',$file['filename']]])
+            .($pack?WordPack::links($pack):'')
             .'<div class="demo-row"><a class="btn btn-secondary" href="/rental/download?id='.View::e($file['id']).'">Скачать проверяемый файл</a></div>'
             .'<input type="hidden" name="legal_file_id" value="'.View::e($file['id']).'">'
-            .'<label class="registry-ui-checkbox"><input type="checkbox" name="document_confirmed" value="1" required><span>Актуальный файл договора проверен</span></label>';
+            .'<label class="registry-ui-checkbox"><input type="checkbox" name="document_confirmed" value="1" required><span>'.($pack?'Все документы пакета проверены':'Актуальный файл договора проверен').'</span></label>';
     }
 
     public static function upload(array $contract): string
