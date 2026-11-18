@@ -12,6 +12,24 @@ final class InvoiceFacts
             ? bcsub($invoice['amount'], $invoice['paid'], 2) : '0.00';
     }
 
+    /** Same due-date predicate for the registry and its navigation counter. */
+    public static function overdue(array $invoice, ?string $remaining = null): bool
+    {
+        $remaining ??= self::remaining($invoice);
+        return $invoice['status'] === 'active' && empty($invoice['control_closed'])
+            && $remaining !== null && bccomp($remaining,'0',2) > 0
+            && !empty($invoice['due']) && $invoice['due'] < date('Y-m-d');
+    }
+
+    public static function menuCounts(\PDO $pdo): array
+    {
+        $count=0;
+        foreach ($pdo->query('SELECT i.* FROM invoices i JOIN contracts c ON c.id=i.contract_id JOIN parties p ON p.id=c.party_id') as $invoice) {
+            if (self::overdue($invoice)) $count++;
+        }
+        return [$count,0,0,0];
+    }
+
     public static function view(array $invoice, string $severity = ''): array
     {
         $raw = json_decode($invoice['source_json'] ?? '{}', true) ?: [];
@@ -20,6 +38,7 @@ final class InvoiceFacts
             || in_array($delivery['intent']['status'] ?? '',['blocked','failed','unknown'],true));
         $remaining = self::remaining($invoice);
         $unpaid = $invoice['status'] !== 'revoked' && $remaining !== null && bccomp($remaining, '0', 2) > 0;
+        $overdue = self::overdue($invoice,$remaining);
         $state = match (true) {
             !empty($raw['issueError']) => 'Счёт не сформирован',
             !empty($raw['mismatch']) => 'Рассинхронизация 1С и ERP',
@@ -53,7 +72,8 @@ final class InvoiceFacts
         return [
             'remaining'=>$remaining, 'unpaid'=>$unpaid, 'severity'=>$severity,
             'attention'=>$severity !== '',
-            'overdue'=>$invoice['status'] === 'active' && empty($invoice['control_closed']) && $unpaid && !empty($invoice['due']) && $invoice['due'] < date('Y-m-d'),
+            'overdue'=>$overdue,
+            'waiting'=>$invoice['status'] === 'active' && empty($invoice['control_closed']) && $unpaid && !$overdue,
             'paid'=>$invoice['status'] === 'active' && $remaining !== null && bccomp($remaining,'0',2) === 0,
             'state'=>$state, 'explanation'=>$explanation,
             'send_error'=>$sendError,

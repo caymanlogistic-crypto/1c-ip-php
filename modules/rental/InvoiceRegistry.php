@@ -10,6 +10,7 @@ final class InvoiceRegistry
     public const HEADERS = ['Счёт','Контрагент','Договор','Вид','Оплатить до','Сумма','Оплачено','Остаток','Состояние'];
     private const COLUMNS = ['code','flex','short','text','code','money','money','money','flex'];
     private const FLAGS = ['all'=>'Все','unpaid'=>'Неоплаченные','overdue'=>'Просроченные','attention'=>'Требуют внимания','paid'=>'Оплаченные'];
+    private const PAYMENT_FLAGS = ['all'=>'Все','waiting'=>'Ожидают оплаты','overdue'=>'Просрочка оплаты','paid'=>'Оплаченные'];
     private const PRIORITY = ['red'=>4,'yellow'=>3,'blue'=>2,'green'=>1,''=>0];
     private const CLASSES = ['red'=>'registry-ui-soft-error','yellow'=>'registry-ui-warning','blue'=>'registry-ui-soft-info','green'=>'registry-ui-soft-success',''=>''];
 
@@ -26,7 +27,7 @@ final class InvoiceRegistry
     public static function selected(array $row, string $flag): bool
     {
         return match ($flag) {
-            'unpaid','overdue','attention','paid' => $row['_view'][$flag],
+            'unpaid','waiting','overdue','attention','paid' => $row['_view'][$flag],
             default => true,
         };
     }
@@ -210,14 +211,15 @@ final class InvoiceRegistry
         return $html.'</tr>';
     }
 
-    private static function controls(array $all,string $query,string $party,string $flag,int $cid): string
+    private static function controls(array $all,string $query,string $party,string $flag,int $cid,bool $grouped): string
     {
         $html='<form method="get" class="registry-ui-tabs" role="group" aria-label="Разделы списка"><input type="hidden" name="party" value="'.View::e($party).'">';
         if ($cid) $html.='<input type="hidden" name="contract_id" value="'.$cid.'">';
         if ($query !== '') $html.='<input type="hidden" name="q" value="'.View::e($query).'">';
-        foreach (self::FLAGS as $key=>$label) {
+        foreach (($grouped ? self::FLAGS : self::PAYMENT_FLAGS) as $key=>$label) {
             $items=array_values(array_filter($all,static fn($r)=>self::selected($r,$key)));
-            $html.='<button type="submit" name="flag" value="'.$key.'" class="'.($flag === $key ? 'is-active' : '').'" aria-pressed="'.($flag === $key ? 'true' : 'false').'">'.View::e($label).' <b>'.count($items).'</b>'.Menu::badges(self::counts($items),true).'</button>';
+            $badges=$grouped ? self::counts($items) : [$key === 'overdue' ? count($items) : 0,0,0,0];
+            $html.='<button type="submit" name="flag" value="'.$key.'" class="'.($flag === $key ? 'is-active' : '').'" aria-pressed="'.($flag === $key ? 'true' : 'false').'">'.View::e($label).' <b>'.count($items).'</b>'.Menu::badges($badges,true).'</button>';
         }
         $html.='</form>';
         return $html;
@@ -230,7 +232,9 @@ final class InvoiceRegistry
         $query=$reset ? '' : trim((string)($_GET['q'] ?? ''));
         $party=$reset ? 'all' : (string)($_GET['party'] ?? 'all');
         $flag=(string)($_GET['flag'] ?? 'all');
-        if (!isset(self::FLAGS[$flag])) $flag='all';
+        if (!$grouped && $flag === 'unpaid') $flag='waiting';
+        $flags=$grouped ? self::FLAGS : self::PAYMENT_FLAGS;
+        if (!isset($flags[$flag])) $flag='all';
         $cid=(int)($_GET['contract_id'] ?? 0);
         $records=self::records($cid);
         $parties=[];
@@ -240,7 +244,7 @@ final class InvoiceRegistry
         $all=array_values(array_filter($records,static fn($r)=>($party === 'all' || (string)$r['party_id'] === $party) && self::matches($r,$tokens)));
         $chosen=array_values(array_filter($all,static fn($r)=>self::selected($r,$flag)));
         $groups=self::groups($chosen);
-        $html=self::controls($all,$query,$party,$flag,$cid);
+        $html=self::controls($all,$query,$party,$flag,$cid,$grouped);
         $t=self::totals($chosen);
         $registryId=$grouped ? 'rental-invoices-grouped' : 'rental-invoices-flat';
         $html.='<section class="table-card registry-ui-card registry-ui-sticky-table registry-ui-scroll" data-rental-invoice-registry data-registry-id="'.$registryId.'" data-registry-managed-markup="true"><div class="table-toolbar registry-ui-toolbar"><div class="found-label">Найдено: <b>'.count($chosen).'</b> · Клиентов: <b>'.count($groups).'</b> · Сумма: <b>'.self::totalText($t,'amount').'</b> · Оплачено: <b>'.self::totalText($t,'paid').'</b> · Остаток: <b>'.self::totalText($t,'debt').'</b></div><div class="toolbar-right"><form method="get" data-rental-registry-filter>';
