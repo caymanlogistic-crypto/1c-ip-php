@@ -254,6 +254,7 @@ final class ZeroPoint
             foreach ($document['data']['facts'] ?? [] as $fact)
                 $p->prepare('INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,?)')
                     ->execute([$fact['namespace'],$fact['source_key'],$fact['fact_json'],$fact['operative']]);
+            ZeroPointContinuity::afterRestore($p,date('Y-m-d'));
             self::assertMoney($p);
             $epoch=substr(bin2hex(random_bytes(16)),0,8).'-'.substr(bin2hex(random_bytes(16)),0,4).'-4'.substr(bin2hex(random_bytes(16)),0,3).'-a'.substr(bin2hex(random_bytes(16)),0,3).'-'.substr(bin2hex(random_bytes(16)),0,12);
             $p->prepare('UPDATE rental_runtime_context SET epoch=?,revision=revision+1,source_pair_sha256=? WHERE id=1')->execute([$epoch,$document['sha256']]);
