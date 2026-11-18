@@ -78,6 +78,7 @@ final class ObjectFacts
             $seed=Controller::query("SELECT fact_json FROM rental_facts WHERE namespace='zero_point_data' AND source_key=?",['last_occupant:'.$object['id']])[0]['fact_json'] ?? null;
             $previous=self::previousTenant($previousRow,$seed?json_decode($seed,true):null,$today);
         }
+        $idleUnknown=self::reviewedUnknownHistory($object,$free,$days,$previous);
         $severity=''; $recent=null;
         if ($eligible) $severity=self::idleSeverity($days);
         if ($eligible && !$free && $booking && str_contains($status,'бронир')) $severity='blue';
@@ -116,7 +117,15 @@ final class ObjectFacts
                 }
             }
         }
-        return compact('eligible','free','status','lease','document','booking','bookings','days','previous','severity','recent','deadline');
+        return compact('eligible','free','status','lease','document','booking','bookings','days','previous','severity','recent','deadline','idleUnknown');
+    }
+
+    public static function reviewedUnknownHistory(array $object,bool $free,?int $days,?string $previous): ?string
+    {
+        $review=json_decode($object['source_json'],true)['physicalHistoryReview'] ?? [];
+        return $free && $days===null && $previous===null && ($review['status'] ?? '')==='NO_PHYSICAL_LEASE_FOUND'
+            && ($review['owner_confirmed'] ?? false)===true && ($review['legal_address_excluded'] ?? false)===true
+            ? 'Нет данных о физической аренде' : null;
     }
 
     public static function previousTenant(?array $current,?array $historical,string $today): ?string
