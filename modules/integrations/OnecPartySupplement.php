@@ -17,10 +17,10 @@ final class OnecPartySupplement
         try{
             $connection=Config::get($db,'onec');$public=Support::decode($connection['config_json']);$profile=Config::profile('onec',$public['access_reference']??'');
             if(!OnecReadAdmission::allows($db,'onec','records',$profile))throw new RuntimeException('Scoped OneC read is unavailable.',403);
-            $bindings=(new OnecBindings($db,Config::store()))->source();$scope=[];$baselineIds=array_column(ZeroPoint::load()['data']['tables']['parties'],'id');
-            foreach($db->query('SELECT id,source_json FROM parties ORDER BY id')->fetchAll() as $p){$s=Support::decode($p['source_json']);if(in_array($p['id'],$baselineIds,true)&&!empty($s['source_party_guid']))$scope[(string)$p['id']]=$s['source_party_guid'];}
+            $bindings=(new OnecBindings($db,Config::store()))->source();$scope=[];$contactKeys=[];$baselineIds=array_column(ZeroPoint::load()['data']['tables']['parties'],'id');
+            foreach($db->query('SELECT id,source_json FROM parties ORDER BY id')->fetchAll() as $p){$s=Support::decode($p['source_json']);if(in_array($p['id'],$baselineIds,true)&&!empty($s['source_party_guid'])){$scope[(string)$p['id']]=$s['source_party_guid'];$contactKeys=[...$contactKeys,...($s['contact_person_guids']??[])];}}
             if(!$scope || count($scope)>100 || count($scope)!==count(array_unique($scope)))throw new RuntimeException('Invalid bound party scope.');
-            $reader=OnecReaderFactory::create($profile,60,'connection');$data=$reader->partySupplement(array_values($scope));
+            $reader=OnecReaderFactory::create($profile,60,'connection');$data=$reader->partySupplement(array_values($scope),array_values(array_unique($contactKeys)));
             if((int)Config::get($db,'onec')['revision']!==(int)$connection['revision'])throw new RuntimeException('OneC profile changed.',409);
             $capture=['schema'=>1,'kind'=>'ONEC_PARTY_SUPPLEMENT','captured_at'=>date(DATE_ATOM),'project_id'=>ZeroPoint::PROJECT,
                 'source_instance'=>$bindings['source_instance'],'source_revision'=>(int)$bindings['revision'],'profile_reference'=>$bindings['profile_ref'],
