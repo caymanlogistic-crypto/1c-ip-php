@@ -28,10 +28,12 @@ final class ZeroPointPartyEnrichment
         if(!$at || $at>time()+30 || time()-$at>7200)throw new RuntimeException('Supplement is stale. Read OneC again.',409);
         $p=DB::pdo();if($p->inTransaction())throw new RuntimeException('Separate read transaction required.',409);
         self::sourceCurrent($p,$capture);
-        $point=ZeroPoint::load();if($point['sha256']!==self::BASELINE)throw new RuntimeException('Baseline changed.',409);
+        $point=ZeroPoint::load();$sameCapture=($point['revision']['kind']??'')==='ONEC_PARTY_ENRICHMENT' && ($point['source_pins']['party_enrichment']['capture_sha256']??'')===$evidence['capture_sha256'];
+        if($point['sha256']!==self::BASELINE && !$sameCapture)throw new RuntimeException('Baseline changed.',409);
         $p->exec('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY');
         try{$live=ZeroPoint::capture($p);$nextId=max(BusinessIds::next($p,'party_bank_accounts'),max(array_column($point['data']['tables']['party_bank_accounts'],'id'))+1);$p->rollBack();}catch(\Throwable $e){if($p->inTransaction())$p->rollBack();throw $e;}
         $current=PartySupplementMapping::correct($live,$capture,$nextId);$corrected=PartySupplementMapping::correct($point['data'],$capture,$nextId);
+        if(!$current['report']['fields'] && !$current['report']['banks_selected'] && !$current['report']['banks_added'])throw new RuntimeException('No missing fields or source-owned corrections remain.',409);
         $next=$point;unset($next['sha256'],$next['target']);$next['data']=$corrected['data'];$next['source_pins']['party_enrichment']=['capture_sha256'=>$evidence['capture_sha256'],'captured_at'=>$capture['captured_at'],'source_instance'=>$capture['source_instance']];
         $next['revision']=['kind'=>'ONEC_PARTY_ENRICHMENT','previous_sha256'=>$point['sha256']];$next['summary']['counts']=array_map('count',$next['data']['tables']);
         if($corrected['report']['banks_selected']>0){$next['limitations']=array_values(array_filter($next['limitations'],static fn($s)=>!str_starts_with($s,'Рабочие банковские счета не подтверждены:')));$next['limitations'][]='Контакты и основные счета дополнены текущим чтением 1С от '.date('d.m.Y',$at).'; отсутствие сведений не заменялось догадкой. Историческое состояние реквизитов на 31.10 отдельно не удостоверяется.';}
@@ -50,7 +52,10 @@ final class ZeroPointPartyEnrichment
             foreach($next['tables'][$table] as $row){
                 $before=$old[$row['id']]??null;if($before && ZeroPoint::json($before)===ZeroPoint::json($row))continue;
                 if(!$before){$cols=array_keys($row);$p->prepare('INSERT INTO '.$table.' (`'.implode('`,`',$cols).'`) VALUES ('.implode(',',array_fill(0,count($cols),'?')).')')->execute(array_values($row));continue;}
-                $fields=[];foreach($row as $key=>$value)if($key!=='id' && $key!=='version' && (string)$value!==(string)$before[$key])$fields[$key]=$value;
+                $fields=[];foreach($row as $key=>$value)if($key!=='id' && $key!=='version'){
+                    $same=$key==='source_json'?ZeroPoint::json(json_decode($value,true))===ZeroPoint::json(json_decode($before[$key],true)):(string)$value===(string)$before[$key];
+                    if(!$same)$fields[$key]=$value;
+                }
                 if(!$fields)continue;$set=implode(',',array_map(static fn($k)=>'`'.$k.'`=?',array_keys($fields)));if($table==='parties')$set.=',version=version+1';
                 $p->prepare('UPDATE '.$table.' SET '.$set.' WHERE id=?')->execute([...array_values($fields),$row['id']]);
             }
