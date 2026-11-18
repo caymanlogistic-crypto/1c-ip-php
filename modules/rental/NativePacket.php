@@ -143,6 +143,7 @@ final class NativePacket
         foreach ([&$record, &$contract, &$party, &$organization, &$file, &$legal] as &$row) unset($row['source_json']);
         unset($row);
         $context=compact('record', 'contract', 'party', 'organization', 'legal', 'file', 'terms', 'objects', 'template', 'financial_state');
+        if($pack=WordPack::evidence($p,$file['id']))$context['word_pack']=$pack;
         if($partState!==null)$context['part_state']=$partState;
         return $context;
     }

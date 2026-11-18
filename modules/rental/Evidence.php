@@ -53,6 +53,7 @@ final class Evidence {
             $terms,
             $f['id'],
             $f['sha256'],
+            ...(($pack=WordPack::evidence($p,$fileId))?['word_pack'=>$pack]:[]),
             TemplateAssets::signature(TemplateAssets::active($p,'addendum')),
             ...( ($parts = PartTerms::signatureTerms($p, 'document', (int)$d['id']))?['part_terms' => $parts]:[]),
             ...( ($state = \App\BillingPartTerms::state($p, 'document', (int)$d['id']))!==null?['part_state' => $state]:[]),
@@ -119,6 +120,7 @@ final class Evidence {
             $c,
             $objects,
             TemplateAssets::signature(TemplateAssets::active($p,TemplateAssets::contractKind($p,$c))),
+            ...(($pack=WordPack::evidence($p,$fileId))?['word_pack'=>$pack]:[]),
             [
                 'id' => $file['id'],
                 'sha256' => $file['sha256'],
