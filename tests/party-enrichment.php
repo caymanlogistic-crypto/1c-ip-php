@@ -39,10 +39,10 @@ $small=$capture['data'];$small['parties']=[$guid=>$small['parties'][$guid]];$ban
 $fixture=static function($method,$resource,$query,$headers,$seconds,$cap)use($small,$check){
     $check($method==='GET','Supplement is GET only');$check(!str_contains($query['$select']??'','ДатаРождения'),'Birthdays excluded');
     $key=match($resource){'Catalog_Контрагенты'=>'parties','Catalog_КонтактныеЛица'=>'contacts','Catalog_БанковскиеСчета'=>'bank_accounts','Catalog_Банки'=>'banks','Catalog_Валюты'=>'currencies','Catalog_ВидыКонтактнойИнформации'=>'kinds','Catalog_РолиКонтактныхЛиц'=>'roles',default=>throw new RuntimeException('Unexpected route')};
-    $rows=array_values($small[$key]);if($key==='banks')$rows=array_values(array_filter($rows,static fn($r)=>str_contains($query['$filter'],$r['Ref_Key'])));if($key==='currencies')$rows=array_values(array_filter($rows,static fn($r)=>str_contains($query['$filter'],$r['Ref_Key'])));
+    $rows=array_values($small[$key]);if(in_array($key,['banks','currencies','contacts'],true))$rows=array_values(array_filter($rows,static fn($r)=>str_contains($query['$filter'],$r['Ref_Key'])));
     return ['status'=>200,'body'=>json_encode(['value'=>$rows])];
 };
-$reader=new NativeOnec\Reader('fixture','not-a-secret',null,$fixture);$actual=$reader->partySupplement([$guid]);$check(count($actual['parties'])===1,'Bounded party fetched');$check(count($reader->requests)<=12,'Request budget retained');
+$reader=new NativeOnec\Reader('fixture','not-a-secret',null,$fixture);$actual=$reader->partySupplement([$guid],[$extra]);$check(count($actual['parties'])===1,'Bounded party fetched');$check(count($actual['contacts'])===2,'Primary and observed additional contact fetched by exact ID');$check(count($reader->requests)<=12,'Request budget retained');
 try{(new NativeOnec\Reader('fixture','not-a-secret',null,$fixture))->partySupplement(["x' or true"]);throw new LogicException('Injection accepted');}catch(RuntimeException $e){$check($e->getMessage()==='READ_KEY_INVALID','Query injection denied before network');}
 $sha=ZeroPoint::digest($capture);ZeroPoint::write(OnecPartySupplement::directory().'/'.$sha.'.json',$capture);
 $login('manager');$deny(static fn()=>ZeroPointPartyEnrichment::prepare(['capture_sha256'=>$sha]),403);$login('admin');
