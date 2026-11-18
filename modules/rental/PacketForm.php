@@ -46,6 +46,7 @@ final class PacketForm
         if ($rows) {
             $body .= Controller::table(['Назначение', 'Период', 'Сумма с НДС', 'НДС'], $rows);
         }
+        if(isset($context['word_pack']))$body.=WordPack::links($context['word_pack']);
         $body .= '<input type="hidden" name="expected_packet_hash" value="'
             .View::e($packet['expected_packet_hash']).'">'
             .'<input type="hidden" name="packet_confirmed" value="1">';

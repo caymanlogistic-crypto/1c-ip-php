@@ -287,7 +287,9 @@ final class PagePolicy {
                 'generate',
                 'download',
                 'upload',
-                'word-pdf'
+                'word-pdf',
+                'word-form',
+                'word-pack'
             ], true)) {
                 // These callbacks enforce Access::contract/document/file from persisted entity state.
                 // A query-string context never grants access. No arbitrary rental-page fallback.

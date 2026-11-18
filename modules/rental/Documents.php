@@ -221,6 +221,9 @@ final class Documents {
                 ]);
                 $state['stage']='file_order';
                 FileOrder::assign($p, $fid);
+                if($kind==='lawyer-file') {
+                    $q=$p->prepare('SELECT * FROM rental_files WHERE id=?');$q->execute([$fid]);WordPack::inherit($p,$q->fetch());
+                }
                 $state['stage']='audit';
                 Audit::record('document.upload', $type, $id, null, [
                     'file' => $fid,
@@ -424,6 +427,7 @@ final class Documents {
     }
 
     public static function generate():never {
+        if (isset($_POST['original_pack'])) WordPack::generate();
         Http::checkCsrf();
         $id = (int)($_POST['id'] ?? 0);
         $version = (int)($_POST['version'] ?? 0);
