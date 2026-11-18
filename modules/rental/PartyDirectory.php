@@ -153,8 +153,12 @@ final class PartyDirectory
             .DirectoryUi::input('correspondent_account','Корреспондентский счёт',$bankValue('correspondent_account'),'text',true).'</div></section>'
             .'<section class="registry-ui-form-section" aria-labelledby="party-edo-title"><h3 class="registry-ui-modal-summary" id="party-edo-title">ЭДО</h3><div class="registry-ui-form-row">'
             .DirectoryUi::input('edo','Оператор ЭДО',$party['edo'] ?? '').DirectoryUi::input('edo_id','Идентификатор ЭДО',$party['edo_id'] ?? '').'</div></section></div>';
-        [$form,$actions]=DirectoryUi::form('party.save',$party,$body);
-        return RentalUI::modal($id?'Редактировать контрагента':'Новый контрагент',$form,$actions,'parties',true,$party?self::statusButton($party):'',canvas:true);
+        [$form,$actions,$formId]=DirectoryUi::form('party.save',$party,$body);
+        // Temporary presentation helper, only for a new party opened from a contract.
+        $demo=!$id && ($_GET['context'] ?? '')==='contract-create'
+            ?'<button class="btn btn-danger" type="button" form="'.View::e($formId).'" data-party-demo-fill="company">Демо: ООО</button>'
+            .'<button class="btn btn-danger" type="button" form="'.View::e($formId).'" data-party-demo-fill="entrepreneur">Демо: ИП</button>':'';
+        return RentalUI::modal($id?'Редактировать контрагента':'Новый контрагент',$form,$actions,'parties',true,$party?self::statusButton($party):$demo,canvas:true);
     }
 
     public static function status(): string

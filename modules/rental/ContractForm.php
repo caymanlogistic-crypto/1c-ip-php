@@ -88,7 +88,7 @@ final class ContractForm {
         . '<select class="field-input field-select" id="contract-party" name="party_id" required data-rental-picker="party">'
         . $options
         . '</select>'
-        . '<button class="btn btn-secondary" type="button" data-rental-open="/rental/edit-party" data-rental-create-party>Создать контрагента</button>'
+        . '<button class="btn btn-secondary" type="button" data-rental-open="/rental/edit-party?context=contract-create" data-rental-create-party>Создать контрагента</button>'
         . '</div>'
         . '</div>'
         . '<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
