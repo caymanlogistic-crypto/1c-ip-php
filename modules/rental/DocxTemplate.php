@@ -125,7 +125,7 @@ final class DocxTemplate
         return true;
     }
 
-    public static function build(string $source,array $values,string $kind,string $target): void
+    public static function build(string $source,array $values,string $kind,string $target,?array $requiredFields=null): void
     {
         self::validate($source);
         foreach ($values as $value) {
@@ -150,6 +150,7 @@ final class DocxTemplate
         }
         $required=['number','date','party','organization','terms','total','vat'];
         if ($kind==='addendum') $required=array_merge($required,['base','effective']);
+        if ($requiredFields!==null) $required=$requiredFields;
         if (array_diff($required,array_keys($tokens)) || array_diff(array_keys($tokens),array_keys($values))) {
             throw new RuntimeException('Word-шаблон не содержит всех полей текущих условий или содержит неизвестные поля. Используйте основу Word либо приложите готовый Word/PDF.');
         }
