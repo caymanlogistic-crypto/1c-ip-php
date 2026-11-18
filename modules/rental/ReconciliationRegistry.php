@@ -111,14 +111,14 @@ final class ReconciliationRegistry
         }
         $options='<option value="all">Все контрагенты</option>';
         foreach ($parties as $id=>$name) $options.='<option value="'.View::e($id).'"'.((string)$id===$party?' selected':'').'>'.View::e($name).'</option>';
-        $controls='<form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'.View::e($flag).'">'
-            .DirectoryUi::search($query).'<label class="field registry-ui-filter-field"><span class="field-label">Контрагент</span>'
-            .'<select name="party" id="party-filter" class="field-select">'.$options.'</select></label>'
-            .'<button type="submit" name="reset" value="1" class="registry-ui-reset">Сбросить фильтры</button></form>';
+        $controls='<input type="hidden" name="flag" value="'.View::e($flag).'">'
+            .'<button type="submit" name="reset" value="1" class="registry-ui-reset"'.($query==='' && $party==='all'?' hidden':'').'>Сбросить фильтры</button>'
+            .'<select name="party" id="party-filter" class="field-select toolbar-select" aria-label="Контрагент">'.$options.'</select>'
+            .DirectoryUi::search($query,true);
         $body=Controller::heading('Финальная сверка','Взаиморасчёты, юридическая проверка и возврат помещения.')
             .Controller::tabs($tabs,$flag,false,['party'=>$party,'q'=>$query])
             .DirectoryUi::registry('rental-reconciliation',['Договор','Контрагент','Завершение','Бухгалтер','Юрист','Акт возврата','Состояние'],
-                $rows,['short','flex','code','text','text','flex','flex'],$controls);
+                $rows,['short','flex','code','text','text','flex','flex'],$controls,filterForm:true);
         return View::page('Финальная сверка',$body,'reconciliation');
     }
 }
