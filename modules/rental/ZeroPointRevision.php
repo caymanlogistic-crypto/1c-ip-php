@@ -9,7 +9,7 @@ use RuntimeException;
 /** File publication reconciled against the existing command receipt; never reruns an unknown command. */
 final class ZeroPointRevision
 {
-    private const COMMANDS=['zero-point.correct'=>ZeroPointCorrection::class,'zero-point.continuity'=>ZeroPointContinuity::class];
+    private const COMMANDS=['zero-point.correct'=>ZeroPointCorrection::class,'zero-point.continuity'=>ZeroPointContinuity::class,'zero-point.clarify'=>ZeroPointClarification::class];
     private static function access(): void
     {
         if (PHP_SAPI!=='cli') throw new RuntimeException('Ревизия доступна только CLI.',403);
