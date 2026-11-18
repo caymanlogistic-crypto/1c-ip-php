@@ -215,8 +215,7 @@ final class MonthlyBilling {
             $plan['period'],
             $plan['amount'],
             $date,
-            $plan['period']
-            . '-01',
+            InvoiceDueDate::automatic($date,$plan['period'],false),
             $plan['key']
         ]);
         if (isset($plan['invoice_targets'])) foreach($plan['objects'] as $object) {

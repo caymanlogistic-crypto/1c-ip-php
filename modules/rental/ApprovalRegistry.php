@@ -48,7 +48,7 @@ final class ApprovalRegistry
         }
         $controls='<input type="hidden" name="flag" value="'.View::e($flag).'">'
             .'<button class="registry-ui-reset" type="submit" name="reset" value="1"'.($query==='' && $filter==='all'?' hidden':'').'>Сбросить фильтры</button>'
-            .'<select class="field-select toolbar-select" id="status-filter" name="filter" aria-label="Стадия"><option value="all">Все стадии</option>';
+            .'<select class="toolbar-select" id="status-filter" name="filter" aria-label="Стадия"><option value="all">Все стадии</option>';
         foreach ($stages as $key=>$label) $controls.='<option value="'.View::e($key).'"'.($filter===$key?' selected':'').'>'.View::e($label).'</option>';
         $controls.='</select>'.DirectoryUi::search($query,true);
         $create=in_array($role,['admin','manager'],true) && PagePolicy::level('rental.contracts',Auth::user())>=2?RentalUI::button('Создать договор','/rental/document-creator',true):'';
