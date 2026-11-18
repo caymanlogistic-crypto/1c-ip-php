@@ -34,6 +34,9 @@ try{
     foreach(['Офис','Машиноместо'] as $type){
         $selection=['office'=>0,'parking'=>0,'services'=>0,'handover'=>0,'parking-handover'=>0];
         $id=fixture($type);$c=Service::get($db,'contracts',$id);actor('lawyer');$plan=WordPack::plan($db,'contract',$id,(int)$c['version'],$selection);
+        ok(str_contains(WordPack::action($c),'Сформировать пакет Word'),'Supplied subject uses new package');
+        $mixed=array_replace($c,['template_type'=>'mixed']);$mixedAction=WordPack::action($mixed);
+        ok(str_contains($mixedAction,'action="/rental/generate"')&&!str_contains($mixedAction,'original_pack'),'Unsupplied mixed subject retains approved legacy generation');
         $input=inputFor($plan);$hashes=array_map(static fn($s)=>$s['sha256'],$plan['sources']);$key=bin2hex(random_bytes(16));
         reject(fn()=>WordPack::produce($db,'contract',$id,(int)$c['version'],$selection,[],$hashes,$key,$created),'Заполните');
         $pack=WordPack::produce($db,'contract',$id,(int)$c['version'],$selection,$input,$hashes,$key,$created);ok(count($pack['files'])===3,'Three separate Word documents');

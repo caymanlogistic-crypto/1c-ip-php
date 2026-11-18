@@ -37,6 +37,15 @@ final class WordPack
         return '<input type="hidden" name="'.View::e($name).'" value="'.View::e($value).'">';
     }
 
+    public static function action(array $contract): string
+    {
+        if(TemplateAssets::contractKind(DB::pdo(),$contract)!=='mixed')return RentalUI::button('Сформировать пакет Word','/rental/word-form?id='.$contract['id'].'&version='.$contract['version']);
+        // No mixed owner sample was supplied; preserve its existing approved Word path.
+        return '<form method="post" action="/rental/generate">'.self::hidden('_csrf',Http::csrf())
+            .self::hidden('id',$contract['id']).self::hidden('version',$contract['version'])
+            .'<button class="btn btn-secondary" name="format" value="docx">Сформировать Word смешанного договора</button></form>';
+    }
+
     public static function form(): string
     {
         $entity=(string)($_GET['entity_type']??'contract');$id=(int)($_GET['id']??0);$version=(int)($_GET['version']??0);

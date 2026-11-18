@@ -362,7 +362,7 @@ final class SourceCards {
             . '</label>';
             else {
                 $extra = LegalReview::upload($c)
-                . RentalUI::button('Сформировать пакет Word','/rental/word-form?id='.$id.'&version='.$c['version'])
+                . WordPack::action($c)
                 . (TemplateAssets::contractKind(\App\DB::pdo(),$c)==='office'?RentalUI::button('Word: смена номера помещения','/rental/word-form?id='.$id.'&version='.$c['version'].'&mode=room-change'):'');
             }
         }
