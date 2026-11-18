@@ -98,7 +98,18 @@
   }
   function unmount(root){const entry=mounted.get(root);if(!entry)return;for(const dispose of entry.disposers)dispose?.();for(const table of root.querySelectorAll('[data-registry-cards-at]')){const binding=mediaBindings.get(table);if(binding){binding.media.removeEventListener('change',binding.sync);mediaBindings.delete(table);delete table.dataset.registryCardsReady;}}mounted.delete(root);delete root.dataset.registryReady;}
   function mount(root,{managedMarkup=false,scroll:withScroll=true}={}){if(mounted.has(root))return mounted.get(root);const entry={disposers:[]};mounted.set(root,entry);if(!managedMarkup){textRoles(root);entry.disposers.push(state(root));}if(withScroll)entry.disposers.push(scroll(root));root.dataset.registryReady='true';return entry;}
-  window.PlanexRegistry={mount,unmount,textRoles};
+  function setDisclosure(button,expanded){
+    const content=document.getElementById(button.getAttribute('aria-controls'));
+    if(!content)return;
+    button.setAttribute('aria-expanded',String(expanded));
+    content.hidden=!expanded;
+    if(button.dataset.groupName)button.setAttribute('aria-label',(expanded?'Свернуть счета: ':'Показать счета: ')+button.dataset.groupName);
+  }
+  document.addEventListener('click',event=>{
+    const button=event.target.closest('[data-registry-disclosure]:not([data-rental-toggle-group])');
+    if(button)setDisclosure(button,button.getAttribute('aria-expanded')!=='true');
+  });
+  window.PlanexRegistry={mount,unmount,textRoles,setDisclosure};
   const init=()=>setTimeout(()=>document.querySelectorAll('[data-registry-id]').forEach(root=>mount(root,{managedMarkup:root.hasAttribute('data-registry-managed-markup'),scroll:!root.hasAttribute('data-registry-managed-scroll')})),0);
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();

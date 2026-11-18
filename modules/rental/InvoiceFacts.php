@@ -5,6 +5,37 @@ namespace Modules\Rental;
 /** Read-only registry facts; money and unknown values retain their SQL precision. */
 final class InvoiceFacts
 {
+    private static function reviewExplanation(array $invoice): string
+    {
+        $review=$invoice['_calculation_review'] ?? null;
+        if(!is_array($review)||!isset($review['historicalAmount'],$review['expectedAmount'],$review['difference']))
+            return 'Финансовые данные изменены. Конкретное расхождение не сохранено — проверьте историю счёта.';
+        $money=static fn($v)=>strip_tags(Controller::money($v));
+        $document=!empty($review['document_number'])?'ДС №'.$review['document_number']:'изменения условий';
+        $effective=$review['document_effective_date'] ?? $review['effectiveDate'] ?? null;
+        $text='При проверке после '.$document.($effective?' с '.Documents::dateText($effective):'').': в счёте '.$money($review['historicalAmount']).', расчёт '.$money($review['expectedAmount']).'; расхождение '.$money($review['difference']).'.';
+        if(!empty($review['excludedTargets']))$text.=' Исключены из начисления: '.implode(', ',$review['excludedTargets']).'.';
+        if($invoice['paid']!==null)$text.=' Оплачено '.$money($invoice['paid']).'.';
+        if(!empty($review['replacement_invoices']))$text.=' По этому ДС выставлен отдельный счёт: '.implode(', ',$review['replacement_invoices']).'. Проверьте корректировку старого начисления и распределение оплаты.';
+        return $text;
+    }
+
+    public static function overdueDays(array $invoice, ?string $today = null): int
+    {
+        $today ??= date('Y-m-d');
+        $remaining = self::remaining($invoice);
+        if ($invoice['status'] !== 'active' || !empty($invoice['control_closed'])
+            || $remaining === null || bccomp($remaining,'0',2) <= 0
+            || empty($invoice['due']) || $invoice['due'] >= $today) return 0;
+        return (int)(new \DateTimeImmutable($invoice['due']))->diff(new \DateTimeImmutable($today))->days;
+    }
+
+    public static function overdueSeverity(array $invoice, ?string $today = null): string
+    {
+        $days = self::overdueDays($invoice,$today);
+        return $days > 5 ? 'red' : ($days > 0 ? 'yellow' : '');
+    }
+
     public static function remaining(array $invoice): ?string
     {
         if ($invoice['amount'] === null || $invoice['paid'] === null) return null;
@@ -19,6 +50,7 @@ final class InvoiceFacts
         $sendError=empty($delivery['handed']) && (!empty($raw['sendError'])
             || in_array($delivery['intent']['status'] ?? '',['blocked','failed','unknown'],true));
         $remaining = self::remaining($invoice);
+        $overdueDays = self::overdueDays($invoice);
         $unpaid = $invoice['status'] !== 'revoked' && $remaining !== null && bccomp($remaining, '0', 2) > 0;
         $state = match (true) {
             !empty($raw['issueError']) => 'Счёт не сформирован',
@@ -44,16 +76,16 @@ final class InvoiceFacts
                 : (($delivery['intent']['status'] ?? '')==='blocked'
                     ? (json_decode($delivery['intent']['payload_json'],true)['preflight']['message'] ?? 'Не удалось подготовить отправку счёта.')
                     : 'Письмо клиенту не отправлено. Повторите отправку или подтвердите передачу документов.'),
-            !empty($invoice['manual_review']) => 'После изменения финансовых данных требуется ручная повторная проверка.',
+            !empty($invoice['manual_review']) => self::reviewExplanation($invoice),
             $remaining === null => 'Исходные данные не подтверждают сумму или оплату.',
-            $unpaid && $severity !== '' => 'Остаток '.strip_tags(Controller::money($remaining)).' · контроль оплаты по рабочему календарю.',
+            $overdueDays > 0 => 'Остаток '.strip_tags(Controller::money($remaining)).' · просрочка: '.$overdueDays.' календ. дн.',
             $unpaid => 'Ожидается оплата за указанный период.',
             default => 'Оплата учтена, задолженности нет.',
         };
         return [
             'remaining'=>$remaining, 'unpaid'=>$unpaid, 'severity'=>$severity,
             'attention'=>$severity !== '',
-            'overdue'=>$invoice['status'] === 'active' && empty($invoice['control_closed']) && $unpaid && !empty($invoice['due']) && $invoice['due'] < date('Y-m-d'),
+            'overdue'=>$overdueDays > 0, 'overdue_days'=>$overdueDays,
             'paid'=>$invoice['status'] === 'active' && $remaining !== null && bccomp($remaining,'0',2) === 0,
             'state'=>$state, 'explanation'=>$explanation,
             'send_error'=>$sendError,

@@ -64,6 +64,19 @@ final class FinanceService {
             Service::event($p,$u,$action,'Документы по счёту '.$i['number'].' переданы клиенту',(int)$c['id']);
             return ['id'=>$id,'invoice_id'=>$id,'message'=>'Передача документов клиенту подтверждена.'];
         }
+        if ($action === 'invoice.edit-due') {
+            Service::roles(['accountant']);
+            \App\Auth::requirePermission('finance.write');
+            if($i['status']==='revoked')throw new RuntimeException('Отозванный счёт доступен только для просмотра.',409);
+            $due=Service::date((string)($in['due'] ?? ''));
+            $reason=trim((string)($in['reason'] ?? ''));
+            if($reason==='')throw new RuntimeException('Укажите основание изменения срока оплаты.',422);
+            self::remember($p,$i,(int)$u['id']);
+            $p->prepare('UPDATE invoices SET due=?,version=version+1 WHERE id=?')->execute([$due,$id]);
+            Audit::record($action,'invoice',$id,['due'=>$i['due'],'version'=>$i['version']],['due'=>$due,'version'=>(int)$i['version']+1,'reason'=>$reason]);
+            Service::event($p,$u,$action,'Срок оплаты счёта '.$i['number'].': '.($i['due'] ?? 'не указан').' → '.$due.'; '.$reason,(int)$c['id']);
+            return ['id'=>$id,'invoice_id'=>$id,'message'=>'Срок оплаты сохранён.'];
+        }
         if (in_array($action, [
             'invoice.issue',
             'invoice.edit'
@@ -93,9 +106,7 @@ final class FinanceService {
             $period = $kind === 'Обеспечительный платёж'?'Обеспечение':($in['period'] ?? substr($issued, 0, 7));
             if ($kind !== 'Обеспечительный платёж')Service::date($period
             . '-01');
-            $due = Service::date($in['due'] ?? ($initial?date('Y-m-d', strtotime($issued
-            . ' +3 days')):$period
-            . '-01'));
+            $due = Service::date($in['due'] ?? InvoiceDueDate::automatic($issued,$period,$initial));
             if ($i) {
                 self::remember($p, $i, (int)$u['id']);
                 $write=static function() use($p,$number,$title,$purpose,$issued,$amount,$kind,$initial,$period,$due,$id): void {

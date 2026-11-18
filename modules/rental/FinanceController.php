@@ -79,6 +79,7 @@ final class FinanceController {
         Auth::requirePermission('rental.read');
         $id = (int)($_GET['id'] ?? 0);
         $r = self::invoice($id);
+        $r['_calculation_review']=InvoiceCalculation::reviewFacts(DB::pdo(),[$id])[$id] ?? null;
         $raw=json_decode($r['source_json'],true) ?: [];
         $r['_delivery']=InvoiceDelivery::presentation(DB::pdo(),$id);
         $delivery=$r['_delivery']['intent'];
@@ -139,11 +140,9 @@ final class FinanceController {
                 Controller::money($debt)
             ]
         ]);
-        $review = Controller::query("SELECT fact_json FROM rental_facts WHERE namespace='calculation_review' AND source_key=?", [
-            (string)$id
-        ])[0] ?? null;
+        $review = $r['_calculation_review'];
         if ($review) {
-            $x = json_decode($review['fact_json'], true);
+            $x = $review;
             $body.=RentalUI::pairs([
                 [
                     'Расчёт по новым условиям',
@@ -161,9 +160,7 @@ final class FinanceController {
             foreach ($coverage as $item) $rows[]=[View::e($item['object_name'] ?? $item['object_id']),Documents::dateText($item['start_date']),Documents::dateText($item['end_date'])];
             $body.=Controller::table(['Помещение','Период с','По'],$rows);
         }
-        $body.='<span class="registry-ui-modal-help">'.($r['initial_invoice']
-            ? 'Первоначальный счёт: от даты выставления, второй рабочий день — жёлтый, третий — красный. Проверка в 13:00.'
-            : 'Ежемесячная аренда: счёт 25-го или предыдущего рабочего дня; первый и второй рабочие дни месяца — жёлтый, третий — красный.').'</span>';
+        $body.='<span class="registry-ui-modal-help">Просрочка неоплаченного остатка считается от даты «Оплатить до»: 1–5 календарных дней — жёлтый, с 6-го дня — красный. Контроль после 13:00 по Москве.</span>';
         $payments = [
         ];
         foreach (Controller::query('SELECT p.*,a.amount allocated FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.invoice_id=? ORDER BY p.payment_date,p.id', [
