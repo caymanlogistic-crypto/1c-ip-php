@@ -16,6 +16,7 @@ final class WordPack
         $data=WordGenerationData::load($db,$entity,$id,$version,$auxiliary);
         if($entity!=='contract')throw new RuntimeException('Этот пакет формируется из договора аренды.',422);
         $primary=TemplateAssets::contractKind($db,$data['contract']);
+        if($auxiliary&&$primary!=='office')throw new RuntimeException('Образец смены номера помещения предназначен для договора помещений. Для парковки или смешанного договора нужен соответствующий образец ДС.',422);
         if(!$auxiliary&&!in_array($primary,['office','parking'],true))throw new RuntimeException('Для смешанного договора выберите отдельные документы по предмету аренды.',422);
         $kinds=$auxiliary?['room-change']:[$primary,'services',$primary==='parking'?'parking-handover':'handover'];
         $sources=[];$fields=[];

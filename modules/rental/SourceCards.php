@@ -81,7 +81,7 @@ final class SourceCards {
         if ($delivery && $delivery['message']!=='') $body.=RentalUI::alert('Документы и доставка',$delivery['message'],$delivery['error']?'error':'info');
         $actions = '';
         if($c['status']==='active'&&in_array($role,['admin','lawyer'],true)&&Auth::can('rental.approve.legal')
-            &&\App\PagePolicy::level('rental.approvals',Auth::user())>=2)$actions.=RentalUI::button('Word: смена номера помещения','/rental/word-form?id='.$id.'&version='.$c['version'].'&mode=room-change');
+            &&\App\PagePolicy::level('rental.approvals',Auth::user())>=2&&TemplateAssets::contractKind(\App\DB::pdo(),$c)==='office')$actions.=RentalUI::button('Word: смена номера помещения','/rental/word-form?id='.$id.'&version='.$c['version'].'&mode=room-change');
         if (isset($_SESSION['rental_notice'])) {
             $body.=RentalUI::alert($_SESSION['rental_notice']);
             unset($_SESSION['rental_notice']);
@@ -363,7 +363,7 @@ final class SourceCards {
             else {
                 $extra = LegalReview::upload($c)
                 . RentalUI::button('Сформировать пакет Word','/rental/word-form?id='.$id.'&version='.$c['version'])
-                . RentalUI::button('Word: смена номера помещения','/rental/word-form?id='.$id.'&version='.$c['version'].'&mode=room-change');
+                . (TemplateAssets::contractKind(\App\DB::pdo(),$c)==='office'?RentalUI::button('Word: смена номера помещения','/rental/word-form?id='.$id.'&version='.$c['version'].'&mode=room-change'):'');
             }
         }
         if (in_array($action, [
