@@ -1,0 +1,90 @@
+<?php
+declare(strict_types=1);
+namespace Modules\Rental;
+use RuntimeException;
+
+/** Fill empty directory fields from explicit OneC relationships; never infer delivery recipients. */
+final class PartySupplementMapping
+{
+    private static function unique(array $values): ?string
+    {
+        $values=array_values(array_unique(array_filter(array_map(static fn($v)=>trim((string)$v),$values),static fn($v)=>$v!=='')));
+        return count($values)===1?$values[0]:null;
+    }
+    private static function info(array $row,array $kinds): array
+    {
+        $out=['phone'=>[],'email'=>[],'legal'=>[],'postal'=>[]];
+        foreach($row['КонтактнаяИнформация']??[] as $ci){
+            $type=$ci['Тип']??'';$value=trim((string)($ci['Представление']??''));
+            if($type==='Телефон')$out['phone'][]=($ci['НомерТелефона']??'')?:$value;
+            elseif($type==='АдресЭлектроннойПочты'){$email=trim((string)(($ci['АдресЭП']??'')?:$value));if(filter_var($email,FILTER_VALIDATE_EMAIL))$out['email'][]=$email;}
+            elseif($type==='Адрес'){
+                $kind=$kinds[$ci['Вид_Key']??'']??[];$label=($kind['PredefinedDataName']??'').' '.($kind['ИмяПредопределенногоВида']??'').' '.($kind['Description']??'');
+                if(preg_match('/Юридическ|ЮрАдрес/iu',$label))$out['legal'][]=$value;
+                elseif(preg_match('/Почтов/iu',$label))$out['postal'][]=$value;
+            }
+        }
+        return array_map(self::unique(...),$out);
+    }
+    private static function contactName(array $c): string
+    {
+        return trim((string)($c['Description']??'')).(empty($c['Должность'])?'':', '.trim($c['Должность']));
+    }
+    public static function correct(array $data,array $capture,int $nextBankId): array
+    {
+        $d=$capture['data'];$sha=ZeroPoint::digest($capture);$report=['fields'=>[],'banks_selected'=>0,'banks_added'=>0,'conflicts'=>[],'missing'=>[]];$seen=[];
+        foreach($data['tables']['parties'] as &$party){
+            $id=(string)$party['id'];if(!isset($capture['scope'][$id]))continue;
+            $guid=$capture['scope'][$id];$raw=json_decode($party['source_json'],true,512,JSON_THROW_ON_ERROR);$live=$d['parties'][$guid]??null;
+            if(($raw['source_party_guid']??'')!==$guid || !$live || ($live['Ref_Key']??'')!==$guid || ($live['DeletionMark']??null)!==false || ($live['IsFolder']??null)!==false || empty($live['DataVersion']))throw new RuntimeException('Party source identity changed.',409);
+            $seen[$id]=true;$info=self::info($live,$d['kinds']);$contacts=[];
+            foreach($d['contacts'] as $key=>$contact)if(($contact['ОбъектВладелец']??'')===$guid){
+                if(($contact['ОбъектВладелец_Type']??'')!=='StandardODATA.Catalog_Контрагенты'||($contact['DeletionMark']??null)!==false||($contact['Ref_Key']??'')!==$key)throw new RuntimeException('Contact owner mismatch.',409);
+                $contacts[$key]=$contact;
+            }
+            $primary=$contacts[$live['ОсновноеКонтактноеЛицо_Key']??'']??null;$other=$contacts;if($primary)unset($other[$primary['Ref_Key']]);
+            $extra=count($other)===1?reset($other):null;
+            $primaryInfo=$primary?self::info($primary,$d['kinds']):[];$extraInfo=$extra?self::info($extra,$d['kinds']):[];
+            $values=['inn'=>$live['ИНН']??null,'kpp'=>$live['КПП']??null,'address'=>$info['legal'],'legal_address'=>$info['legal'],'postal_address'=>$info['postal'],
+                'contact'=>$primary?self::contactName($primary):null,'phone'=>$primaryInfo['phone']??$info['phone'],'email'=>$primaryInfo['email']??$info['email'],
+                'additional_contact'=>$extra?self::contactName($extra):null,'additional_phone'=>$extraInfo['phone']??null,'account_email'=>$extraInfo['email']??null];
+            $filled=[];
+            foreach($values as $field=>$value){
+                if($value===null || trim((string)$value)===''){if(empty($party[$field]))$report['missing'][$field]=($report['missing'][$field]??0)+1;continue;}
+                $value=trim((string)$value);
+                if(($field==='inn' && !preg_match('/^(?:\d{10}|\d{12})$/D',$value))||($field==='kpp' && !preg_match('/^[0-9A-Z]{9}$/D',$value)))continue;
+                if(trim((string)($party[$field]??''))===''){$party[$field]=$value;$filled[]=$field;$report['fields'][$field]=($report['fields'][$field]??0)+1;}
+                elseif(trim((string)$party[$field])!==$value)$report['conflicts'][]=['party_id'=>(int)$id,'field'=>$field,'resolution'=>'EXISTING_VALUE_PRESERVED'];
+            }
+            // Check duplicate native identities before filling a previously blank INN.
+            if(in_array('inn',$filled,true))foreach($data['tables']['parties'] as $otherParty)if((int)$otherParty['id']!==(int)$id && trim((string)$otherParty['inn'])===$party['inn'])throw new RuntimeException('INN would merge existing parties.',409);
+            $accountKey=$live['ОсновнойБанковскийСчет_Key']??'';$account=$d['bank_accounts'][$accountKey]??null;
+            $operational=array_values(array_filter($data['tables']['party_bank_accounts'],static fn($b)=>(int)$b['party_id']===(int)$id && (int)$b['operational']===1));
+            if(!$operational && $account){
+                $bank=$d['banks'][$account['Банк_Key']??'']??[];$currency=$d['currencies'][$account['ВалютаДенежныхСредств_Key']??'']??[];
+                $closed=$account['ДатаЗакрытия']??'';
+                $usable=($account['Owner']??'')===$guid && ($account['Owner_Type']??'')==='StandardODATA.Catalog_Контрагенты'
+                    && ($account['Ref_Key']??'')===$accountKey && ($account['DeletionMark']??null)===false && ($bank['DeletionMark']??null)===false
+                    && ($account['Валютный']??null)===false && ($currency['Code']??'')==='643'
+                    && ($closed==='' || str_starts_with($closed,'0001-01-01') || substr($closed,0,10)>substr($capture['captured_at'],0,10));
+                $fields=['bank'=>$bank['Description']??'','account'=>$account['НомерСчета']??'','bik'=>$bank['Code']??'','correspondent_account'=>$bank['КоррСчет']??''];
+                try{$fields=DirectoryRules::bank($fields);}catch(RuntimeException){$usable=false;}
+                $found=[];foreach($data['tables']['party_bank_accounts'] as $i=>$b)if((json_decode($b['source_json'],true)['source_bank_account_guid']??'')===$accountKey){if((int)$b['party_id']!==(int)$id)throw new RuntimeException('Bank account owner changed.',409);$found[]=$i;}
+                if(count($found)>1)throw new RuntimeException('Ambiguous bank identity.',409);
+                if($found){$index=$found[0];$b=$data['tables']['party_bank_accounts'][$index];foreach(['account','bik','correspondent_account'] as $f)if(trim((string)$b[$f])!=='' && trim((string)$b[$f])!==$fields[$f])$usable=false;}
+                if($usable){
+                    if(!$found){$index=count($data['tables']['party_bank_accounts']);$b=['id'=>$nextBankId++,'party_id'=>(int)$id,...$fields,'operational'=>0,'source_json'=>'{}'];$report['banks_added']++;}
+                    foreach($fields as $f=>$v)if(trim((string)($b[$f]??''))==='')$b[$f]=$v;
+                    $bs=json_decode($b['source_json'],true)?:[];$bs['source_bank_account_guid']=$accountKey;$bs['source_party_guid']=$guid;
+                    $bs['one_c_enrichment']=['capture_sha256'=>$sha,'captured_at'=>$capture['captured_at'],'data_version'=>$account['DataVersion'],'selection'=>'EXPLICIT_LIVE_PRIMARY_BANK'];
+                    $b['operational']=1;$b['source_json']=ZeroPoint::json($bs);$data['tables']['party_bank_accounts'][$index]=$b;$report['banks_selected']++;
+                }else $report['conflicts'][]=['party_id'=>(int)$id,'field'=>'bank','resolution'=>'PRIMARY_BANK_NOT_CONFIRMED'];
+            }elseif(!$operational)$report['missing']['primary_bank']=($report['missing']['primary_bank']??0)+1;
+            $raw['one_c_enrichment']=['capture_sha256'=>$sha,'captured_at'=>$capture['captured_at'],'data_version'=>$live['DataVersion'],'filled_fields'=>$filled,
+                'contact_guids'=>array_keys($contacts),'edo'=>$d['edo'],'existing_values_preserved'=>true];
+            $party['source_json']=ZeroPoint::json($raw);
+        }unset($party);
+        foreach($capture['scope'] as $id=>$guid)if(!isset($seen[(string)$id]))throw new RuntimeException('Party scope not present in point.',409);
+        return ['data'=>$data,'report'=>$report];
+    }
+}

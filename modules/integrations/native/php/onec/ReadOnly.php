@@ -3,11 +3,13 @@ declare(strict_types=1);
 namespace NativeOnec;
 require_once __DIR__.'/OnecProbe.php';
 require_once __DIR__.'/FreshRead.php';
+require_once __DIR__.'/PartySupplement.php';
 
 /** Fixed HTTPS target, GET-only, up to ten primary records. No credential-file fallback. */
 final class Reader
 {
     use FreshRead;
+    use PartySupplement;
     public const COLLECTIONS=[
         'invoices'=>'Document_СчетНаОплатуПокупателю',
         'bank_in'=>'Document_ПоступлениеНаРасчетныйСчет',
@@ -42,7 +44,7 @@ final class Reader
     }
     private function get(string $resource,array $query=[]):array
     {
-        if(!in_array($resource,['','$metadata',...self::FRESH_CATALOGS,...array_values(self::COLLECTIONS)],true))throw new \RuntimeException('READ_ROUTE_REJECTED');
+        if(!in_array($resource,['','$metadata',...self::FRESH_CATALOGS,...self::SUPPLEMENT_CATALOGS,...array_values(self::COLLECTIONS)],true))throw new \RuntimeException('READ_ROUTE_REJECTED');
         if(count($this->requests)>=12||$this->bytes>=32*1024*1024)throw new \RuntimeException('REQUEST_BUDGET');
         $seconds=min($this->requestTimeout,$this->deadline-hrtime(true)/1e9);if($seconds<=0)throw new \RuntimeException('TIME_LIMIT');
         $cap=min($resource==='$metadata'?16*1024*1024:8*1024*1024,32*1024*1024-$this->bytes);
