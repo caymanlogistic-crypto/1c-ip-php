@@ -3,6 +3,10 @@ declare(strict_types = 1);
 namespace Modules\Rental;
 use App\DB;
 final class Indicators {
+    public static function returnSeverity(array $record): string
+    {
+        return ($record['return_to']??null)==='lawyer'?'yellow':'red';
+    }
     public static function documentTasks(array $document,bool $resubmitted=false,bool $sendError=false): array
     {
         if($document['status']==='signed')return !empty($document['applied'])?[]:array_map(
@@ -11,7 +15,7 @@ final class Indicators {
         $raw=json_decode($document['source_json'] ?? '{}',true) ?: [];
         $title=$raw['type'] ?? ($document['kind']==='termination'?'Соглашение о досрочном расторжении':'Допсоглашение о пролонгации');
         $target=RegistryState::owner($document);
-        $severity=$document['status']==='returned' || $sendError?'red':($document['status']==='legal' && $resubmitted?'blue':'yellow');
+        $severity=$sendError?'red':($document['status']==='returned'?self::returnSeverity($document):($document['status']==='legal' && $resubmitted?'blue':'yellow'));
         $tasks=[['role'=>$target,'severity'=>$severity,'text'=>$title.(!empty($document['reason'])?': '.$document['reason']:'')]];
         $observers=['manager','director'];
         if (in_array($document['status'],['accounting','approved','returned'],true)) $observers=array_merge($observers,['lawyer','accountant']);
@@ -123,7 +127,7 @@ final class Indicators {
                     'legal' => 'lawyer', 'accounting', 'approved' => 'accountant', 'returned' => $c['return_to'] ?? 'manager', default => 'manager'
                 };
                 $sla=$legalInfo('contract',$c);
-                $severity=$status==='returned'?'red':($sla['severity']??'yellow');
+                $severity=$status==='returned'?self::returnSeverity($c):($sla['severity']??'yellow');
                 $message=$status==='returned'?'Исправить замечания: '.$c['reason']:($status==='sent'?'Получить подписи или оплату':'Согласовать и подготовить пакет');
                 if(($sla['state']??null)==='UNKNOWN')$message.=' · Срок проверки не подтверждён';
                 if(($sla['working_seconds']??0)>=21600)$message.=' · Истекли 6 рабочих часов юридической проверки';

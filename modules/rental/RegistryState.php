@@ -49,7 +49,7 @@ final class RegistryState
         $cancelled=$record['status']==='cancelled';
         $source=$kind==='contract' && !self::managed($contract);
         $target=$source || $cancelled?null:self::owner($record);
-        $mine=array_values(array_filter($tasks,static fn($task)=>$task['role']===$role
+        $mine=array_values(array_filter($tasks,static fn($task)=>($role==='admin'||$task['role']===$role)
             && ($kind==='document'?$task['entity']==='document' && (int)$task['id']===(int)$record['id']:$task['entity']==='contract' && (int)$task['id']===(int)$record['id'] && $task['page']==='approvals')
             && ($role!=='director' || !in_array($task['severity'],['red','yellow'],true))));
         $raw=json_decode($record['source_json'],true) ?: [];

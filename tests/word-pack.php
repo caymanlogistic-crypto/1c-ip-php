@@ -57,6 +57,17 @@ try{
         // A missing or changed companion invalidates the same signature used at legal approval.
         $q=$db->prepare('SELECT path FROM rental_files WHERE id=?');$q->execute([$pack['files'][1]['id']]);$path=APP_ROOT.'/.local/documents/'.$q->fetchColumn();$bytes=file_get_contents($path);file_put_contents($path,$bytes.'x');
         reject(fn()=>Evidence::approvalSignature($db,$id,$pack['primary']),'целостности');file_put_contents($path,$bytes);
+        command('contract.legal',['id'=>$id,'version'=>$c['version'],'counterparty_confirmed'=>'1','financial_confirmed'=>'1','document_confirmed'=>'1','legal_file_id'=>$pack['primary']]);
+        actor('accountant');$current=Service::get($db,'contracts',$id);
+        command('contract.return',['id'=>$id,'version'=>$current['version'],'reason'=>'Уточнить текст']);actor('lawyer');
+        $current=Service::get($db,'contracts',$id);
+        $tasks=array_values(array_filter(Modules\Rental\Indicators::tasks(null,null,['approvals']),static fn($t)=>$t['entity']==='contract'&&(int)$t['id']===$id));
+        foreach(['lawyer','admin'] as $role){actor($role);$counts=Modules\Rental\Indicators::counts(App\Auth::user(),['approvals'],$tasks);
+            ok($counts['approvals']===[0,1,0,0],'Lawyer rework has one yellow marker');
+            ok(Modules\Rental\RegistryState::approval('contract',$current,$current,$role,$tasks)['severity']==='yellow','Lawyer rework row matches marker');}
+        actor('lawyer');command('contract.forward',['id'=>$id,'version'=>$current['version'],'reason'=>'Уточнить исходные данные']);actor('manager');
+        $tasks=array_values(array_filter(Modules\Rental\Indicators::tasks(null,null,['approvals']),static fn($t)=>$t['entity']==='contract'&&(int)$t['id']===$id));
+        ok(Modules\Rental\Indicators::counts(App\Auth::user(),['approvals'],$tasks)['approvals']===[1,0,0,0],'Manager return stays red');
     }
     // A new uploaded source is unavailable while pending, then selected after director approval.
     actor('lawyer');$templateId=900999;$custom=tempnam(APP_ROOT.'/runtime','word-template-');$created[]=$custom;
