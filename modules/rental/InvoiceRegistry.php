@@ -9,7 +9,7 @@ final class InvoiceRegistry
 {
     public const HEADERS = ['Счёт','Контрагент','Договор','Вид','Оплатить до','Сумма','Оплачено','Остаток','Состояние'];
     private const COLUMNS = ['code','flex','short','text','code','money','money','money','flex'];
-    private const FLAGS = ['all'=>'Все','unpaid'=>'Неоплаченные','overdue'=>'Просроченные','attention'=>'Требуют внимания','paid'=>'Оплаченные'];
+    private const PAYMENT_FLAGS = ['all'=>'Все','waiting'=>'Ожидают оплаты','overdue'=>'Просрочка оплаты','paid'=>'Оплаченные'];
     private const GROUP_FLAGS = ['all'=>'Все','overdue'=>'Просрочка'];
     private const PRIORITY = ['red'=>4,'yellow'=>3,'blue'=>2,'green'=>1,''=>0];
     private const CLASSES = ['red'=>'registry-ui-soft-error','yellow'=>'registry-ui-warning','blue'=>'registry-ui-soft-info','green'=>'registry-ui-soft-success',''=>''];
@@ -27,7 +27,7 @@ final class InvoiceRegistry
     public static function selected(array $row, string $flag): bool
     {
         return match ($flag) {
-            'unpaid','overdue','attention','paid' => $row['_view'][$flag],
+            'unpaid','waiting','overdue','attention','paid' => $row['_view'][$flag],
             default => true,
         };
     }
@@ -218,11 +218,12 @@ final class InvoiceRegistry
         $html='<form method="get" class="registry-ui-tabs" role="group" aria-label="Разделы списка"><input type="hidden" name="party" value="'.View::e($party).'">';
         if ($cid) $html.='<input type="hidden" name="contract_id" value="'.$cid.'">';
         if ($query !== '') $html.='<input type="hidden" name="q" value="'.View::e($query).'">';
-        foreach (($grouped ? self::GROUP_FLAGS : self::FLAGS) as $key=>$label) {
+        foreach (($grouped ? self::GROUP_FLAGS : self::PAYMENT_FLAGS) as $key=>$label) {
             $items=array_values(array_filter($all,static fn($r)=>self::selected($r,$key)));
             $counts=self::counts($items);
             // Errors remain visible even when the erroneous invoice is already paid.
             if ($grouped) $counts=$key === 'overdue' ? [self::counts($all)[0],$counts[1],0,0] : [0,0,0,0];
+            else $counts=[$key === 'overdue' ? count($items) : 0,0,0,0];
             $html.='<button type="submit" name="flag" value="'.$key.'" class="'.($flag === $key ? 'is-active' : '').'" aria-pressed="'.($flag === $key ? 'true' : 'false').'">'.View::e($label).' <b>'.count($items).'</b>'.Menu::badges($counts,true).'</button>';
         }
         $html.='</form>';
@@ -236,7 +237,8 @@ final class InvoiceRegistry
         $query=$reset ? '' : trim((string)($_GET['q'] ?? ''));
         $party=$reset ? 'all' : (string)($_GET['party'] ?? 'all');
         $flag=(string)($_GET['flag'] ?? 'all');
-        if (!isset(($grouped ? self::GROUP_FLAGS : self::FLAGS)[$flag])) $flag='all';
+        if (!$grouped && $flag === 'unpaid') $flag='waiting';
+        if (!isset(($grouped ? self::GROUP_FLAGS : self::PAYMENT_FLAGS)[$flag])) $flag='all';
         $cid=(int)($_GET['contract_id'] ?? 0);
         $records=self::records($cid);
         $parties=[];
