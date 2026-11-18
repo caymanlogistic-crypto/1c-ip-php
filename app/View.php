@@ -17,7 +17,7 @@ final class View {
         $e=self::e(...);try{$u=Auth::user();}catch(\Throwable){$u=null;}$nav='';
         $rentalAllowed=$u&&Auth::can('rental.read');$groups=$rentalAllowed?Menu::GROUPS:[];$projected=$rentalAllowed?Menu::counts($u,$objects):['pages'=>[],'folders'=>[]];
         $folder='<svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2H5a2 2 0 0 1 -2 -2V6a2 2 0 0 1 2 -2z"/></svg>';$folderIndex=0;
-        foreach($groups as $name=>$items){$fid='menu-folder-'.$folderIndex++;$links='';foreach($items as $key=>$label){if($u&&!Menu::allowed($key,$u))continue;$links.='<a class="nav-sub-item'.($active===$key?' is-active':'').'" href="/rental/'.$e($key).'" data-page="'.$e($key).'"'.($active===$key?' aria-current="page"':'').'><span class="nav-label">'.$e($label).'</span>'.Menu::badges($projected['pages'][$key]??[0,0,0,0],true,$key).'</a>';}
+        foreach($groups as $name=>$items){$fid='menu-folder-'.$folderIndex++;$links='';foreach($items as $key=>$label){if($u&&!Menu::visible($key,$u))continue;$links.='<a class="nav-sub-item'.($active===$key?' is-active':'').'" href="/rental/'.$e($key).'" data-page="'.$e($key).'"'.($active===$key?' aria-current="page"':'').'><span class="nav-label">'.$e($label).'</span>'.Menu::badges($projected['pages'][$key]??[0,0,0,0],true,$key).'</a>';}
           $nav.=self::navigationFolder($fid,$name,$links,$folder,Menu::badges($projected['folders'][$fid]??[0,0,0,0]));
         }
         $connections='';$administration='';
@@ -44,7 +44,7 @@ final class View {
         if($u&&\Modules\Integrations\TemplateView::allowed())foreach(\Modules\Integrations\TemplateView::CHANNELS as $channel=>$label)$administration.=self::navigationLink(\Modules\Integrations\TemplateView::url($channel),$label);
         $nav.=self::navigationFolder('menu-connections','Подключения',$connections,$folder);
         $administration.=self::navigationLink('/design/demo/index.html','Витрина');
-        $nav.=self::navigationFolder('menu-administration','Администрирование',$administration,$folder);
+        if($u&&$u['role']==='admin')$nav.=self::navigationFolder('menu-administration','Администрирование',$administration,$folder);
         if(!$u)$nav='';
         $css=self::fontPreloads();foreach(['system/palette.css','system/css/erp-ui.css','system/css/registry-components.css','system/css/ui-controls.css','system/css/ui-shell.css','system/css/registry-viewport.css','system/css/notification-icons.css','demo/demo_geometry.css'] as $asset)$css.='<link rel="stylesheet" href="/design/'.$asset.'">';
         ob_start();require APP_ROOT.'/app/views/workspace.php';return ob_get_clean();
