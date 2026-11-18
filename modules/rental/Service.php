@@ -251,6 +251,7 @@ final class Service {
 
     private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
         if ($action==='zero-point.correct') return ZeroPointCorrection::execute($p,$in);
+        if ($action==='zero-point.continuity') return ZeroPointContinuity::execute($p,$in);
         $id = (int)($in['id'] ?? 0);
         if ($action === 'contract.create' || $action === 'contract.edit') {
             self::roles([
