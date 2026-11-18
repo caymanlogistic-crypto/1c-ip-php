@@ -1,3 +1,8 @@
+## PAYMENT-OVERDUE-COUNTER — кандидат 18.11.2026
+
+- По поручению владельца удалён общий error-count из флажка Просрочка и пункта меню Оплаты контрагентов. Единая InvoiceFacts::overdueCounts считает только активный незакрытый долг с истёкшим due: 1–5 календарных дней жёлтый, с6-го красный. Оплаченные manual-review и ошибки отправки не увеличивают эти маркеры. Данные и карточки ошибок сохранены; плоский реестр и его принятые правила не изменены.
+- Собственный worktree 1c-ip-counterparty-payments, ветка codex/payment-overdue-counter от актуального origin/main. Локальная изолированная БД ipphp_task_payments, порт8917. Встроенный браузер /rental/invoices, бухгалтер: Просрочка0 без плашки, пустая выборка, в меню нет красной1. Эталон открыт: /design/demo/layout-rules.html, существующие chips без нового визуального варианта. Снимок .local/overdue-counter-fixed.png.
+- tests/invoice-payment-flags.php и tests/invoice-overdue.php PASS (включая1/5/6дней, paid error без плашки, совпадение меню и проекции), PHP lint3файлов и diff-check PASS. На общий сайт этот кандидат пока не опубликован.
 # Текущие задачи и факты проекта
 
 ## INVOICE-PAYMENT-FLAGS — опубликовано и проверено, 18.11.2026

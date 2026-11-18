@@ -49,8 +49,20 @@ final class InvoiceFacts
         return self::overdueDays($invoice) > 0;
     }
 
-    public static function menuCounts(\PDO $pdo): array
+    public static function overdueCounts(iterable $invoices): array
     {
+        $counts=[0,0,0,0];
+        foreach ($invoices as $invoice) {
+            $severity=self::overdueSeverity($invoice);
+            if ($severity === 'red') $counts[0]++;
+            elseif ($severity === 'yellow') $counts[1]++;
+        }
+        return $counts;
+    }
+
+    public static function menuCounts(\PDO $pdo, bool $graded = false): array
+    {
+        if ($graded) return self::overdueCounts($pdo->query('SELECT i.* FROM invoices i JOIN contracts c ON c.id=i.contract_id JOIN parties p ON p.id=c.party_id'));
         $count=0;
         foreach ($pdo->query('SELECT i.* FROM invoices i JOIN contracts c ON c.id=i.contract_id JOIN parties p ON p.id=c.party_id') as $invoice) {
             if (self::overdue($invoice)) $count++;

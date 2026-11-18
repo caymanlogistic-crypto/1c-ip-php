@@ -53,11 +53,16 @@ try{
     $doc=new DOMDocument();@$doc->loadHTML('<?xml encoding="UTF-8">'.$html);$xp=new DOMXPath($doc);
     $check($xp->query('//form[contains(@class,"registry-ui-tabs")]//button')->length===2,'Only two grouped tabs');
     $check($xp->query('//button[@name="flag" and @value="all"]//span[@data-attention]')->length===0,'No error badge on All');
-    $check($xp->query('//button[@name="flag" and @value="overdue"]//span[@data-attention="red"]')->length===1,'Red errors are shown beside Overdue');
+    $check($xp->query('//button[@name="flag" and @value="overdue"]//span[@data-attention="red" and text()="1"]')->length===1,'Only day6 contributes red, paid review excluded');
+    $check($xp->query('//button[@name="flag" and @value="overdue"]//span[@data-attention="yellow" and text()="2"]')->length===1,'Day1 and day5 contribute yellow');
     $check($xp->query('//tr[@data-rental-url]')->length===3,'Only unpaid overdue invoices');
     $check($xp->query('//tr[@data-row-key="invoice:'.$ids['paidError'].'"]')->length===0,'Paid error excluded from Overdue');
     $_GET=['contract_id'=>$cid,'flag'=>'overdue','q'=>'LOCAL-OVERDUE-paidError'];
-    $check(str_contains(InvoiceRegistry::render(true),'По заданным условиям счета не найдены.'),'Search cannot add paid error to Overdue');
+    $paidHtml=InvoiceRegistry::render(true);
+    $check(str_contains($paidHtml,'По заданным условиям счета не найдены.'),'Search cannot add paid error to Overdue');
+    $check(!str_contains($paidHtml,'data-attention='),'Paid error alone has no overdue markers');
+    $invoices=$p->query('SELECT * FROM invoices')->fetchAll();
+    $check(InvoiceFacts::menuCounts($p,true)===InvoiceFacts::overdueCounts($invoices),'Grouped menu uses the same graded debt projection');
     $_GET=['contract_id'=>$cid,'flag'=>'paid'];
     $check(str_contains(InvoiceRegistry::render(false),'LOCAL-OVERDUE-paidError'),'Flat register retains Paid filter');
     echo "PASS: 0/1/5/6 days, calendar days, partial/unknown/paid/frozen/revoked/closed cases, 13:00 gate/cache, planner/menu parity, repeat events, two tabs, badge placement, paid error exclusion and search; fixtures rolled back.\n";

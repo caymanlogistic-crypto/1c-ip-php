@@ -220,9 +220,7 @@ final class InvoiceRegistry
         if ($query !== '') $html.='<input type="hidden" name="q" value="'.View::e($query).'">';
         foreach (($grouped ? self::GROUP_FLAGS : self::PAYMENT_FLAGS) as $key=>$label) {
             $items=array_values(array_filter($all,static fn($r)=>self::selected($r,$key)));
-            $counts=self::counts($items);
-            // Errors remain visible even when the erroneous invoice is already paid.
-            if ($grouped) $counts=$key === 'overdue' ? [self::counts($all)[0],$counts[1],0,0] : [0,0,0,0];
+            if ($grouped) $counts=$key === 'overdue' ? InvoiceFacts::overdueCounts($items) : [0,0,0,0];
             else $counts=[$key === 'overdue' ? count($items) : 0,0,0,0];
             $html.='<button type="submit" name="flag" value="'.$key.'" class="'.($flag === $key ? 'is-active' : '').'" aria-pressed="'.($flag === $key ? 'true' : 'false').'">'.View::e($label).' <b>'.count($items).'</b>'.Menu::badges($counts,true).'</button>';
         }

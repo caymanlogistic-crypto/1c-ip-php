@@ -17,6 +17,7 @@ final class Menu {
         $tasks=\Modules\Rental\Indicators::tasks(null,null,$configured?$allowed:null,$objects);
         $raw=\Modules\Rental\Indicators::counts($u,$configured?$allowed:null,$tasks,$objects);
         if(in_array('invoice-list',$allowed,true))$raw['invoice-list']=\Modules\Rental\InvoiceFacts::menuCounts(DB::pdo());
+        if(in_array('invoices',$allowed,true))$raw['invoices']=\Modules\Rental\InvoiceFacts::menuCounts(DB::pdo(),true);
         $pages=[];$folders=[];
         foreach(array_values(self::GROUPS)as $i=>$items){$sum=[0,0,0,0];$visible=false;foreach($items as $key=>$label){if(!in_array($key,$allowed,true))continue;$visible=true;$counts=array_map(static fn($n)=>max(0,(int)$n),$raw[$key]??[0,0,0,0]);$pages[$key]=$counts;foreach($counts as $tone=>$n)$sum[$tone]+=$n;}
             if(!$configured&&$i===0&&$u['role']==='director'){$sum[2]+=max(0,(int)($raw['contracts'][2]??0));$sum[3]+=max(0,(int)($raw['contracts'][3]??0));}
