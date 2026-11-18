@@ -331,3 +331,8 @@ PartyDirectory::editor использует общий registry-ui-form-sections
 ### Полная форма без внутренней прокрутки
 
 Текущий PartyDirectory::editor использует RentalUI::modal(canvas:true): общий registry-ui-modal--form-canvas содержит панель до1200px с естественной высотой и overflow:visible у modal-body. В низком/узком окне перемещается весь внешний canvas, не тело попапа. Обычные модальные вызовы без флага не изменены. Общий registry-ui-form-composition располагает адреса и два контакта рядом, ниже — банковские реквизиты и ЭДО; до700px — один столбец. Та же композиция/вариант есть в полном примере контрагента на layout-rules.html.
+
+
+### Фильтры и меню счетов
+
+`/rental/invoice-list` → `Controller::page` → `InvoiceRegistry::render(false)`. Четыре флажка используют `InvoiceFacts::view` (`waiting`, `overdue`, `paid`); общее правило даты и остатка находится в `InvoiceFacts::overdueDays`; `overdue` использует его без дублирования. `Menu::counts` только для разрешённого пункта `invoice-list` получает `InvoiceFacts::menuCounts` и суммирует результат в родительскую папку. HTML и `/api/menu-counts` используют этот же путь; поиск/контрагент/договор не ограничивают глобальное меню. Состав записей счётчика совпадает с JOIN реестра. `render(true)` для «Оплаты контрагентов» и остальные задачи Indicators сохраняют прежний контракт. Новый CSS/JS/компонент не добавлен; используются существующие registry-ui-tabs и Menu::badges.
