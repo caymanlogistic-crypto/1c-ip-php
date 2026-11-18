@@ -65,5 +65,30 @@ try{
     $check(InvoiceFacts::menuCounts($p,true)===InvoiceFacts::overdueCounts($invoices),'Grouped menu uses the same graded debt projection');
     $_GET=['contract_id'=>$cid,'flag'=>'paid'];
     $check(str_contains(InvoiceRegistry::render(false),'LOCAL-OVERDUE-paidError'),'Flat register retains Paid filter');
+    // Reuse only this isolated transactional actor; preserve the real role grants.
+    $roles=$p->query('SELECT id FROM roles ORDER BY id')->fetchAll(PDO::FETCH_COLUMN);
+    $baseline=null;$tested=[];$denied=0;
+    foreach ($roles as $role) {
+        $p->prepare('UPDATE users SET role=? WHERE id=?')->execute([$role,$actor['id']]);
+        $user=App\Auth::user();
+        foreach (['all','overdue'] as $flag) {
+            $_GET=['contract_id'=>$cid,'flag'=>$flag];
+            try { $rendered=InvoiceRegistry::render(true); }
+            catch (RuntimeException $e) { if($e->getCode()!==403)throw $e;$denied++;continue; }
+            $baseline[$flag]??=$rendered;
+            $check($rendered===$baseline[$flag],'Identical grouped markup for role '.$role.' flag '.$flag);
+            $tested[$user['role']]=true;
+        }
+        if(App\Menu::allowed('invoices',$user)&&App\Auth::can('rental.read')) {
+            $menu=App\Menu::counts($user);
+            $check($menu['pages']['invoices']===InvoiceFacts::menuCounts($p,true),'Same overdue menu for role '.$role);
+        }
+    }
+    foreach(['admin','manager','accountant','lawyer','director'] as $role)$check(isset($tested[$role]),'Covered workflow role '.$role);
+    $p->prepare('UPDATE users SET role=? WHERE id=?')->execute(['accountant',$actor['id']]);
+    $p->exec("DELETE FROM role_permissions WHERE role_id='accountant' AND permission_key IN('rental.read','*')");
+    try { InvoiceRegistry::render(true); throw new RuntimeException('Missing read permission must deny finance'); }
+    catch(RuntimeException $e) { $check($e->getCode()===403,'Denied without rental.read'); $denied++; }
+    echo 'PASS identical grouped register and overdue menu across '.implode(',',array_keys($tested)).'; denied cases: '.$denied."\n";
     echo "PASS: 0/1/5/6 days, calendar days, partial/unknown/paid/frozen/revoked/closed cases, 13:00 gate/cache, planner/menu parity, repeat events, two tabs, badge placement, paid error exclusion and search; fixtures rolled back.\n";
 }finally{$p->rollBack();}

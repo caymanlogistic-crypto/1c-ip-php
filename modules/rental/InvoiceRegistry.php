@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Modules\Rental;
 
-use App\{Auth, Menu, View};
+use App\{Menu, View};
 
 /** The two source invoice registers share one financial projection. */
 final class InvoiceRegistry
@@ -104,10 +104,9 @@ final class InvoiceRegistry
 
     private static function records(int $contractId): array
     {
-        $user = Auth::user();
         $severity = [];
         foreach (Indicators::tasks(null,null,['invoices']) as $task) {
-            if ($task['entity'] !== 'invoice' || ($user['role'] !== 'admin' && $task['role'] !== $user['role'])) continue;
+            if ($task['entity'] !== 'invoice') continue;
             $old = $severity[$task['id']] ?? '';
             if (self::PRIORITY[$task['severity']] > self::PRIORITY[$old]) $severity[$task['id']] = $task['severity'];
         }
