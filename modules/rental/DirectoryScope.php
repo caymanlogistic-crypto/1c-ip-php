@@ -10,7 +10,7 @@ final class DirectoryScope {
 
     public static function realObject(array $object,array $parent): bool {
         $raw=json_decode($object['source_json'] ?? '{}',true) ?: [];
-        return empty($raw['workflowDemo']) && empty($raw['synthetic']) && self::realCadastre($parent);
+        return empty($raw['workspace_cleared']) && empty($raw['workflowDemo']) && empty($raw['synthetic']) && self::realCadastre($parent);
     }
 
     public static function cadastreAvailable(array $row): bool {

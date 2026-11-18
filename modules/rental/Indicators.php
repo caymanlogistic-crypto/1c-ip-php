@@ -107,6 +107,7 @@ final class Indicators {
         if ($contractWhere)foreach (Controller::query('SELECT * FROM contracts WHERE '
         . implode(' OR ', $contractWhere)
         . ' ORDER BY id') as $c) {
+            if(ContractDraft::deleted($c))continue;
             $id = (int)$c['id'];
             $raw = json_decode($c['source_json'], true);
             $managed = empty($raw['imported']);

@@ -124,6 +124,7 @@ final class PagePolicy {
         return self::levelForRole($u['role_id'] ?? $u['role'], $u['role'], !empty($u['grants_configured']), $key);
     }
     public static function commandPage(string $action):string {
+        if(str_starts_with($action,'workspace.'))return 'core.zero-point';
         if (in_array($action, ['operation.retry', 'operation.manual'], true))return 'rental.operations';
         if (str_starts_with($action, 'payment.'))return 'rental.invoices';
         if (str_starts_with($action, 'invoice.'))return 'rental.invoice-list';

@@ -9,13 +9,13 @@ final class ContractDraft
 {
     public static function deleted(array $contract): bool
     {
-        return isset(json_decode($contract['source_json'],true)['draft_deleted']);
+        return isset(json_decode($contract['source_json'],true)['draft_deleted']) || WorkspaceReset::hidden($contract);
     }
 
     public static function visibleSql(string $alias='c'): string
     {
         if(!preg_match('/^[a-z_]+$/iD',$alias))throw new RuntimeException('Invalid contract alias');
-        return "JSON_CONTAINS_PATH(".$alias.".source_json,'one','$.draft_deleted')=0";
+        return "JSON_CONTAINS_PATH(".$alias.".source_json,'one','$.draft_deleted','$.workspace_cleared')=0";
     }
 
     public static function deletable(PDO $pdo,array $contract): bool
