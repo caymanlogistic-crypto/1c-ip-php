@@ -294,6 +294,7 @@ final class ExtraService {
         $d = $id?Service::get($p, 'rental_documents', $id):null;
         if ($d)Service::version($d, $in);
         $c = Service::get($p, 'contracts', (int)($d['contract_id'] ?? $in['contract_id'] ?? 0));
+        if(ContractDraft::deleted($c))throw new RuntimeException('Договор не найден.',404);
         if ($action==='document.send') {
             if (!$d) throw new RuntimeException('Документ не найден.',404);
             Service::roles(['accountant']);

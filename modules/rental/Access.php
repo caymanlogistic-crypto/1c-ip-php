@@ -34,8 +34,9 @@ final class Access
     public static function document(int $id,int $level=1):array
     {
         Auth::requirePermission('rental.read');
-        $q=DB::pdo()->prepare('SELECT id,status FROM rental_documents WHERE id=?');$q->execute([$id]);
+        $q=DB::pdo()->prepare('SELECT id,status,source_json FROM rental_documents WHERE id=?');$q->execute([$id]);
         $record=$q->fetch() ?: throw new RuntimeException('Документ не найден.',404);
+        if(WorkspaceReset::hidden($record))throw new RuntimeException('Документ не найден.',404);
         if (!in_array($record['status'],['draft','legal','accounting','returned','approved','sent','signed','applied','cancelled'],true)) {
             throw new RuntimeException('Неизвестный контекст состояния документа.',403);
         }

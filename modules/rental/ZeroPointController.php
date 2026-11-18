@@ -10,6 +10,7 @@ final class ZeroPointController
     public static function page(): string
     {
         ZeroPoint::requireAdmin();$body=View::heading('Нулевая точка','Восстановление коммерческих данных из проверенного снимка.');
+        $body.=WorkspaceResetController::section();
         if (!empty($_SESSION['zero_point_result'])) {
             $body.=RentalUI::alert('Восстановление завершено','Предыдущее состояние сохранено. Пользователи, права и подключения не изменены.');
             unset($_SESSION['zero_point_result']);
