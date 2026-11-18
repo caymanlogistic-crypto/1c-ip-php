@@ -46,17 +46,17 @@ final class CadastreDirectory
                 View::e($row['number']),View::e($row['type']),View::e($row['floor']),View::e(DirectoryUi::area($row['area'])),
                 $rentable?$status:'<strong class="registry-ui-error">'.$status.'</strong>'];
         }
-        $controls='<form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'.View::e($flag).'">'
+        $controls='<input type="hidden" name="flag" value="'.View::e($flag).'">'
             .'<button class="registry-ui-reset" type="submit" name="reset" value="1"'.($query==='' && $type==='all'?' hidden':'').'>Сбросить фильтр</button>'
-            .'<select class="toolbar-select" id="cadastre-type-filter" name="type">';
+            .'<select class="toolbar-select" id="cadastre-type-filter" name="type" aria-label="Тип объекта">';
         foreach (['all'=>'Все типы','Офис'=>'Офис','Машиноместо'=>'Машиноместо','Коридор'=>'Коридор','Техническое помещение'=>'Техническое помещение'] as $key=>$label) {
             $controls.='<option value="'.View::e($key).'"'.($type===$key?' selected':'').'>'.View::e($label).'</option>';
         }
-        $controls.='</select>'.DirectoryUi::search($query).'</form>';
+        $controls.='</select>'.DirectoryUi::search($query,true);
         $summary=' · Площадь: <b>'.DirectoryUi::area($area).'</b> м²'.($unknown?' · Не указана у '.$unknown:'');
         $body=Controller::heading('Кадастровые объекты','Кадастровая площадь и доступность для сдачи.',self::editable()?RentalUI::button('Добавить объект','/rental/edit-cadastre',true):'')
-            .Controller::tabs($tabs,$flag,true,['type'=>$type])
-            .DirectoryUi::registry('rental-cadastre',['Кадастровый номер','Тип','Этаж','Площадь, м²','Доступность'],$rows,['flex','text','short','money','text'],$controls,$summary);
+            .Controller::tabs($tabs,$flag,false,['type'=>$type,'q'=>$query])
+            .DirectoryUi::registry('rental-cadastre',['Кадастровый номер','Тип','Этаж','Площадь, м²','Доступность'],$rows,['flex','text','short','money','text'],$controls,$summary,'',true);
         return View::page('Кадастровые объекты',$body,'cadastre');
     }
 
