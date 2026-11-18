@@ -8,6 +8,8 @@
     if(!form?.querySelector('[data-party-editor]'))return;
     const record=form.querySelector('input[name="id"]');
     if(record && record.value!=='0')return;
+    const variant=button.dataset.partyDemoFill;
+    if(!['company','entrepreneur'].includes(variant))return;
     const random=crypto.getRandomValues(new Uint32Array(2));
     const suffix=random[0].toString(16).toUpperCase().padStart(8,'0');
     const base='00'+String(random[1]%10000000).padStart(7,'0');
@@ -22,6 +24,21 @@
       bank:'ДЕМО-БАНК — вымышленные реквизиты',bik:'000000000',account:'40702810000000000001',correspondent_account:'30101810000000000001',
       edo:'ДЕМО-оператор',edo_id:'DEMO-'+suffix
     };
+    if(variant==='entrepreneur'){
+      const base='00'+String(random[1]%100000000).padStart(8,'0');
+      const digit=(text,weights)=>weights.reduce((sum,w,i)=>sum+w*Number(text[i]),0)%11%10;
+      const first=base+digit(base,[7,2,4,10,3,5,9,4,6,8]);
+      Object.assign(values,{
+        name:'ДЕМО · ИП Соколов Алексей Андреевич '+suffix,
+        inn:first+digit(first,[3,7,2,4,10,3,5,9,4,6,8]),
+        address:'ДЕМО: г. Примерск, ул. Учебная, д. 2, офис 20',
+        postal_address:'ДЕМО: г. Примерск, ул. Учебная, д. 2, офис 20',
+        contact:'Соколов Алексей Андреевич (демо)',phone:'+7 (000) 000-00-11',email:'ip-'+suffix.toLowerCase()+'@example.test',
+        additional_contact:'Соколова Мария Олеговна (демо)',additional_phone:'+7 (000) 000-00-12',account_email:'ip-finance-'+suffix.toLowerCase()+'@example.test',
+        bank:'ДЕМО-БАНК ИП — вымышленные реквизиты',account:'40802810000000000002',correspondent_account:'30101810000000000002',
+        edo:'ДЕМО-оператор ИП',edo_id:'DEMO-IP-'+suffix
+      });
+    }
     for(const [name,value] of Object.entries(values)){
       const input=form.querySelector('[name="'+name+'"]');
       if(!input)continue;
