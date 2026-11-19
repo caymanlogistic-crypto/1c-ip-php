@@ -21,7 +21,7 @@ final class View {
           $nav.=self::navigationFolder($fid,$name,$links,$folder,Menu::badges($projected['folders'][$fid]??[0,0,0,0]));
         }
         $connections='';$administration='';
-        $connectionLabels=['onec'=>'1С']+array_map(static fn($d)=>$d['title'],\Modules\Integrations\OnecOperations::CONNECTIONS)+['diadoc'=>'Диадок','mosenergo'=>'Мосэнергосбыт','mosvodokanal'=>'Мосводоканал','pik'=>'ПИК-Комфорт','bank'=>'Банковская выписка · 1С'];
+        $connectionLabels=['onec'=>'1С','onec-yakovlev'=>'1С ИП Яковлев']+array_map(static fn($d)=>$d['title'],\Modules\Integrations\OnecOperations::CONNECTIONS)+['diadoc'=>'Диадок','mosenergo'=>'Мосэнергосбыт','mosvodokanal'=>'Мосводоканал','pik'=>'ПИК-Комфорт','bank'=>'Банковская выписка · 1С'];
         if($u&&Auth::can('integrations.read'))foreach($connectionLabels as $id=>$label){
             if(isset(\Modules\Integrations\OnecOperations::CONNECTIONS[$id])&&!Auth::can('rental.read'))continue;
             if(!empty($u['grants_configured'])&&PagePolicy::level('connections.'.$id,$u)<1)continue;

@@ -4,7 +4,7 @@ namespace Modules\Integrations;
 
 final class Support
 {
-    public const PROVIDERS = ['onec'=>'1С','diadoc'=>'Диадок','mosenergo'=>'Мосэнергосбыт','mosvodokanal'=>'Мосводоканал','pik'=>'ПИК-Комфорт','bank'=>'Банковская выписка · 1С','email'=>'Email','max'=>'MAX'];
+    public const PROVIDERS = ['onec'=>'1С','onec-yakovlev'=>'1С ИП Яковлев','diadoc'=>'Диадок','mosenergo'=>'Мосэнергосбыт','mosvodokanal'=>'Мосводоканал','pik'=>'ПИК-Комфорт','bank'=>'Банковская выписка · 1С','email'=>'Email','max'=>'MAX'];
     public static function uuid(): string { $b=random_bytes(16); $b[6]=chr((ord($b[6])&15)|64); $b[8]=chr((ord($b[8])&63)|128); $h=bin2hex($b); return substr($h,0,8).'-'.substr($h,8,4).'-'.substr($h,12,4).'-'.substr($h,16,4).'-'.substr($h,20); }
     public static function json(mixed $v): string {return json_encode($v,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_PRESERVE_ZERO_FRACTION|JSON_THROW_ON_ERROR);}
     public static function scriptJson(mixed $v): string {return json_encode($v,JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);}

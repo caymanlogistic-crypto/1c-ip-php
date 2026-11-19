@@ -3,6 +3,7 @@ declare(strict_types=1);
 use Modules\Integrations\Controller;
 $routes=[];
 foreach(array_keys(\Modules\Integrations\Support::PROVIDERS) as $provider)$routes['/connections/'.$provider]=static fn()=>Controller::page($provider);
+$routes['/connections/onec-yakovlev'] = [\Modules\Integrations\YakovlevPage::class,'handle'];
 $routes['/email']=static fn()=>Controller::page('email');$routes['/max']=static fn()=>Controller::page('max');
 foreach(array_keys(\Modules\Integrations\OnecOperations::CONNECTIONS) as $connection){
     $routes['/connections/'.$connection]=static fn()=>\Modules\Integrations\OnecOperationsController::page($connection);

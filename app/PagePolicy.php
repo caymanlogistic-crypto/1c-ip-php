@@ -21,6 +21,7 @@ final class PagePolicy {
         ];
         foreach ([
             'onec' => '1С',
+            'onec-yakovlev' => '1С ИП Яковлев',
             'diadoc' => 'Диадок',
             'mosenergo' => 'Мосэнергосбыт',
             'mosvodokanal' => 'Мосводоканал',
