@@ -78,7 +78,7 @@ function runInternal(array $input,array $factories=[]):array {
     if(!is_int($budget)||$budget<1||$budget>900000)failure('ACCESS_DENIED');
     $cabinet=$input['cabinet_profile']??null;
     if (array_key_exists('cabinet_profile',$input)) {
-        if (!is_string($cabinet) || !in_array($operation,['accounts','records'],true)
+        if (!is_string($cabinet) || !in_array($operation,['accounts','records','original','receipt_print_metadata','receipt_source_file','receipt_pdf','selected_native_print_pdf'],true)
             || !empty($input['credentials']) || !\Modules\Integrations\CabinetSyncAdmission::allows(\App\DB::pdo(),$provider,$operation,$cabinet))failure('ACCESS_DENIED');
         $expectedState=realpath(\Modules\Integrations\Config::root().'/private/integrations/state/'.$provider.'/'.$cabinet);
         if ($expectedState===false || $expectedState!==($input['state']??null))failure('ACCESS_DENIED');

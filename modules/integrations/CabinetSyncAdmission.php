@@ -33,7 +33,11 @@ final class CabinetSyncAdmission
 
     public static function allows(\PDO $db,string $provider,string $operation,?string $reference=null): bool
     {
-        if (!in_array($provider,self::PROVIDERS,true) || !in_array($operation,['sync','accounts','records'],true)) return false;
+        $operations = ['sync','accounts','records','original','receipt_print_metadata','receipt_source_file','receipt_pdf','selected_native_print_pdf'];
+        if ($operation==='authenticate' && getenv('IPPHP_CABINET_OWNER_AUTH')==='approved-interactive-restore') {
+            $operations[]='authenticate';
+        }
+        if (!in_array($provider,self::PROVIDERS,true) || !in_array($operation,$operations,true)) return false;
         $profile = self::configured()[$provider]??null;
         if (!$profile) return false;
         $connection = Config::get($db,$provider);

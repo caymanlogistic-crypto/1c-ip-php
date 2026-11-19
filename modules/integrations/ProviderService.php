@@ -284,7 +284,7 @@ final class ProviderService {
             if (!$scheduled && !is_callable($this->native) && !Config::liveAllowed() && !OnecReadAdmission::allows($this->db,$provider,$operation))throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
             if ($provider === 'mosenergo'){
                 $client = new MesClient($secret['session']??[],
-                    is_callable($this->native)?$this->native:null);
+                    is_callable($this->native)?$this->native:($scheduled?CabinetNetwork::mesTransport():null));
                 try{
                     if ($operation === 'login' && isset($secret['mail']) && getenv('IPPHP_ALLOW_MES_MAIL') === 'owner-authorized-assigned-mailbox'){
                         $mail = new MesMail($secret['mail']);

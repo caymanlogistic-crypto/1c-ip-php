@@ -73,7 +73,9 @@ final class PageView
             $finish=$run['finished_at']?date('d.m.Y H:i:s',strtotime($run['finished_at'])):'—';
             $period=isset($context['from'],$context['to'])?date('d.m.Y',strtotime($context['from'])).' — '.date('d.m.Y',strtotime($context['to'])):'—';
             $count=isset($coverage['records_imported'])?(string)$coverage['records_imported']:'—';
-            if($hourly&&$run['status']==='success'&&!($coverage['complete']??false)) {
+            if($run['operation']==='sync-files') {
+                $count='Файлов '.$coverage['files']['saved'].' из '.$coverage['files']['required'];
+            } elseif($hourly&&$run['status']==='success'&&!($coverage['complete']??false)) {
                 $result.='<span class="registry-ui-secondary"> Полнота не подтверждена.</span>';
             }
             $html.='<td>'.$e($finish).'</td><td>'.($hourly?'По расписанию':'Вручную').'</td><td>'.$e($period).'</td>'

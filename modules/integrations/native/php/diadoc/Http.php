@@ -134,7 +134,7 @@ final class Http
             $payload = json_encode($json, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
             $requestHeaders[] = 'Content-Type: application/json';
         }
-        curl_setopt_array($this->curl, [
+        curl_setopt_array($this->curl, (class_exists(\Modules\Integrations\CabinetNetwork::class)?\Modules\Integrations\CabinetNetwork::options($parts['host']):[])+[
             // Clamp before casting: the default INF deadline casts to int 0.
             CURLOPT_CONNECTTIMEOUT_MS => max(1,(int)ceil(min(10.0,$left)*1000)),
             CURLOPT_TIMEOUT_MS => max(1,(int)ceil(min(30.0,$left)*1000)),
