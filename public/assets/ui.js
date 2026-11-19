@@ -1,4 +1,6 @@
 'use strict';
+document.querySelectorAll('dialog[data-open-on-load]:not([open])').forEach(dialog => dialog.showModal());
+
 document.addEventListener('click', event => {
   const folder = event.target.closest('[data-folder-toggle]');
   if(folder){event.preventDefault();const expanded=folder.getAttribute('aria-expanded')!=='true';folder.setAttribute('aria-expanded',String(expanded));folder.classList.toggle('is-open',expanded);folder.nextElementSibling.classList.toggle('is-open',expanded);folder.nextElementSibling.inert=!expanded;}
