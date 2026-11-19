@@ -147,6 +147,9 @@ class Client {
             if ($delay>0) { usleep((int)($delay*1000000)); }
             $this->lastRequest=microtime(true); $this->requestCount++;
             $path=parse_url($url,PHP_URL_PATH);
+            if (!$binary && $path==='/'.ENDPOINTS['accounts']) {
+                $headers[]='Cache-Control: no-cache';
+            }
             $stage=$binary?'pdf-download':match($path){'/api-token-auth/'=>'login','/'.ENDPOINTS['accounts']=>'accounts','/'.ENDPOINTS['receipts']=>'receipts','/'.ENDPOINTS['payments']=>'payments','/request-bill/'=>'pdf-request',default=>'provider-read'};
             // The aggregate dashboard covers all accounts and can approach 30s.
             $requestTimeout=$stage==='accounts'?($this->accountsTimeout??$this->timeout):$this->timeout;
