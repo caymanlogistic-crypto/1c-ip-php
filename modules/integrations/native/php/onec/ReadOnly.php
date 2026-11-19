@@ -61,7 +61,14 @@ final class Reader
             default => throw new \RuntimeException('READ_ROUTE_REJECTED'),
         };
         if (!$this->yakovlev) throw new \RuntimeException('READ_ROUTE_REJECTED');
-        return $this->get($resource,$query)['body'];
+        try {
+            return $this->get($resource,$query)['body'];
+        } catch (\RuntimeException $error) {
+            $last = end($this->diagnostics);
+            if ($error->getMessage()!=='NETWORK_OR_TLS_FAILED' || ($last['curl_errno']??null)!==28
+                || (hrtime(true)/1e9)+5 >= $this->deadline) throw $error;
+            return $this->get($resource,$query)['body'];
+        }
     }
 
     private function get(string $resource,array $query=[]):array

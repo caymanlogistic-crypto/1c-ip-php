@@ -8,6 +8,7 @@ final class YakovlevImport
     public const PROVIDER = 'onec-yakovlev';
     public const TITLE = '1С ИП Яковлев';
     public const FIRST_DAY = '1900-01-01';
+    public const DEFAULT_FROM = '2026-09-15';
     public const TABS = [
         'parties' => 'Контрагенты',
         'bank' => 'Банковские выписки',
@@ -129,27 +130,24 @@ final class YakovlevImport
 
     private static function collect(\NativeOnec\Reader $reader, string $kind, string $from, string $to): array
     {
-        $filter = 'DeletionMark eq false';
+        $pageSize = $kind === 'parties' ? 50 : self::PAGE;
         $until = '';
         if ($kind === 'parties') {
-            $filter .= ' and IsFolder eq false';
+            $filter = 'IsFolder eq false';
         } else {
             $until = (new \DateTimeImmutable($to))->modify('+1 day')->format('Y-m-d');
-            $filter .= " and Posted eq true and Организация_Key eq guid'".self::ORGANIZATION
+            $filter = "Организация_Key eq guid'".self::ORGANIZATION
                 ."' and Date ge datetime'".$from."T00:00:00' and Date lt datetime'".$until."T00:00:00'";
         }
         $records = [];
         $expectedTotal = null;
-        for ($skip = 0; $skip <= 10000; $skip += self::PAGE) {
+        for ($skip = 0; $skip <= 10000; $skip += $pageSize) {
             $query = [
-                '$format' => 'json', '$top' => (string)self::PAGE, '$skip' => (string)$skip,
+                '$format' => 'json', '$top' => (string)$pageSize, '$skip' => (string)$skip,
                 '$inlinecount' => 'allpages',
                 '$orderby' => $kind === 'parties' ? 'Ref_Key asc' : 'Date asc,Ref_Key asc',
                 '$filter' => $filter,
             ];
-            if ($kind === 'parties') {
-                $query['$select'] = 'Ref_Key,DataVersion,Description,Code,НаименованиеПолное,ИНН,КПП,IsFolder,DeletionMark';
-            }
             $data = Support::decode($reader->yakovlevPage($kind,$query));
             $rows = self::envelope($data);
             $total = $data['odata.count'] ?? $data['@odata.count'] ?? $data['d']['__count'] ?? null;
@@ -159,7 +157,7 @@ final class YakovlevImport
             $total = (int)$total;
             if ($total>10000) throw new \RuntimeException('YAKOVLEV_IMPORT_LIMIT');
             $expectedTotal ??= $total;
-            if ($total!==$expectedTotal || count($rows)!==min(self::PAGE,max(0,$total-$skip))) {
+            if ($total!==$expectedTotal || count($rows)!==min($pageSize,max(0,$total-$skip))) {
                 throw new \RuntimeException('INVALID_ODATA_ROWS');
             }
             foreach ($rows as $row) {
@@ -180,13 +178,13 @@ final class YakovlevImport
     {
         $kind = $row['kind'] ?? '';
         $record = $row['fields']['record'] ?? null;
-        if (!isset(self::LABELS[$kind]) || !is_array($record) || ($record['DeletionMark']??null)!==false) {
+        if (!isset(self::LABELS[$kind]) || !is_array($record) || !is_bool($record['DeletionMark']??null)) {
             throw new \InvalidArgumentException('INVALID_YAKOVLEV_RECORD');
         }
         $key = OnecMapping::guid($record['Ref_Key']??'');
         $party = $kind === 'parties';
         if ($party ? ($record['IsFolder']??null)!==false
-            : (($record['Posted']??null)!==true || ($record['Организация_Key']??null)!==self::ORGANIZATION)) {
+            : (!is_bool($record['Posted']??null) || ($record['Организация_Key']??null)!==self::ORGANIZATION)) {
             throw new \InvalidArgumentException('INVALID_YAKOVLEV_RECORD');
         }
         $name = trim((string)($record['Description']??''));
@@ -197,7 +195,8 @@ final class YakovlevImport
             'document_date'=>$party?'1000-01-01':Support::day($record['Date']??null),
             'number'=>$party?(string)($record['ИНН']??''):Support::identity($record['Number']??null),
             'title'=>$party?mb_substr($name?:'Без наименования',0,300):self::LABELS[$kind],
-            'amount'=>$amount,'status'=>$party?'Получен':'Проведён','raw'=>$row,
+            'amount'=>$amount,'status'=>$record['DeletionMark']?'Помечен на удаление':($party?'Действующий':($record['Posted']?'Проведён':'Не проведён')),
+            'raw'=>$row,
         ];
     }
 }
