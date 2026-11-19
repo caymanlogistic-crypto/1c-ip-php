@@ -16,6 +16,8 @@ final class Reader
         'bank_out'=>'Document_СписаниеСРасчетногоСчета',
         'organizations'=>'Catalog_Организации','items'=>'Catalog_Номенклатура',
     ];
+    private const YAKOVLEV_ROOT = '/yakovlev/odata/standard.odata/';
+    private bool $yakovlev = false;
     private float $deadline;
     private int $bytes=0;
     public array $requests=[];
@@ -42,13 +44,33 @@ final class Reader
         $budget=$GLOBALS['ONLINE_DEADLINE']??null;
         if(is_float($budget)&&is_finite($budget))$this->deadline=min($this->deadline,$budget);
     }
+    public static function yakovlev(string $username,string $password,?string $caFile=null): self
+    {
+        $reader = new self($username,$password,$caFile);
+        $reader->yakovlev = true;
+        $reader->deadline = hrtime(true)/1e9 + 90;
+        return $reader;
+    }
+
+    public function yakovlevPage(string $kind, array $query): string
+    {
+        $resource = match ($kind) {
+            'parties' => 'Catalog_Контрагенты',
+            'organization' => self::COLLECTIONS['organizations'],
+            'bank_in', 'bank_out', 'invoices' => self::COLLECTIONS[$kind],
+            default => throw new \RuntimeException('READ_ROUTE_REJECTED'),
+        };
+        if (!$this->yakovlev) throw new \RuntimeException('READ_ROUTE_REJECTED');
+        return $this->get($resource,$query)['body'];
+    }
+
     private function get(string $resource,array $query=[]):array
     {
         if(!in_array($resource,['','$metadata',...self::FRESH_CATALOGS,...self::SUPPLEMENT_CATALOGS,...array_values(self::COLLECTIONS)],true))throw new \RuntimeException('READ_ROUTE_REJECTED');
-        if(count($this->requests)>=12||$this->bytes>=32*1024*1024)throw new \RuntimeException('REQUEST_BUDGET');
+        if(count($this->requests)>=($this->yakovlev?102:12)||$this->bytes>=32*1024*1024)throw new \RuntimeException('REQUEST_BUDGET');
         $seconds=min($this->requestTimeout,$this->deadline-hrtime(true)/1e9);if($seconds<=0)throw new \RuntimeException('TIME_LIMIT');
         $cap=min($resource==='$metadata'?16*1024*1024:8*1024*1024,32*1024*1024-$this->bytes);
-        $path=\OnecProbe::ROOT.rawurlencode($resource);if($query)$path.='?'.http_build_query($query,'','&',PHP_QUERY_RFC3986);
+        $path=($this->yakovlev?self::YAKOVLEV_ROOT:\OnecProbe::ROOT).rawurlencode($resource);if($query)$path.='?'.http_build_query($query,'','&',PHP_QUERY_RFC3986);
         $headers=['Accept: '.(in_array($resource,['','$metadata'],true)?'application/xml, application/atomsvc+xml':'application/json'),
                   'Authorization: Basic '.base64_encode($this->username.':'.$this->password),'Accept-Encoding: identity'];
         $started=gmdate(DATE_ATOM);$clock=hrtime(true);$error=null;$info=[];$errno=null;$body='';
