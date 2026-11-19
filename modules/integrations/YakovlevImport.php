@@ -9,6 +9,7 @@ final class YakovlevImport
     public const TITLE = '1С ИП Яковлев';
     public const FIRST_DAY = '1900-01-01';
     public const DEFAULT_FROM = '2026-09-15';
+    public const PARTY_MISSING = 'Отсутствует в 1С';
     public const TABS = [
         'parties' => 'Контрагенты',
         'bank' => 'Банковские выписки',
@@ -24,13 +25,18 @@ final class YakovlevImport
 
     public function __construct(private \PDO $db, private PrivateStore $store) {}
 
-    public function import(string $tab, string $from, string $to, int $actor, string $requestKey): array
+    public function import(string $tab, string $from, string $to, int $actor, string $requestKey, bool $scheduled = false): array
     {
         if (!isset(self::TABS[$tab])) throw new \InvalidArgumentException('INVALID_IMPORT_TAB');
         if ($tab !== 'parties') self::validatePeriod($from, $to);
         Support::identity($requestKey);
         $scope = ['kind' => 'yakovlev-'.$tab, 'scope_limited' => true];
         if ($tab !== 'parties') $scope += ['from' => $from,'to' => $to];
+        if ($scheduled) {
+            if (PHP_SAPI !== 'cli' || $actor !== 0) throw new \RuntimeException('SCHEDULED_IMPORT_NOT_ALLOWED');
+            $scope['trigger'] = 'hourly';
+            if ($tab === 'parties') $scope['party_mirror'] = true;
+        }
         $fingerprint = hash('sha256',Support::json($scope));
         $id = Support::uuid();
         $start = $this->db->prepare(

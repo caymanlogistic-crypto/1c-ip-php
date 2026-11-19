@@ -191,6 +191,10 @@ final class YakovlevPage
         if (!$downloaded && $row['status']==='success') $downloaded[] = (string)($coverage['records_imported']??0);
         $stats = $coverage['changes']??null;
         $summary = $stats===null?'—':'Новых '.$stats['new'].' · Изменено '.$stats['changed'].' · Без изменений '.$stats['unchanged'];
-        return [$start,$finish,YakovlevImport::TABS[$section]??'—',$period,$status,implode(' · ',$downloaded)?:'—',$summary];
+        if (($stats['missing']??0)>0) $summary .= ' · Исчезло '.$stats['missing'];
+        if (($stats['returned']??0)>0) $summary .= ' · Вернулось '.$stats['returned'];
+        $sectionLabel = YakovlevImport::TABS[$section]??'—';
+        if (($scope['trigger']??null)==='hourly') $sectionLabel .= ' · По расписанию';
+        return [$start,$finish,$sectionLabel,$period,$status,implode(' · ',$downloaded)?:'—',$summary];
     }
 }

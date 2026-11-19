@@ -105,3 +105,33 @@ $finished = $loader->import('bank','2026-09-15','2026-11-19',$actor,$requestKey)
 $assert($finished['reused']&&$finished['coverage']['evidence']['received_by_kind']['bank_in']===1,'SUCCESS_RUN_NOT_REUSED');
 $assert($finished['coverage']['changes']===['new'=>0,'changed'=>0,'unchanged'=>2],'REPEAT_COUNT_NOT_CORRECT');
 echo "PASS Yakovlev run timing, failure, same-row atomic completion and replay\n";
+
+$mirrorScope = ['kind'=>'yakovlev-parties','scope_limited'=>true,'trigger'=>'hourly','party_mirror'=>true];
+$mirror = static function(array $rows,int $expected) use ($db,$registry,$provider,$mirrorScope): array {
+    $id=Support::uuid();
+    $key=Support::uuid();
+    $db->prepare("INSERT INTO integration_runs(id,provider,operation,request_key,actor_id,revision,fingerprint,status,coverage_json)
+        VALUES(?,?,'yakovlev-load',?,0,1,?,'pending',?)")
+        ->execute([$id,$provider,$key,hash('sha256',Support::json($mirrorScope)),Support::json(['scope'=>$mirrorScope])]);
+    return $registry->import($provider,Support::json(['documents'=>$rows,'scope'=>$mirrorScope,
+        'coverage'=>['received_by_kind'=>['parties'=>$expected]]]),0,$key,$id);
+};
+$partyId=$db->prepare("SELECT id,status FROM external_documents WHERE provider=? AND source_id=?");
+$partyId->execute([$provider,'parties:'.$key]);
+$prior=$partyId->fetch(PDO::FETCH_ASSOC);
+try {
+    $mirror([],1);
+    throw new LogicException('INCOMPLETE_MIRROR_ACCEPTED');
+} catch (RuntimeException $error) {
+    $assert($error->getMessage()==='INCOMPLETE_PARTY_MIRROR','MIRROR_ERROR_NOT_EXPECTED');
+}
+$partyId->execute([$provider,'parties:'.$key]);
+$assert($partyId->fetch(PDO::FETCH_ASSOC)===$prior,'PARTIAL_SNAPSHOT_CHANGED_PARTY');
+$missing=$mirror([],0);
+$partyId->execute([$provider,'parties:'.$key]);
+$assert($missing['coverage']['changes']['missing']>=1
+    &&$partyId->fetch(PDO::FETCH_ASSOC)===['id'=>$prior['id'],'status'=>YakovlevImport::PARTY_MISSING],'MISSING_PARTY_NOT_MARKED');
+$returned=$mirror([$fullParty],1);
+$partyId->execute([$provider,'parties:'.$key]);
+$assert($returned['coverage']['changes']['returned']===1 && $partyId->fetch(PDO::FETCH_ASSOC)===$prior,'RETURNED_PARTY_NOT_RESTORED');
+echo "PASS hourly mirror protects partial reads, marks missing and restores same archive identity\n";

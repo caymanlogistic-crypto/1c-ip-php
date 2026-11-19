@@ -50,6 +50,13 @@ final class Registry
                 $this->db->prepare("INSERT INTO integration_runs(id,provider,operation,request_key,actor_id,revision,fingerprint,status,result_code,coverage_json,finished_at) VALUES(?,?,?,?,?,1,?,'success','IMPORTED',?,NOW(6))")->execute([$batch,$provider,'import',$requestKey,$actor,$fp,Support::json($coverage+['original_path'=>$originalPath])]);
             }
             $changes=['new'=>0,'changed'=>0,'unchanged'=>0];
+            $mirror=$pendingRun!==null&&$scope['kind']==='yakovlev-parties'&&($scope['party_mirror']??false)===true;
+            if($mirror && (($scope['trigger']??null)!=='hourly'||$actor!==0
+                ||($evidence['received_by_kind']['parties']??null)!==count($docs)
+                ||count($docs)!==count($rows)||array_diff(array_column($docs,'account_id'),['parties']))) {
+                throw new \RuntimeException('INCOMPLETE_PARTY_MIRROR');
+            }
+            if($mirror)$changes+=['missing'=>0,'returned'=>0];
             foreach($docs as $d){
                 $q=$this->db->prepare('SELECT * FROM external_documents WHERE provider=? AND source_id=? FOR UPDATE');
                 $q->execute([$provider,$d['source_id']]);
@@ -59,9 +66,12 @@ final class Registry
                     $previous=Support::decode($this->store->read($old['raw_path'],$old['raw_sha256']));
                     $same=Support::canonical(YakovlevChanges::document($previous))===Support::canonical(YakovlevChanges::document($d['raw']));
                 }
-                if($same){
+                $returned=$provider===YakovlevImport::PROVIDER&&$d['account_id']==='parties'
+                    &&($old['status']??null)===YakovlevImport::PARTY_MISSING;
+                if($returned&&$mirror)$changes['returned']++;
+                if($same&&!$returned){
                     $changes['unchanged']++;
-                    if(hash_equals($old['raw_sha256'],$d['hash'])) Details::save($this->db,$old['id'],$d['raw']);
+                    if($provider!==YakovlevImport::PROVIDER) Details::save($this->db,$old['id'],$d['raw']);
                     continue;
                 }
                 $changes[$old?'changed':'new']++;
@@ -72,12 +82,30 @@ final class Registry
                 else $this->db->prepare('INSERT INTO external_documents(id,provider,source_id,account_id,document_date,number,title,amount,status,raw_sha256,raw_path,context_path,batch_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')->execute([$id,$provider,$d['source_id'],$d['account_id'],$d['document_date'],$d['number'],$d['title'],$d['amount'],$d['status'],$d['hash'],$path,$contextPath,$batch]);
                 Details::save($this->db,$id,$d['raw']);$this->db->prepare('INSERT INTO external_document_versions(document_id,version,raw_sha256,raw_path,batch_id) VALUES(?,?,?,?,?)')->execute([$id,$version,$d['hash'],$path,$batch]);
             }
+            if($mirror)$changes['missing']=$this->markMissingParties($docs);
             if($pendingRun!==null){
                 $coverage['changes']=$changes;
                 $this->db->prepare("UPDATE integration_runs SET status='success',result_code='IMPORTED',coverage_json=?,finished_at=NOW(6) WHERE id=?")->execute([Support::json($coverage+['original_path'=>$originalPath]),$batch]);
             }
             $this->db->commit();return ['id'=>$batch,'status'=>'success','coverage'=>$coverage,'reused'=>false];
         }catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
+    }
+
+    private function markMissingParties(array $observed): int
+    {
+        $query=$this->db->prepare("SELECT id,source_id FROM external_documents
+            WHERE provider=? AND account_id='parties' AND status<>? FOR UPDATE");
+        $query->execute([YakovlevImport::PROVIDER,YakovlevImport::PARTY_MISSING]);
+        $missing=[];
+        foreach($query->fetchAll(\PDO::FETCH_ASSOC) as $row){
+            if(!isset($observed[$row['source_id']]))$missing[]=$row['id'];
+        }
+        foreach(array_chunk($missing,500) as $ids){
+            $placeholders=implode(',',array_fill(0,count($ids),'?'));
+            $this->db->prepare("UPDATE external_documents SET status=?,updated_at=NOW(6) WHERE id IN ($placeholders)")
+                ->execute([YakovlevImport::PARTY_MISSING,...$ids]);
+        }
+        return count($missing);
     }
     public function attach(string $documentId,string $sourceId,string $filename,string $bytes,string $sha,string $provenance='native',?string $signature=null): string {
         if(!in_array($provenance,['native','original','generated_locally'],true)||strlen($bytes)>16*1024*1024||$bytes===''||!hash_equals($sha,hash('sha256',$bytes)))throw new \InvalidArgumentException('FILE_BINDING_FAILED');$q=$this->db->prepare('SELECT source_id FROM external_documents WHERE id=?');$q->execute([$documentId]);if($q->fetchColumn()!==$sourceId)throw new \InvalidArgumentException('FILE_SOURCE_MISMATCH');$filename=basename(str_replace('\\','/',$filename));if($filename===''||strlen($filename)>200||preg_match('/[\x00-\x1f\x7f]/',$filename))throw new \InvalidArgumentException('INVALID_FILENAME');$mime=(new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes);$path=$this->store->put('originals',$bytes);$signaturePath=$signature!==null?$this->store->put('signatures',$signature):null;$id=Support::uuid();$q=$this->db->prepare('INSERT INTO external_files(id,document_id,source_id,filename,mime,sha256,byte_size,private_path,provenance,signature_path) VALUES(?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id');$q->execute([$id,$documentId,$sourceId,$filename,$mime,$sha,strlen($bytes),$path,$provenance,$signaturePath]);$q=$this->db->prepare('SELECT id FROM external_files WHERE document_id=? AND sha256=? AND provenance=?');$q->execute([$documentId,$sha,$provenance]);return (string)$q->fetchColumn();
