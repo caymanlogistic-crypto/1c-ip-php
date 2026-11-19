@@ -15,10 +15,21 @@ final class ArchiveExport
         $query=$this->db->prepare('SELECT * FROM external_documents WHERE provider=? ORDER BY document_date DESC,source_id LIMIT 1001');
         $query->execute([$provider]);$documents=$query->fetchAll(\PDO::FETCH_ASSOC);
         if(count($documents)>1000)throw new \RuntimeException('ARCHIVE_SELECTION_LIMIT');
-        $records=[];$entries=[];$documentFiles=[];$unavailable=[];$expanded=0;$metadataBytes=0;$batches=[];$fieldCount=0;
-        foreach($documents as$offset=>$document){
-            $index=$offset+1;$recordDirectory='records/'.str_pad((string)$index,6,'0',STR_PAD_LEFT);
-            $path=$this->store->verifiedPath($document['raw_path'],$document['raw_sha256']);
+        $records=[];$entries=[];$documentFiles=[];$unavailable=[];$unavailableRecords=[];$expanded=0;$metadataBytes=0;$batches=[];$fieldCount=0;
+        foreach($documents as $document){
+            try {
+                $path=$this->store->verifiedPath($document['raw_path'],$document['raw_sha256']);
+            } catch (\RuntimeException $error) {
+                if ($error->getMessage()!=='PRIVATE_FILE_MISSING'
+                    || !in_array($provider,CabinetSyncAdmission::PROVIDERS,true)
+                    || !str_starts_with($document['raw_path'],'capture-documents/')) {
+                    throw $error;
+                }
+                $unavailableRecords[]=['key'=>$document['source_id'],'date'=>$document['document_date'],
+                    'number'=>$document['number'],'reason'=>'SOURCE_RECORD_MISSING'];
+                continue;
+            }
+            $index=count($records)+1;$recordDirectory='records/'.str_pad((string)$index,6,'0',STR_PAD_LEFT);
             $metadataBytes+=filesize($path);
             if($metadataBytes>16777216)throw new \RuntimeException('ARCHIVE_METADATA_LIMIT');
             $entries[]=['name'=>$recordDirectory.'/raw.json','path'=>$path,'size'=>filesize($path),'sha256'=>$document['raw_sha256']];
@@ -74,7 +85,7 @@ final class ArchiveExport
             }
             if($expanded>RawZip::EXPANDED)throw new \RuntimeException('ARCHIVE_SIZE_LIMIT');
         }
-        $report=['schema_version'=>1,'provider'=>$provider,'records'=>$records,'coverage'=>['complete'=>false,'scope'=>'exported_selection','source_history_complete'=>false],'unavailable_files'=>$unavailable];
+        $report=['schema_version'=>1,'provider'=>$provider,'records'=>$records,'coverage'=>['complete'=>false,'scope'=>'exported_selection','source_history_complete'=>false],'unavailable_files'=>$unavailable,'unavailable_records'=>$unavailableRecords];
         $json=Support::json($report);
         if(strlen($json)>RawZip::MEMBER)throw new \RuntimeException('ARCHIVE_METADATA_LIMIT');
         $entries[]=['name'=>'records.json','bytes'=>$json];
@@ -117,6 +128,13 @@ final class ArchiveExport
             foreach($record['field_rows']as$field)$html.='<tr><td>'.$escape($field['path']).'</td><td>'.$escape($field['type']).'</td><td><pre>'.$escape($field['value']).'</pre></td></tr>';
             $html.='</tbody></table>';
         }
+        if(!empty($report['unavailable_records'])){
+            $html.='<h2>Записи без сохранённого оригинала</h2><ul>';
+            foreach($report['unavailable_records'] as $record) {
+                $html.='<li>'.$escape($record['date'].' · '.$record['number'].' · '.$record['key']).'</li>';
+            }
+            $html.='</ul>';
+        }
         return $html.'</body></html>';
     }
 
@@ -133,7 +151,11 @@ final class ArchiveExport
         $reserve=$sameVolume?536870912:67108864;
         if(disk_free_space($real)<$selection['expanded']+16777216+$reserve)throw new \RuntimeException('ARCHIVE_TEMP_BUDGET');
         $path=$real.'/provider-export-'.bin2hex(random_bytes(16)).'.zip';
-        $result=RawZip::build($path,$provider,$selection['entries'],['record_count'=>count($selection['report']['records']),'coverage'=>$selection['report']['coverage'],'unavailable_files'=>$selection['report']['unavailable_files']],$selection['documentFiles']);
+        $result=RawZip::build($path,$provider,$selection['entries'],[
+            'record_count'=>count($selection['report']['records']),'coverage'=>$selection['report']['coverage'],
+            'unavailable_files'=>$selection['report']['unavailable_files'],
+            'unavailable_record_count'=>count($selection['report']['unavailable_records']),
+        ],$selection['documentFiles']);
         $result['path']=$path;
         $result['receipt_path']=$this->store->spool(['provider'=>$provider,'operation'=>'export','kind'=>'raw-archive'],Support::json(['sha256'=>$result['sha256'],'bytes'=>$result['bytes'],'record_count'=>count($selection['report']['records'])]));
         return $result;
