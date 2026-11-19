@@ -58,3 +58,28 @@ try {
     $assert($error->getMessage()==='EXPORT_FAILED_HTTP_500' && $fixture->calls===['registry-page']);
 }
 echo "PASS Diadoc existing session, explicit login/PUSH, single confirmation and failed-read guard\n";
+
+$run = ['provider'=>'diadoc','operation'=>'diadoc-session-refresh',
+    'status'=>'uncertain','result_code'=>'CONFIRMATION_CHECK_FAILED_HTTP_404'];
+$statusRequest = ['stage'=>'auth-confirm-status','http'=>404,'curl_errno'=>0];
+$coverage = ['auth_post_started'=>true,'requests'=>[$statusRequest]];
+$assert(DiadocSessionRestore::isReconciliableStatus404($run,$coverage));
+$assert(!DiadocSessionRestore::isReconciliableStatus404(array_replace($run,['status'=>'pending']),$coverage));
+$assert(!DiadocSessionRestore::isReconciliableStatus404(array_replace($run,['result_code'=>'CONFIRMATION_FAILED_HTTP_404']),$coverage));
+foreach ([
+    [],
+    [array_replace($statusRequest,['http'=>410])],
+    [array_replace($statusRequest,['curl_errno'=>28])],
+    [array_replace($statusRequest,['stage'=>'auth-confirm'])],
+    [$statusRequest,['stage'=>'auth-confirm','http'=>0,'curl_errno'=>28]],
+] as $requests) {
+    $assert(!DiadocSessionRestore::isReconciliableStatus404($run,array_replace($coverage,['requests'=>$requests])));
+}
+$fixture = new DiadocRestoreFixture([['auth-confirm-status',404,'{}']]);
+try {
+    DiadocSessionRestore::advance(new Diadoc\WebClient($fixture),$profile,$pending);
+    throw new LogicException('UNEXPECTED_FALLBACK');
+} catch (RuntimeException $error) {
+    $assert($error->getMessage()===$run['result_code'] && $fixture->calls===['auth-confirm-status']);
+}
+echo "PASS Diadoc exact status 404 retirement guard and final POST fence\n";

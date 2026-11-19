@@ -12,6 +12,8 @@ final class DiadocSessionRestore
 {
     private const OPERATION = 'diadoc-session-refresh';
     private const BOX_DENIED = 'SESSION_OR_BOX_ACCESS_DENIED_RUN_LOGIN';
+    private const STATUS_NOT_FOUND = 'CONFIRMATION_CHECK_FAILED_HTTP_404';
+    public const STATUS_RECONCILED = 'PUSH_STATUS_404_RECONCILED';
 
     public function __construct(private PDO $db) {}
 
@@ -26,12 +28,13 @@ final class DiadocSessionRestore
             'FRESH_PRIVATE_STATE_REQUIRED','STATE_DIRECTORY_FAILED','LOGIN_REJECTED','AUTH_BOOTSTRAP_FAILED',
             'AUTH_SESSION_MISSING','CONFIRMATION_REFUSED','CONFIRMATION_EXPIRED_RUN_LOGIN','ONLINE_HTTPS_FAILED',
             'ONLINE_TIME_LIMIT','ONLINE_RESPONSE_LIMIT','DOCUMENT_LIST_SCHEMA_CHANGED',self::BOX_DENIED,
+            'DIADOC_RECONCILIATION_NOT_PROVEN',
         ],true)?$code:'DIADOC_RESTORE_FAILED';
     }
 
     public function execute(string $action,string $key): array
     {
-        if (!in_array($action,['start','confirm'],true)
+        if (!in_array($action,['start','confirm','reconcile'],true)
             || !preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D',$key)) {
             throw new RuntimeException('INVALID_REQUEST');
         }
@@ -66,6 +69,10 @@ final class DiadocSessionRestore
             $binding = self::binding($reference,$revision,$profile);
             if ($run && ($run['operation']!==self::OPERATION || !hash_equals($run['fingerprint'],$binding))) {
                 throw new RuntimeException('DIADOC_RESTORE_BINDING_CHANGED');
+            }
+            if ($action==='reconcile') {
+                if (!$run) throw new RuntimeException('DIADOC_PENDING_MISMATCH');
+                return $this->reconcileStatusNotFound($run);
             }
             if ($run && ($action==='start' || $run['status']!=='awaiting_confirmation')) {
                 return self::result($run['id'],$run['status'],$run['result_code'],true);
@@ -115,6 +122,41 @@ final class DiadocSessionRestore
             umask($umask);
             $this->db->query("SELECT RELEASE_LOCK('ipphp-provider:diadoc')")->closeCursor();
         }
+    }
+
+    public static function isReconciliableStatus404(array $run,array $coverage): bool
+    {
+        $requests = $coverage['requests']??null;
+        return ($run['provider']??null)==='diadoc' && ($run['operation']??null)===self::OPERATION
+            && ($run['status']??null)==='uncertain' && ($run['result_code']??null)===self::STATUS_NOT_FOUND
+            && ($coverage['auth_post_started']??null)===true
+            && is_array($requests) && array_is_list($requests) && count($requests)===1
+            && is_array($requests[0])
+            && ($requests[0]['stage']??null)==='auth-confirm-status'
+            && ($requests[0]['http']??null)===404 && ($requests[0]['curl_errno']??null)===0;
+    }
+
+    /** Local journal correction only. There is no provider transport on this path. */
+    private function reconcileStatusNotFound(array $run): array
+    {
+        if ($run['status']==='failed' && $run['result_code']===self::STATUS_RECONCILED) {
+            return self::result($run['id'],'failed',self::STATUS_RECONCILED,true);
+        }
+        $coverage = Support::decode($run['coverage_json']??'{}');
+        if (!is_array($coverage) || !self::isReconciliableStatus404($run,$coverage)) {
+            throw new RuntimeException('DIADOC_RECONCILIATION_NOT_PROVEN');
+        }
+        $coverage['reconciliation'] = [
+            'kind'=>'provider-push-status-not-found-no-code-submit',
+            'previous_status'=>$run['status'],
+            'previous_result_code'=>$run['result_code'],
+            'reconciled_at'=>date(DATE_ATOM),
+        ];
+        $update = $this->db->prepare("UPDATE integration_runs SET status='failed',result_code=?,coverage_json=?
+            WHERE id=? AND provider='diadoc' AND operation=? AND status='uncertain' AND result_code=?");
+        $update->execute([self::STATUS_RECONCILED,Support::json($coverage),$run['id'],self::OPERATION,self::STATUS_NOT_FOUND]);
+        if ($update->rowCount()!==1) throw new RuntimeException('DIADOC_RECONCILIATION_NOT_PROVEN');
+        return self::result($run['id'],'failed',self::STATUS_RECONCILED);
     }
 
     private static function privateFile(string $path): void
