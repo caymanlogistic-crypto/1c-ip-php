@@ -27,5 +27,26 @@ final class MesClient
     public function check(): array {if(empty($this->session['auth']))throw new \RuntimeException('AUTH_REQUIRED');$a=$this->accounts();return ['status'=>'success','code'=>'CHECKED_NO_SEND','accounts'=>count($a)];}
     public function accounts(): array {if(empty($this->session['auth']))throw new \RuntimeException('AUTH_REQUIRED');$a=$this->call('GET','/api/v8/accounts')['data'];if(!is_array($a)||!array_is_list($a)||count($a)>100)throw new \RuntimeException('INVALID_ACCOUNT_LIST');$seen=[];foreach($a as $v){$id=(string)($v['id']??'');if(!preg_match('/^\d{1,25}$/D',$id)||isset($seen[$id]))throw new \RuntimeException('INVALID_ACCOUNT_LIST');$seen[$id]=1;}return $a;}
     public function documents(string $account,string $from,string $to): array {if(!preg_match('/^\d{1,25}$/D',$account))throw new \InvalidArgumentException('INVALID_ACCOUNT');$owned=array_map(static fn($a)=>(string)$a['id'],$this->accounts());if(!in_array($account,$owned,true))throw new \RuntimeException('ACCOUNT_NOT_AVAILABLE');$first=new \DateTimeImmutable(Support::day($from));$last=new \DateTimeImmutable(Support::day($to));if($last<$first||$first->diff($last)->days>3660)throw new \InvalidArgumentException('INVALID_PERIOD');$all=[];while($first<=$last){$end=min($last,$first->modify('+62 days'));$rows=$this->call('GET','/api/v7/accounts/'.$account.'/documents',null,['period'=>$first->format('d.m.Y').'|'.$end->format('d.m.Y')])['data'];if(!is_array($rows)||!array_is_list($rows)||count($all)+count($rows)>100000)throw new \RuntimeException('MES_SCHEMA_CHANGED');foreach($rows as $r)$all[]=['fields'=>['record'=>$r,'account'=>['id'=>$account]],'account_id'=>$account];$first=$end->modify('+1 day');}return $all;}
-    public function pdf(string $account,array $record): string {if(!preg_match('/^\d{1,25}$/D',$account)||($record['canDownload']??false)!==true)throw new \RuntimeException('FILE_UNAVAILABLE');$v=$record['value']??[];foreach(['documentId','reportId','documentDate','documentType','documentNum'] as $k)if(!is_string($v[$k]??null))throw new \RuntimeException('FILE_BINDING_FAILED');if(($v['system']??null)!=='BILLING')throw new \RuntimeException('FILE_BINDING_FAILED');$owned=array_map(static fn($a)=>(string)$a['id'],$this->accounts());if(!in_array($account,$owned,true))throw new \RuntimeException('ACCOUNT_NOT_AVAILABLE');return $this->call('POST','/api/v6/accounts/'.$account.'/documents/download',['document'=>['reportId'=>$v['reportId'],'docId'=>$v['documentId'],'documentDate'=>$v['documentDate'],'documentType'=>strtolower($v['documentType']),'documentNumber'=>$v['documentNum']],'system'=>'BILLING'],[],true);}
+    public function pdf(string $account,array $record): string {
+        if (!preg_match('/^\d{1,25}$/D',$account)||($record['canDownload']??false)!==true) {
+            throw new \RuntimeException('FILE_UNAVAILABLE');
+        }
+        $value=$record['value']??[];
+        foreach (['documentId','reportId','documentDate','documentType'] as $field) {
+            if (!is_string($value[$field]??null)||$value[$field]==='') {
+                throw new \RuntimeException('FILE_BINDING_FAILED');
+            }
+        }
+        $number=$value['documentNum']??null;
+        if (($value['system']??null)!=='BILLING'||!array_key_exists('documentNum',$value)
+            || ($number!==null&&!is_string($number))) {
+            throw new \RuntimeException('FILE_BINDING_FAILED');
+        }
+        $owned=array_map(static fn($item)=>(string)$item['id'],$this->accounts());
+        if (!in_array($account,$owned,true)) throw new \RuntimeException('ACCOUNT_NOT_AVAILABLE');
+        return $this->call('POST','/api/v6/accounts/'.$account.'/documents/download',['document'=>[
+            'reportId'=>$value['reportId'],'docId'=>$value['documentId'],'documentDate'=>$value['documentDate'],
+            'documentType'=>mb_strtolower($value['documentType'],'UTF-8'),'documentNumber'=>$number,
+        ],'system'=>'BILLING'],[],true);
+    }
 }
