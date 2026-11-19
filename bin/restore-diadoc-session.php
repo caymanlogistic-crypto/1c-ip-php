@@ -14,4 +14,5 @@ try {
     $result=['status'=>'failed','code'=>DiadocSessionRestore::safeCode($error)];
 }
 echo Support::json($result),PHP_EOL;
-exit(in_array($result['status'],['success','awaiting_confirmation'],true)?0:1);
+exit(in_array($result['status'],['success','awaiting_confirmation'],true)
+    || ($argv[1]==='reconcile' && $result['code']===DiadocSessionRestore::STATUS_RECONCILED)?0:1);
