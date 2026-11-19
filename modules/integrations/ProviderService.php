@@ -469,7 +469,8 @@ final class ProviderService {
                 'MAIL_REPLAY',
                 'MAIL_AMBIGUOUS_CODE',
                 'MAIL_REQUEST_EXPIRED',
-                'MAIL_PROFILE_INVALID'];
+                'MAIL_PROFILE_INVALID',
+                'CONFLICTING_SOURCE_ID'];
             $code = in_array($e->getMessage(),
                 $allowed,
                 true)?$e->getMessage():'PROVIDER_OPERATION_FAILED';
