@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__).'/app/bootstrap.php';
 
-use Modules\Integrations\{Config,Registry,Support,YakovlevImport};
+use Modules\Integrations\{Config,Registry,Support,YakovlevChanges,YakovlevImport};
 
 $db = App\DB::pdo();
 if (!str_starts_with($db->query('SELECT DATABASE()')->fetchColumn(),'ipphp_task_')) {
@@ -42,11 +42,23 @@ $assert($replay['reused']&&$replay['id']===$first['id'],'REQUEST_REPLAY_NOT_REUS
 $registry->import($provider,$snapshot($records),$actor,Support::uuid());
 $records[3]['fields']['record']['СуммаДокумента'] = '52093.14';
 $registry->import($provider,$snapshot($records),$actor,Support::uuid());
+$records[3]['fields']['record']['DataVersion'] = 'UPDATED_SOURCE_STAMP';
+$registry->import($provider,$snapshot($records),$actor,Support::uuid());
 $read = $db->prepare("SELECT account_id,amount,version FROM external_documents WHERE provider=? AND source_id LIKE ? ORDER BY account_id");
 $read->execute([$provider,'%:'.$key]);
 $rows = $read->fetchAll(PDO::FETCH_ASSOC);
 $assert(count($rows)===4 && array_column($rows,'account_id')===['bank_in','bank_out','invoices','parties'],'IDENTITY_OR_DUPLICATE');
 $assert(array_map('intval',array_column($rows,'version'))===[1,1,2,1] && $rows[2]['amount']==='52093.14000000','VERSION_OR_DECIMAL_LOSS');
+$originalInvoice = $records[3];
+$originalInvoice['fields']['record']['СуммаДокумента'] = '52093.13';
+unset($originalInvoice['fields']['record']['DataVersion']);
+$assert(YakovlevChanges::fields($originalInvoice,$records[3])===[['Сумма документа','52093.13','52093.14']],'INCORRECT_FIELD_DIFF');
+$renamedParty = $records[0];
+$renamedParty['fields']['record']['Description'] = 'Новое наименование';
+$registry->import($provider,$snapshot([$renamedParty]),$actor,Support::uuid());
+$read->execute([$provider,'%:'.$key]);
+$assert((int)$read->fetchAll(PDO::FETCH_ASSOC)[3]['version']===2
+    && count(YakovlevChanges::fields($records[0],$renamedParty))===1,'COUNTERPARTY_CHANGE_NOT_RECORDED');
 echo "PASS Yakovlev source separation, four kinds, exact decimals, update and replay\n";
 
 if (getenv('APP_STAND')==='ui') throw new RuntimeException('TEST_REQUIRES_NO_LIVE_READ_ADMISSION');
@@ -76,4 +88,5 @@ $result = $registry->import($provider,Support::json(['documents'=>[$records[1],$
 $assert($result['id']===$pending&&$result['status']==='success','IMPORT_DID_NOT_COMPLETE_SAME_RUN');
 $finished = $loader->import('bank','2026-09-15','2026-11-19',$actor,$requestKey);
 $assert($finished['reused']&&$finished['coverage']['evidence']['received_by_kind']['bank_in']===1,'SUCCESS_RUN_NOT_REUSED');
+$assert($finished['coverage']['changes']===['new'=>0,'changed'=>0,'unchanged'=>2],'REPEAT_COUNT_NOT_CORRECT');
 echo "PASS Yakovlev run timing, failure, same-row atomic completion and replay\n";
