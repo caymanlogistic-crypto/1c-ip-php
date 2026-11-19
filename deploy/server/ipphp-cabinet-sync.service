@@ -1,0 +1,9 @@
+[Unit]
+Description=Read admitted cabinet archives into the common application
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=45min
+ExecStart=/usr/bin/docker exec --user www-data --workdir /opt/app ipphp-ui-app-1 php bin/sync-cabinets-hourly.php
