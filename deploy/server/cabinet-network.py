@@ -16,7 +16,7 @@ HOSTS = {
     'diadoc': ('auth.kontur.ru', 'diadoc.kontur.ru'),
     'mosenergo': ('lkkjr.mosenergosbyt.ru',),
     'mosvodokanal': ('onewind.mosvodokanal.ru',),
-    'pik': ('resident-cabinet-back.pik-software.ru',),
+    'pik': ('resident-cabinet-back.pik-software.ru', 'storage.pik-software.ru'),
 }
 
 
