@@ -103,6 +103,16 @@ namespace {
             &&(int)$db->query("SELECT COUNT(*) FROM integration_runs WHERE provider='mosenergo'")->fetchColumn()===1,
             'CHECK_MUTATED_SESSION_OR_JOURNAL');
         echo "PASS MES session check uses GET only, separates 401, network and invalid data, preserves session and journal\n";
+        $requestsBefore=CabinetNetwork::$requests;
+        $profile=Config::profile('mosenergo','mes-test');
+        $payload=rtrim(strtr(base64_encode(Support::json(['exp'=>time()-1])),'+/','-_'),'=');
+        $profile['session']['auth']='header.'.$payload.'.fixture';
+        Config::saveProfile('mosenergo','mes-test',$profile);
+        $expiredHash=hash_file('sha256',$secretPath);
+        $assert($service->check()===['status'=>'authentication_required','code'=>'AUTH_REQUIRED']
+            &&CabinetNetwork::$requests===$requestsBefore
+            &&$expiredHash===hash_file('sha256',$secretPath),'EXPIRED_PROVIDER_TOKEN_WAS_USED');
+        echo "PASS MES expired bearer requests a fresh session without calling a protected endpoint\n";
     } finally {
         foreach (['integration_runs','integration_connections','integration_configuration_sources'] as $table) {
             $db->exec("DROP TEMPORARY TABLE IF EXISTS `$table`,`mes_fixture_$table`");
