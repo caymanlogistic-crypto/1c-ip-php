@@ -49,12 +49,31 @@ final class Registry
                 }
                 $this->db->prepare("INSERT INTO integration_runs(id,provider,operation,request_key,actor_id,revision,fingerprint,status,result_code,coverage_json,finished_at) VALUES(?,?,?,?,?,1,?,'success','IMPORTED',?,NOW(6))")->execute([$batch,$provider,'import',$requestKey,$actor,$fp,Support::json($coverage+['original_path'=>$originalPath])]);
             }
-            foreach($docs as $d){$path=$this->store->put('records',Support::json($d['raw']));$q=$this->db->prepare('SELECT * FROM external_documents WHERE provider=? AND source_id=? FOR UPDATE');$q->execute([$provider,$d['source_id']]);$old=$q->fetch(\PDO::FETCH_ASSOC);if($old&&hash_equals($old['raw_sha256'],$d['hash'])){Details::save($this->db,$old['id'],$d['raw']);continue;}$id=$old['id']??Support::uuid();$version=$old?((int)$old['version']+1):1;
+            $changes=['new'=>0,'changed'=>0,'unchanged'=>0];
+            foreach($docs as $d){
+                $q=$this->db->prepare('SELECT * FROM external_documents WHERE provider=? AND source_id=? FOR UPDATE');
+                $q->execute([$provider,$d['source_id']]);
+                $old=$q->fetch(\PDO::FETCH_ASSOC);
+                $same=$old&&hash_equals($old['raw_sha256'],$d['hash']);
+                if($old&&!$same&&$provider===YakovlevImport::PROVIDER&&in_array($d['account_id'],['parties','invoices'],true)){
+                    $previous=Support::decode($this->store->read($old['raw_path'],$old['raw_sha256']));
+                    $same=Support::canonical(YakovlevChanges::document($previous))===Support::canonical(YakovlevChanges::document($d['raw']));
+                }
+                if($same){
+                    $changes['unchanged']++;
+                    if(hash_equals($old['raw_sha256'],$d['hash'])) Details::save($this->db,$old['id'],$d['raw']);
+                    continue;
+                }
+                $changes[$old?'changed':'new']++;
+                $path=$this->store->put('records',Support::json($d['raw']));
+                $id=$old['id']??Support::uuid();
+                $version=$old?((int)$old['version']+1):1;
                 if($old)$this->db->prepare('UPDATE external_documents SET account_id=?,document_date=?,number=?,title=?,amount=?,status=?,raw_sha256=?,raw_path=?,context_path=?,batch_id=?,version=?,updated_at=NOW(6) WHERE id=?')->execute([$d['account_id'],$d['document_date'],$d['number'],$d['title'],$d['amount'],$d['status'],$d['hash'],$path,$contextPath,$batch,$version,$id]);
                 else $this->db->prepare('INSERT INTO external_documents(id,provider,source_id,account_id,document_date,number,title,amount,status,raw_sha256,raw_path,context_path,batch_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')->execute([$id,$provider,$d['source_id'],$d['account_id'],$d['document_date'],$d['number'],$d['title'],$d['amount'],$d['status'],$d['hash'],$path,$contextPath,$batch]);
                 Details::save($this->db,$id,$d['raw']);$this->db->prepare('INSERT INTO external_document_versions(document_id,version,raw_sha256,raw_path,batch_id) VALUES(?,?,?,?,?)')->execute([$id,$version,$d['hash'],$path,$batch]);
             }
             if($pendingRun!==null){
+                $coverage['changes']=$changes;
                 $this->db->prepare("UPDATE integration_runs SET status='success',result_code='IMPORTED',coverage_json=?,finished_at=NOW(6) WHERE id=?")->execute([Support::json($coverage+['original_path'=>$originalPath]),$batch]);
             }
             $this->db->commit();return ['id'=>$batch,'status'=>'success','coverage'=>$coverage,'reused'=>false];

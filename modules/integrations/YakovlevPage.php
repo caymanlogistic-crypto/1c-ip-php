@@ -100,7 +100,7 @@ final class YakovlevPage
         $query = $db->prepare("SELECT $columns FROM $table WHERE $where ORDER BY $order LIMIT 50 OFFSET $offset");
         $query->execute($args);
         $rows = $query->fetchAll(\PDO::FETCH_ASSOC);
-        $labels = $history?['Запуск','Завершение','Раздел','Период','Результат','Получено из 1С']:($parties?['Контрагент','ИНН']:['Дата','Номер','Документ','Сумма']);
+        $labels = $history?['Запуск','Завершение','Раздел','Период','Результат','Получено из 1С','Изменения']:($parties?['Контрагент','ИНН']:['Дата','Номер','Документ','Сумма']);
         $next = $offset+50<$count?'?'.http_build_query(['tab'=>$tab,'page'=>$page+1,'q'=>$search]):'';
         $html = '<section role="tabpanel" class="table-card registry-ui-card"><div class="table-toolbar registry-ui-toolbar">'
             .'<div class="found-label">Записей: <strong>'.$count.'</strong> · показано: <strong id="visible-count">'.count($rows).'</strong></div>';
@@ -156,6 +156,8 @@ final class YakovlevPage
             if (isset($byKind[$kind])) $downloaded[] = $label.' '.$byKind[$kind];
         }
         if (!$downloaded && $row['status']==='success') $downloaded[] = (string)($coverage['records_imported']??0);
-        return [$start,$finish,YakovlevImport::TABS[$section]??'—',$period,$status,implode(' · ',$downloaded)?:'—'];
+        $stats = $coverage['changes']??null;
+        $summary = $stats===null?'—':'Новых '.$stats['new'].' · Изменено '.$stats['changed'].' · Без изменений '.$stats['unchanged'];
+        return [$start,$finish,YakovlevImport::TABS[$section]??'—',$period,$status,implode(' · ',$downloaded)?:'—',$summary];
     }
 }
