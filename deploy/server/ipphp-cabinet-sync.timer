@@ -1,8 +1,9 @@
 [Unit]
-Description=Synchronize admitted cabinet archives every hour
+Description=Synchronize admitted cabinet archives twice a day in Moscow time
 
 [Timer]
-OnCalendar=*-*-* *:10:00 Europe/Moscow
+OnCalendar=*-*-* 09:00:00 Europe/Moscow
+OnCalendar=*-*-* 14:00:00 Europe/Moscow
 AccuracySec=1s
 Persistent=true
 Unit=ipphp-cabinet-sync.service
