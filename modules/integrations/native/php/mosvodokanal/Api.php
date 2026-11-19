@@ -102,8 +102,8 @@ final class Api
 
     public function printMetadata(): array
     {
-        // Do not persist the full definition (it can contain SQL or scripts).
-        $data = $this->definition('NATURAL_PERSON_ACCOUNT_BILL_REGISTER', false);
+        // Read the same report configuration as the subscriber's receipts grid.
+        $data = $this->request('api/ReportConfiguration/get', ['reportId'=>'NATURAL_PERSON_ACCOUNT_BILL_REGISTER'], false, false);
         $last = $this->requests[array_key_last($this->requests)];
         return ['definition' => $data, 'source_sha256' => $last['sha256']];
     }
@@ -154,7 +154,7 @@ final class Api
         if ($this->sequence >= 10000 || microtime(true) - $this->startedAt > 1800) {
             throw new RuntimeException('RUN_REQUEST_OR_TIME_BUDGET_EXCEEDED');
         }
-        if (!in_array($path, ['api/login', 'api/ReportFormData/get', 'api/ReportFormMaintenance/get'], true)) {
+        if (!in_array($path, ['api/login', 'api/ReportFormData/get', 'api/ReportFormMaintenance/get', 'api/ReportConfiguration/get'], true)) {
             throw new RuntimeException('ENDPOINT_NOT_ALLOWED');
         }
         $wait = $this->delayMs / 1000 - (microtime(true) - $this->lastRequest);
@@ -164,7 +164,7 @@ final class Api
         $body = '';
         $tooLarge = false;
         $encoded = http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
-        $stage=$path==='api/login'?'login':($path==='api/ReportFormMaintenance/get'?'metadata':match($parameters['reportId']??''){
+        $stage=$path==='api/login'?'login':(in_array($path,['api/ReportFormMaintenance/get','api/ReportConfiguration/get'],true)?'metadata':match($parameters['reportId']??''){
             'NATURAL_PERSON_USER_ACCOUNT_REGISTER'=>'accounts','NATURAL_PERSON_ACCOUNT_BILL_REGISTER'=>'receipts',
             'MOBILE_ACCOUNT_PAYMENT_REESTR','BILL_PAYMENTS_REESTR'=>'payments','ACCOUNT_METER_REGISTER'=>'meters',
             'METER_READING_REESTR'=>'readings',default=>'report'});

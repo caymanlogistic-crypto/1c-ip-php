@@ -12,14 +12,15 @@ final class FileService
         if ($provider==='mosenergo'&&$kind==='pdf') {
             return !$reconciliation&&$attempt['result_code']==='FILE_BINDING_FAILED';
         }
-        if ($attempt['result_code']!=='FILE_RESULT_UNKNOWN_NO_REPLAY') return false;
+        $legacyMvkMetadataDenied=$provider==='mosvodokanal'&&$kind==='original'&&$attempt['result_code']==='HTTP_403';
+        if ($attempt['result_code']!=='FILE_RESULT_UNKNOWN_NO_REPLAY'&&!$legacyMvkMetadataDenied) return false;
         $stage=match ([$provider,$kind]) {
             ['mosvodokanal','original']=>'metadata',
             ['pik','pdf']=>'pdf-request',
             default=>null,
         };
         if ($stage===null) return false;
-        if (!$reconciliation) return true;
+        if (!$reconciliation&&!$legacyMvkMetadataDenied) return true;
 
         // A reconciler can repeat its status read if the previous pass never obtained
         // a provider response or reached the download. The signed prior receipt stays intact.
@@ -31,7 +32,7 @@ final class FileService
             $receipt=Support::decode(base64_decode($stored['raw_base64'],true));
             $requests=$receipt['requests']??[];
             return count($requests)===1 && $requests[0]['stage']===$stage && $requests[0]['method']==='GET'
-                && array_key_exists('http',$requests[0]) && $requests[0]['http']===null;
+                && array_key_exists('http',$requests[0]) && $requests[0]['http']===($legacyMvkMetadataDenied?403:null);
         } catch (\Throwable) {
             return false;
         }
