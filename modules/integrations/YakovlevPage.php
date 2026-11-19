@@ -45,13 +45,16 @@ final class YakovlevPage
             Http::redirect(self::URL.'?tab='.$tab);
         }
         $e = Support::e(...);
-        $body = PageView::header(YakovlevImport::TITLE,'Чтение из 1С и сохранение данных в системе','');
+        $action = $canImport && $tab !== 'history'
+            ? '<button class="btn btn-primary" type="button" data-dialog="yakovlev-import">Загрузить из 1С</button>'
+            : '';
+        $body = PageView::header(YakovlevImport::TITLE,'Чтение из 1С и сохранение данных в системе',$action);
         $notice = $_SESSION['yakovlev_notice']??null;
         unset($_SESSION['yakovlev_notice']);
-        if ($notice !== null) $body .= '<p role="status" class="form-alert alert-info">'.$e($notice).'</p>';
+        if ($notice !== null) $body .= '<div role="status" class="form-alert alert-info"><span class="alert-mark" aria-hidden="true">!</span><div class="alert-body"><div class="alert-body-title">'.$e($notice).'</div></div></div>';
         $body .= PageView::tabs($tabs,$tab);
-        if ($canImport && $tab !== 'history') $body .= self::importForm($tab);
         $body .= self::registry($db,$tab);
+        if ($action !== '') $body .= self::importForm($tab);
         if (isset($_GET['document'])) $body .= RegistryView::detail(YakovlevImport::PROVIDER,(string)$_GET['document']);
         $body .= '<script defer src="/design/system/palette-runtime.js"></script><script defer src="/design/system/registry-interactions.js"></script>';
         return View::page(YakovlevImport::TITLE,$body,'connection-onec-yakovlev',['connection-onec-ui.js']);
@@ -61,16 +64,26 @@ final class YakovlevPage
     {
         $today = new \DateTimeImmutable('today',new \DateTimeZone('Europe/Moscow'));
         $first = YakovlevImport::FIRST_DAY;
-        $from = max($first,$today->modify('-30 days')->format('Y-m-d'));
-        $html = '<form method="post" action="'.self::URL.'?tab='.$tab.'" class="table-toolbar registry-ui-toolbar">'
+        $end = $today->format('Y-m-d');
+        $from = max($first,min(YakovlevImport::DEFAULT_FROM,$end),$today->modify('-366 days')->format('Y-m-d'));
+        $html = '<dialog id="yakovlev-import" aria-labelledby="yakovlev-import-title" class="modal registry-ui-modal registry-ui-modal--confirmation">'
+            .'<form method="post" action="'.self::URL.'?tab='.$tab.'" class="registry-ui-modal-form">'
             .'<input type="hidden" name="_csrf" value="'.Support::e(Http::csrf()).'">'
-            .'<input type="hidden" name="request_key" value="'.Support::uuid().'">';
+            .'<input type="hidden" name="request_key" value="'.Support::uuid().'">'
+            .'<div class="modal-head"><h2 class="modal-title" id="yakovlev-import-title">'.Support::e(YakovlevImport::TABS[$tab]).'</h2>'
+            .'<button class="modal-close" type="button" data-dialog-close aria-label="Закрыть">×</button></div>'
+            .'<div class="modal-body registry-ui-modal-grid">';
         if ($tab !== 'parties') {
-            foreach (['from'=>['С',$from],'to'=>['По',$today->format('Y-m-d')]] as $key=>[$label,$value]) {
-                $html .= '<label class="field"><span class="field-label">'.$label.'</span><input class="field-input" type="date" name="'.$key.'" min="'.$first.'" max="'.$today->format('Y-m-d').'" value="'.$value.'" required></label>';
+            foreach (['from'=>['Начало периода',$from],'to'=>['Конец периода',$end]] as $key=>[$label,$value]) {
+                $id = 'yakovlev-'.$key;
+                $html .= '<div class="field"><label class="field-label" for="'.$id.'">'.$label.'</label><input class="field-input" id="'.$id.'" type="date" name="'.$key.'" min="'.$first.'" max="'.$end.'" value="'.$value.'" required></div>';
             }
+        } else {
+            $html .= '<p class="registry-ui-modal-text">Будет загружен справочник контрагентов из 1С.</p>';
         }
-        return $html.'<div class="toolbar-right"><button type="submit" class="btn btn-primary">Загрузить из 1С</button></div></form>';
+        return $html.'</div><div class="modal-foot"><div class="modal-foot-actions">'
+            .'<button type="button" class="btn btn-secondary" data-dialog-close>Отмена</button>'
+            .'<button type="submit" class="btn btn-primary">Загрузить из 1С</button></div></div></form></dialog>';
     }
 
     private static function registry(\PDO $db, string $tab): string
@@ -96,23 +109,26 @@ final class YakovlevPage
         $query->execute($args);
         $count = (int)$query->fetchColumn();
         $order = $history?'created_at DESC,id':($parties?'title,id':'document_date DESC,number DESC,id');
-        $columns = $history?'id,operation,status,result_code,created_at,finished_at,coverage_json':'id,number,title,document_date,amount';
+        $columns = $history?'id,operation,status,result_code,created_at,finished_at,coverage_json':'id,number,title,document_date,amount,status';
         $query = $db->prepare("SELECT $columns FROM $table WHERE $where ORDER BY $order LIMIT 50 OFFSET $offset");
         $query->execute($args);
         $rows = $query->fetchAll(\PDO::FETCH_ASSOC);
-        $labels = $history?['Запуск','Завершение','Раздел','Период','Результат','Получено из 1С','Изменения']:($parties?['Контрагент','ИНН']:['Дата','Номер','Документ','Сумма']);
+        [$labels,$spec] = self::columns($tab);
         $next = $offset+50<$count?'?'.http_build_query(['tab'=>$tab,'page'=>$page+1,'q'=>$search]):'';
-        $html = '<section role="tabpanel" class="table-card registry-ui-card"><div class="table-toolbar registry-ui-toolbar">'
-            .'<div class="found-label">Записей: <strong>'.$count.'</strong> · показано: <strong id="visible-count">'.count($rows).'</strong></div>';
-        if (!$history) $html .= '<form method="get" class="toolbar-right"><input type="hidden" name="tab" value="'.$tab.'"><div class="registry-ui-search-group"><input type="search" class="toolbar-search registry-ui-search" name="q" value="'.$e($search).'" placeholder="Поиск" aria-label="Поиск по сохранённым данным"></div></form>';
-        $html .= '</div><div class="table-scroll" role="region" tabindex="0" aria-label="Сохранённые данные"><table class="table registry-ui-table registry-ui-data"><thead><tr>';
+        $profile = 'yakovlev-'.$tab;
+        $html = '<section role="tabpanel" data-registry-id="'.$profile.'" class="table-card registry-ui-card registry-ui-sticky-table registry-ui-sticky-table--wide-scroll registry-ui-scroll"><div class="table-toolbar registry-ui-toolbar">'
+            .'<div class="found-label">Найдено: <b>'.$count.'</b> · показано: <b id="visible-count">'.count($rows).'</b></div>';
+        if (!$history) $html .= '<form method="get" class="toolbar-right"><input type="hidden" name="tab" value="'.$tab.'">'.\Modules\Rental\DirectoryUi::search($search,true).'</form>';
+        $html .= '</div><div class="table-scroll" role="region" tabindex="0" aria-label="Сохранённые данные">'
+            .'<table class="table registry-ui-table registry-ui-data registry-ui-data--columns" data-column-profile="'.$profile.'" data-column-spec="'.$e(Support::json($spec)).'"><thead><tr>';
         foreach ($labels as $label) $html .= '<th scope="col">'.$e($label).'</th>';
         $html .= '</tr></thead><tbody id="records-body" data-onec-next="'.$e($next).'">';
         foreach ($rows as $row) {
             if ($history) {
                 $values = self::journalValues($row);
             } else {
-                $values = $parties?[$row['title'],$row['number']]:[date('d.m.Y',strtotime($row['document_date'])),$row['number'],$row['title'],RegistryView::money($row['amount'])];
+                $values = $parties?[$row['title'],$row['number']?:'—',$row['status']]
+                    :[date('d.m.Y',strtotime($row['document_date'])),$row['number'],$row['title'],RegistryView::money($row['amount']),$row['status']];
             }
             $url = '?tab='.$tab.'&document='.$row['id'];
             $attrs = $history?'':' tabindex="0" data-connection-document="'.$e($url).'" aria-label="'.$e('Открыть '.($parties?$row['title']:$row['number'])).'"';
@@ -124,6 +140,23 @@ final class YakovlevPage
         }
         if (!$rows) $html .= '<tr><td colspan="'.count($labels).'">Данных пока нет.</td></tr>';
         return $html.'</tbody></table></div></section><div id="onec-load-feedback" aria-live="polite"></div>';
+    }
+
+    private static function columns(string $tab): array
+    {
+        $definitions = match($tab) {
+            'history' => [
+                ['Запуск','text','long'],['Завершение','text','long'],['Раздел','text','long'],
+                ['Период','text','long'],['Результат','text','long'],['Получено из 1С','text','long'],
+                ['Изменения','text','flex'],
+            ],
+            'parties' => [['Контрагент','text','flex'],['ИНН','identifier','code'],['Статус','text','long']],
+            default => [['Дата','date','short'],['Номер','identifier','code'],['Документ','text','flex'],
+                ['Сумма','money','short'],['Статус','text','long']],
+        };
+        $spec = [];
+        foreach ($definitions as $index=>[, $type, $size]) $spec[] = ['key'=>'column_'.$index,'type'=>$type,'size'=>$size];
+        return [array_column($definitions,0),$spec];
     }
 
     private static function journalValues(array $row): array

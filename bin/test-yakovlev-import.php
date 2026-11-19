@@ -59,6 +59,21 @@ $registry->import($provider,$snapshot([$renamedParty]),$actor,Support::uuid());
 $read->execute([$provider,'%:'.$key]);
 $assert((int)$read->fetchAll(PDO::FETCH_ASSOC)[3]['version']===2
     && count(YakovlevChanges::fields($records[0],$renamedParty))===1,'COUNTERPARTY_CHANGE_NOT_RECORDED');
+$fullInvoice = $records[3];
+$fullInvoice['fields']['record']['Posted'] = false;
+$fullInvoice['fields']['record']['Товары'] = [['Содержание'=>'Тест','Сумма'=>'52093.14']];
+$fullParty = $renamedParty;
+$fullParty['fields']['record']['DeletionMark'] = true;
+$fullParty['fields']['record']['КонтактнаяИнформация'] = [['Представление'=>'Тестовый адрес']];
+$registry->import($provider,$snapshot([$fullInvoice,$fullParty]),$actor,Support::uuid());
+$stored = $db->prepare('SELECT account_id,status,raw_path,raw_sha256 FROM external_documents WHERE provider=? AND source_id LIKE ? AND account_id IN (\'invoices\',\'parties\') ORDER BY account_id');
+$stored->execute([$provider,'%:'.$key]);
+$details = $stored->fetchAll(PDO::FETCH_ASSOC);
+$assert(array_column($details,'status')===['Не проведён','Помечен на удаление'],'SOURCE_STATUS_NOT_PRESERVED');
+foreach ($details as $index=>$detail) {
+    $archive = Support::decode(Config::store()->read($detail['raw_path'],$detail['raw_sha256']));
+    $assert($archive===[$fullInvoice,$fullParty][$index],'NESTED_SOURCE_DATA_NOT_PRESERVED');
+}
 echo "PASS Yakovlev source separation, four kinds, exact decimals, update and replay\n";
 
 if (getenv('APP_STAND')==='ui') throw new RuntimeException('TEST_REQUIRES_NO_LIVE_READ_ADMISSION');
