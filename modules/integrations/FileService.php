@@ -5,11 +5,36 @@ namespace Modules\Integrations;
 final class FileService
 {
     public function __construct(private \PDO $db,private PrivateStore $store,private mixed $transport=null) {}
-    public static function canReconcile(string $provider,string $kind,array $attempt): bool {
-        return (int)$attempt['actor_id']===0 && $attempt['status']==='uncertain'
-            && $attempt['result_code']==='FILE_RESULT_UNKNOWN_NO_REPLAY'
-            && !str_starts_with($attempt['request_key'],'reconcile-')
-            && (($provider==='mosvodokanal'&&$kind==='original')||($provider==='pik'&&$kind==='pdf'));
+    public function canReconcile(string $provider,string $kind,array $attempt): bool {
+        if ((int)$attempt['actor_id']!==0||$attempt['status']!=='uncertain') return false;
+        $reconciliation=str_starts_with($attempt['request_key'],'reconcile-');
+        // This MES error is raised by binding validation, before its download request.
+        if ($provider==='mosenergo'&&$kind==='pdf') {
+            return !$reconciliation&&$attempt['result_code']==='FILE_BINDING_FAILED';
+        }
+        if ($attempt['result_code']!=='FILE_RESULT_UNKNOWN_NO_REPLAY') return false;
+        $stage=match ([$provider,$kind]) {
+            ['mosvodokanal','original']=>'metadata',
+            ['pik','pdf']=>'pdf-request',
+            default=>null,
+        };
+        if ($stage===null) return false;
+        if (!$reconciliation) return true;
+
+        // A reconciler can repeat its status read if the previous pass never obtained
+        // a provider response or reached the download. The signed prior receipt stays intact.
+        try {
+            $stored=$this->store->verifySpool($attempt['receipt_path']);
+            if (($stored['context']['fetch_id']??null)!==$attempt['id']
+                || ($stored['context']['document_id']??null)!==$attempt['document_id']
+                || ($stored['context']['kind']??null)!==$kind) return false;
+            $receipt=Support::decode(base64_decode($stored['raw_base64'],true));
+            $requests=$receipt['requests']??[];
+            return count($requests)===1 && $requests[0]['stage']===$stage && $requests[0]['method']==='GET'
+                && array_key_exists('http',$requests[0]) && $requests[0]['http']===null;
+        } catch (\Throwable) {
+            return false;
+        }
     }
     public function fetch(string $documentId,string $kind,int $actor,string $requestKey,bool $scheduled=false): array {
         $q=$this->db->prepare('SELECT provider FROM external_documents WHERE id=?');$q->execute([$documentId]);$provider=$q->fetchColumn();if(!$provider)throw new \RuntimeException('DOCUMENT_NOT_FOUND');$lock='ipphp-provider:'.$provider;$q=$this->db->prepare('SELECT GET_LOCK(?,0)');$q->execute([$lock]);if((int)$q->fetchColumn()!==1)throw new \RuntimeException('PROVIDER_BUSY');try{return $this->fetchLocked($documentId,$kind,$actor,$requestKey,$scheduled);}finally{$q=$this->db->prepare('SELECT RELEASE_LOCK(?)');$q->execute([$lock]);}
@@ -38,7 +63,7 @@ final class FileService
                     $this->db->commit();
                     return $old;
                 }
-                if ($scheduled && self::canReconcile($provider,$kind,$old)) {
+                if ($scheduled && $this->canReconcile($provider,$kind,$old)) {
                     $previous ??= $old['id'];
                     continue;
                 }
@@ -75,10 +100,10 @@ final class FileService
             if($provider==='diadoc'&&$kind==='original'){if(!is_string($data['content_type']??null)||preg_match('/text\/html|application\/json|[\r\n]/i',$data['content_type']))throw new \RuntimeException('FILE_FORMAT_CHANGED');}if($kind==='pdf'&&!str_starts_with($bytes,'%PDF-'))throw new \RuntimeException('FILE_FORMAT_CHANGED');if($provider==='diadoc'&&$kind==='original'&&strlen($bytes)!==$row['file_size'])throw new \RuntimeException('FILE_BINDING_FAILED');$sourceDocx=$provider==='mosvodokanal'&&$kind==='original'&&str_starts_with($bytes,"PK\x03\x04");
             if($provider==='mosvodokanal'&&$kind==='original'&&!$sourceDocx&&!str_starts_with($bytes,'%PDF-'))throw new \RuntimeException('FILE_FORMAT_CHANGED');
             $extension=$sourceDocx?'.docx':(str_starts_with($bytes,'%PDF-')?'.pdf':(str_starts_with(ltrim($bytes,"\xEF\xBB\xBF \r\n\t"),'<')?'.xml':'.bin'));$filename=$provider.'-'.substr(hash('sha256',$d['source_id']),0,16).'-'.$kind.$extension;$signature=isset($data['signature_base64'])?base64_decode($data['signature_base64'],true):null;if($signature===false)throw new \RuntimeException('SIGNATURE_FORMAT_INVALID');$fileId=(new Registry($this->db,$this->store))->attach($d['id'],$d['source_id'],$filename,$bytes,hash('sha256',$bytes),$kind==='original'?'original':'native',$signature);$status='success';$code='ORIGINAL_BYTES_VERIFIED';$receipt+=['file_id'=>$fileId,'sha256'=>hash('sha256',$bytes),'bytes'=>strlen($bytes),'source_id'=>$d['source_id'],'document_version'=>$d['version']];
-        }catch(\Throwable $e){$status=$started?'uncertain':'failed';$safe=['EXTERNAL_ACCESS_NOT_AUTHORIZED','CONNECTION_DISABLED','FILE_BINDING_FAILED','FILE_CHECKSUM_FAILED','FILE_FORMAT_CHANGED','FILE_MAPPING_NOT_CONFIRMED','BILLING_ACCOUNT_REQUIRED','PIK_RECEIPT_NOT_READY'];$code=in_array($e->getMessage(),$safe,true)?$e->getMessage():'FILE_RESULT_UNKNOWN_NO_REPLAY';}
+        }catch(\Throwable $e){$status=$started?'uncertain':'failed';$safe=['EXTERNAL_ACCESS_NOT_AUTHORIZED','CONNECTION_DISABLED','FILE_BINDING_FAILED','FILE_CHECKSUM_FAILED','FILE_FORMAT_CHANGED','FILE_MAPPING_NOT_CONFIRMED','BILLING_ACCOUNT_REQUIRED','PIK_RECEIPT_NOT_READY','HTTP_403'];$code=in_array($e->getMessage(),$safe,true)?$e->getMessage():'FILE_RESULT_UNKNOWN_NO_REPLAY';}
         if ($scheduled) {
             $receipt['requests']=array_map(
-                static fn(array $request):array=>array_intersect_key($request,array_flip(['stage','method','http','curl_errno'])),
+                static fn(array $request):array=>array_intersect_key($request,array_flip(['stage','method','http','code'])),
                 array_slice($GLOBALS['ONLINE_REQUESTS']??[],$networkStart,20),
             );
         }

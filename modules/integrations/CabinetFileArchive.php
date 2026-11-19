@@ -23,7 +23,7 @@ final class CabinetFileArchive
         $service=new FileService($this->db,$this->store);
         $docs=$this->db->prepare('SELECT id,version,raw_path FROM external_documents
             WHERE provider=? AND document_date BETWEEN ? AND ? ORDER BY document_date DESC,id');
-        $check=$this->db->prepare("SELECT a.status,a.actor_id,a.request_key,a.result_code FROM external_fetch_attempts a LEFT JOIN external_files f ON f.id=a.file_id
+        $check=$this->db->prepare("SELECT a.id,a.document_id,a.status,a.actor_id,a.request_key,a.result_code,a.receipt_path FROM external_fetch_attempts a LEFT JOIN external_files f ON f.id=a.file_id
             WHERE a.document_id=? AND a.document_version=? AND a.operation=?
               AND (a.status IN ('pending','uncertain') OR (a.status='success' AND f.id IS NOT NULL))");
         $docs->execute([$provider,$from,$to]);
@@ -36,7 +36,7 @@ final class CabinetFileArchive
                     $stats['saved']++;
                     continue;
                 }
-                $blocked=array_filter($attempts,static fn(array $attempt):bool=>!FileService::canReconcile($provider,$kind,$attempt));
+                $blocked=array_filter($attempts,static fn(array $attempt):bool=>!$service->canReconcile($provider,$kind,$attempt));
                 if($blocked || !str_starts_with($document['raw_path'],'records/')) {
                     $stats['blocked']++;
                     continue;
