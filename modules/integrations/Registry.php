@@ -20,7 +20,7 @@ final class Registry
         else {if($accountId==='')throw new \InvalidArgumentException('ACCOUNT_REQUIRED');$native=Support::identity(self::first($v,['_uid','ID','id','receipt_id','documentId','document_id','DOC_ID','BILL_ID']));$id=$provider==='mosvodokanal'?Support::json([$accountId,$native,Support::identity($v['FL_DOC']??null)]):Support::json([$accountId,$native]);$date=$provider==='pik'?Support::day(self::first($v,['period','billing_period','BILL_PERIOD','accountingPeriod'])):Support::day(self::first($v,['period','DOC_DATE','BILL_DATE','BILL_PERIOD','DATE','date','documentDate','document_date'])??$raw['date']??$row['source_date']??null);$number=(string)(self::first($v,['DOC_NUM','BILL_NUMBER','number','documentNum','documentNumber'])??'');$amount=Support::money(self::first($v,['total','CGS_SUM','DOC_SUM','TOTAL_SUM','SUM','amount','sum']));$status=(string)(self::first($v,['VST_DOC_STATUS_DESCR','status'])??$row['status']??'Получена');$title='Квитанция';}
         if(strlen($id)>500)throw new \InvalidArgumentException('SOURCE_ID_TOO_LONG');return ['provider'=>$provider,'source_id'=>$id,'account_id'=>$accountId,'document_date'=>$date,'number'=>$number,'title'=>$title,'amount'=>$amount,'status'=>$status,'raw'=>$row];
     }
-    public function import(string $provider,string $original,int $actor,string $requestKey): array {
+    public function import(string $provider,string $original,int $actor,string $requestKey,?string $pendingRun=null): array {
         Support::provider($provider);if(in_array($provider,['email','max'],true))throw new \InvalidArgumentException('DOCUMENT_PROVIDER_REQUIRED');if(strlen($original)>64*1024*1024)throw new \InvalidArgumentException('IMPORT_TOO_LARGE');
         $p=Support::decode($original);if(!is_array($p)||($p['provider']??$provider)!==$provider)throw new \InvalidArgumentException('PROVIDER_BINDING_FAILED');Support::business($p);$rows=$p['documents']??$p['records']??$p['rows']??null;if(!is_array($rows)||!array_is_list($rows)||count($rows)>100000)throw new \InvalidArgumentException('DOCUMENT_LIST_REQUIRED');
         $evidence=$p['coverage']??[];$scope=$p['scope']??[];$context=$p['context']??[];if(!is_array($evidence)||!is_array($scope)||!is_array($context))throw new \InvalidArgumentException('INVALID_COVERAGE');
@@ -31,13 +31,33 @@ final class Registry
         $coverage=['complete'=>$complete,'period_from'=>$cutoff,'records_supplied'=>count($rows),'records_imported'=>count($docs),'period_to'=>$evidence['period_to']??$scope['to']??null,'excluded'=>$excluded,'evidence'=>$evidence,'scope'=>$scope];
         $originalPath=$this->store->put('imports',$original);$contextPath=$this->store->put('contexts',Support::json($context));$fp=hash('sha256',$original);$batch=Support::uuid();
         $this->db->beginTransaction();try{
-            $q=$this->db->prepare('SELECT * FROM integration_runs WHERE provider=? AND actor_id=? AND request_key=? FOR UPDATE');$q->execute([$provider,$actor,$requestKey]);$existing=$q->fetch(\PDO::FETCH_ASSOC);if($existing){if(!hash_equals($existing['fingerprint'],$fp)||$existing['operation']!=='import')throw new \RuntimeException('IDEMPOTENCY_CONFLICT');$this->db->commit();return ['id'=>$existing['id'],'status'=>$existing['status'],'coverage'=>json_decode($existing['coverage_json'],true),'reused'=>true];}
-            $this->db->prepare('INSERT INTO integration_runs(id,provider,operation,request_key,actor_id,revision,fingerprint,status,result_code,coverage_json,finished_at) VALUES(?,?,?,?,?,1,?,\'success\',\'IMPORTED\',?,NOW(6))')->execute([$batch,$provider,'import',$requestKey,$actor,$fp,Support::json($coverage+['original_path'=>$originalPath])]);
+            $q=$this->db->prepare('SELECT * FROM integration_runs WHERE provider=? AND actor_id=? AND request_key=? FOR UPDATE');
+            $q->execute([$provider,$actor,$requestKey]);
+            $existing=$q->fetch(\PDO::FETCH_ASSOC);
+            if($pendingRun!==null){
+                if($provider!==YakovlevImport::PROVIDER || !$existing || $existing['id']!==$pendingRun
+                    || $existing['operation']!=='yakovlev-load' || $existing['status']!=='pending'
+                    || Support::canonical(json_decode($existing['coverage_json'],true)['scope']??null)!==Support::canonical($scope)) {
+                    throw new \RuntimeException('PENDING_IMPORT_NOT_BOUND');
+                }
+                $batch=$pendingRun;
+            } else {
+                if($existing){
+                    if(!hash_equals($existing['fingerprint'],$fp)||$existing['operation']!=='import')throw new \RuntimeException('IDEMPOTENCY_CONFLICT');
+                    $this->db->commit();
+                    return ['id'=>$existing['id'],'status'=>$existing['status'],'coverage'=>json_decode($existing['coverage_json'],true),'reused'=>true];
+                }
+                $this->db->prepare("INSERT INTO integration_runs(id,provider,operation,request_key,actor_id,revision,fingerprint,status,result_code,coverage_json,finished_at) VALUES(?,?,?,?,?,1,?,'success','IMPORTED',?,NOW(6))")->execute([$batch,$provider,'import',$requestKey,$actor,$fp,Support::json($coverage+['original_path'=>$originalPath])]);
+            }
             foreach($docs as $d){$path=$this->store->put('records',Support::json($d['raw']));$q=$this->db->prepare('SELECT * FROM external_documents WHERE provider=? AND source_id=? FOR UPDATE');$q->execute([$provider,$d['source_id']]);$old=$q->fetch(\PDO::FETCH_ASSOC);if($old&&hash_equals($old['raw_sha256'],$d['hash'])){Details::save($this->db,$old['id'],$d['raw']);continue;}$id=$old['id']??Support::uuid();$version=$old?((int)$old['version']+1):1;
                 if($old)$this->db->prepare('UPDATE external_documents SET account_id=?,document_date=?,number=?,title=?,amount=?,status=?,raw_sha256=?,raw_path=?,context_path=?,batch_id=?,version=?,updated_at=NOW(6) WHERE id=?')->execute([$d['account_id'],$d['document_date'],$d['number'],$d['title'],$d['amount'],$d['status'],$d['hash'],$path,$contextPath,$batch,$version,$id]);
                 else $this->db->prepare('INSERT INTO external_documents(id,provider,source_id,account_id,document_date,number,title,amount,status,raw_sha256,raw_path,context_path,batch_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')->execute([$id,$provider,$d['source_id'],$d['account_id'],$d['document_date'],$d['number'],$d['title'],$d['amount'],$d['status'],$d['hash'],$path,$contextPath,$batch]);
                 Details::save($this->db,$id,$d['raw']);$this->db->prepare('INSERT INTO external_document_versions(document_id,version,raw_sha256,raw_path,batch_id) VALUES(?,?,?,?,?)')->execute([$id,$version,$d['hash'],$path,$batch]);
-            }$this->db->commit();return ['id'=>$batch,'status'=>'success','coverage'=>$coverage,'reused'=>false];
+            }
+            if($pendingRun!==null){
+                $this->db->prepare("UPDATE integration_runs SET status='success',result_code='IMPORTED',coverage_json=?,finished_at=NOW(6) WHERE id=?")->execute([Support::json($coverage+['original_path'=>$originalPath]),$batch]);
+            }
+            $this->db->commit();return ['id'=>$batch,'status'=>'success','coverage'=>$coverage,'reused'=>false];
         }catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
     public function attach(string $documentId,string $sourceId,string $filename,string $bytes,string $sha,string $provenance='native',?string $signature=null): string {

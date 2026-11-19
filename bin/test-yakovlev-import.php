@@ -48,3 +48,32 @@ $rows = $read->fetchAll(PDO::FETCH_ASSOC);
 $assert(count($rows)===4 && array_column($rows,'account_id')===['bank_in','bank_out','invoices','parties'],'IDENTITY_OR_DUPLICATE');
 $assert(array_map('intval',array_column($rows,'version'))===[1,1,2,1] && $rows[2]['amount']==='52093.14000000','VERSION_OR_DECIMAL_LOSS');
 echo "PASS Yakovlev source separation, four kinds, exact decimals, update and replay\n";
+
+if (getenv('APP_STAND')==='ui') throw new RuntimeException('TEST_REQUIRES_NO_LIVE_READ_ADMISSION');
+$failureKey = Support::uuid();
+$loader = new YakovlevImport($db,Config::store());
+try {
+    $loader->import('parties','','',$actor,$failureKey);
+    throw new LogicException('LIVE_READ_ADMITTED_IN_TEST');
+} catch (RuntimeException $error) {
+    $assert($error->getMessage()==='YAKOVLEV_READ_NOT_ENABLED','UNEXPECTED_IMPORT_ERROR');
+}
+$failed = $loader->import('parties','','',$actor,$failureKey);
+$assert($failed['reused'] && $failed['status']==='failed' && $failed['coverage']['records_imported']===0,'FAILED_RUN_NOT_REUSED');
+$run = $db->prepare('SELECT created_at,finished_at,result_code FROM integration_runs WHERE id=?');
+$run->execute([$failed['id']]);
+$timing = $run->fetch(PDO::FETCH_ASSOC);
+$assert($timing['result_code']==='YAKOVLEV_READ_NOT_ENABLED'&&$timing['finished_at']>=$timing['created_at'],'FAILURE_RUN_TIMING');
+
+$pending = Support::uuid();
+$requestKey = Support::uuid();
+$scope = ['kind'=>'yakovlev-bank','scope_limited'=>true,'from'=>'2026-09-15','to'=>'2026-11-19'];
+$db->prepare("INSERT INTO integration_runs(id,provider,operation,request_key,actor_id,revision,fingerprint,status,coverage_json)
+    VALUES(?,?,'yakovlev-load',?,?,1,?,'pending',?)")
+    ->execute([$pending,$provider,$requestKey,$actor,hash('sha256',Support::json($scope)),Support::json(['scope'=>$scope])]);
+$result = $registry->import($provider,Support::json(['documents'=>[$records[1],$records[2]],'scope'=>$scope,
+    'coverage'=>['received_by_kind'=>['bank_in'=>1,'bank_out'=>1]]]),$actor,$requestKey,$pending);
+$assert($result['id']===$pending&&$result['status']==='success','IMPORT_DID_NOT_COMPLETE_SAME_RUN');
+$finished = $loader->import('bank','2026-09-15','2026-11-19',$actor,$requestKey);
+$assert($finished['reused']&&$finished['coverage']['evidence']['received_by_kind']['bank_in']===1,'SUCCESS_RUN_NOT_REUSED');
+echo "PASS Yakovlev run timing, failure, same-row atomic completion and replay\n";

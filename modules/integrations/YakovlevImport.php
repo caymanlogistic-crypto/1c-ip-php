@@ -28,9 +28,29 @@ final class YakovlevImport
         if (!isset(self::TABS[$tab])) throw new \InvalidArgumentException('INVALID_IMPORT_TAB');
         if ($tab !== 'parties') self::validatePeriod($from, $to);
         Support::identity($requestKey);
-        $lock = $this->db->query("SELECT GET_LOCK('ipphp:onec-yakovlev-import',0)");
-        if ((int)$lock->fetchColumn() !== 1) throw new \RuntimeException('IMPORT_BUSY');
+        $scope = ['kind' => 'yakovlev-'.$tab, 'scope_limited' => true];
+        if ($tab !== 'parties') $scope += ['from' => $from,'to' => $to];
+        $fingerprint = hash('sha256',Support::json($scope));
+        $id = Support::uuid();
+        $start = $this->db->prepare(
+            "INSERT INTO integration_runs(id,provider,operation,request_key,actor_id,revision,fingerprint,status,coverage_json)
+             VALUES(?,?,'yakovlev-load',?,?,1,?,'pending',?) ON DUPLICATE KEY UPDATE id=id"
+        );
+        $start->execute([$id,self::PROVIDER,$requestKey,$actor,$fingerprint,Support::json(['scope'=>$scope])]);
+        $query = $this->db->prepare('SELECT id,operation,fingerprint,status,coverage_json FROM integration_runs WHERE provider=? AND actor_id=? AND request_key=?');
+        $query->execute([self::PROVIDER,$actor,$requestKey]);
+        $existing = $query->fetch(\PDO::FETCH_ASSOC);
+        if (($existing['id']??null) !== $id) {
+            if (!$existing || $existing['operation'] !== 'yakovlev-load' || !hash_equals($existing['fingerprint'],$fingerprint)) {
+                throw new \RuntimeException('IDEMPOTENCY_CONFLICT');
+            }
+            return ['id'=>$existing['id'],'status'=>$existing['status'],'coverage'=>json_decode($existing['coverage_json'],true),'reused'=>true];
+        }
+        $locked = false;
+        $received = [];
         try {
+            $locked = (int)$this->db->query("SELECT GET_LOCK('ipphp:onec-yakovlev-import',0)")->fetchColumn() === 1;
+            if (!$locked) throw new \RuntimeException('IMPORT_BUSY');
             $reader = self::reader();
             $orgs = self::rows($reader->yakovlevPage('organization', [
                 '$format' => 'json', '$top' => '2', '$select' => 'Ref_Key,ИНН,DeletionMark',
@@ -42,15 +62,31 @@ final class YakovlevImport
             }
             $documents = [];
             foreach ($tab === 'bank' ? ['bank_in','bank_out'] : [$tab] as $kind) {
-                array_push($documents, ...self::collect($reader, $kind, $from, $to));
+                $records = self::collect($reader, $kind, $from, $to);
+                $received[$kind] = count($records);
+                array_push($documents, ...$records);
             }
-            $scope = ['kind' => 'yakovlev-'.$tab, 'scope_limited' => true];
-            if ($tab !== 'parties') $scope += ['from' => $from,'to' => $to];
-            $snapshot = Support::json(['provider' => self::PROVIDER, 'documents' => $documents, 'scope' => $scope]);
-            return (new Registry($this->db,$this->store))->import(self::PROVIDER,$snapshot,$actor,$requestKey);
+            $snapshot = Support::json(['provider' => self::PROVIDER, 'documents' => $documents, 'scope' => $scope,
+                'coverage' => ['received_by_kind'=>$received]]);
+            return (new Registry($this->db,$this->store))->import(self::PROVIDER,$snapshot,$actor,$requestKey,$id);
+        } catch (\Throwable $error) {
+            $this->db->prepare("UPDATE integration_runs SET status='failed',result_code=?,coverage_json=?,finished_at=NOW(6)
+                WHERE id=? AND status='pending'")->execute([self::safeCode($error),
+                Support::json(['scope'=>$scope,'evidence'=>['received_by_kind'=>$received],'records_imported'=>0]),$id]);
+            throw $error;
         } finally {
-            $this->db->query("SELECT RELEASE_LOCK('ipphp:onec-yakovlev-import')");
+            if ($locked) $this->db->query("SELECT RELEASE_LOCK('ipphp:onec-yakovlev-import')");
         }
+    }
+
+    public static function safeCode(\Throwable $error): string
+    {
+        return match($error->getMessage()) {
+            'IMPORT_BUSY','AUTH_REQUIRED','YAKOVLEV_READ_NOT_ENABLED','ORGANIZATION_NOT_CONFIRMED',
+            'NETWORK_OR_TLS_FAILED','TIME_LIMIT','REQUEST_BUDGET','YAKOVLEV_IMPORT_LIMIT','RESPONSE_TOO_LARGE',
+            'SOURCE_HTTP_FAILED','INVALID_ODATA_ROWS' => $error->getMessage(),
+            default => 'IMPORT_FAILED',
+        };
     }
 
     private static function reader(): \NativeOnec\Reader
