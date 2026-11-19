@@ -10,10 +10,12 @@ final class CabinetNetwork
         'auth.kontur.ru'=>'diadoc', 'diadoc.kontur.ru'=>'diadoc',
         'lkkjr.mosenergosbyt.ru'=>'mosenergo', 'onewind.mosvodokanal.ru'=>'mosvodokanal',
         'resident-cabinet-back.pik-software.ru'=>'pik',
+        'storage.pik-software.ru'=>'pik',
     ];
 
     public static function options(string $host): array
     {
+        $host = strtolower($host);
         $provider = self::HOSTS[$host]??null;
         if ($provider===null || !isset(CabinetSyncAdmission::configured()[$provider])) return [];
         $path = Config::root().'/.local/cabinet-network.json';

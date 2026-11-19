@@ -59,7 +59,7 @@ function authReceipt(array $request):void {
 }
 function runInternal(array $input,array $factories=[]):array {
     unset($GLOBALS['ONEC_DIAGNOSTIC']);
-    if(array_diff(array_keys($input),['provider','operation','state','credentials','session','box_id','cursor','account','remaining_ms','force_login','document','receipt','ephemeral_probe','archive_period','include_metadata','check_probe','profile_reference','profile_revision','cabinet_profile']))failure('ACCESS_DENIED');
+    if(array_diff(array_keys($input),['provider','operation','state','credentials','session','box_id','cursor','account','remaining_ms','force_login','document','receipt','ephemeral_probe','archive_period','include_metadata','check_probe','profile_reference','profile_revision','cabinet_profile','receipt_status_only']))failure('ACCESS_DENIED');
     $provider=$input['provider']??'';$operation=$input['operation']??'';$cursor=$input['cursor']??null;
     if((array_key_exists('profile_reference',$input)||array_key_exists('profile_revision',$input))&&$provider!=='onec')failure('ACCESS_DENIED');
     $checkReads=['records','accounts'];
@@ -77,6 +77,10 @@ function runInternal(array $input,array $factories=[]):array {
     $budget=$input['remaining_ms']??null;
     if(!is_int($budget)||$budget<1||$budget>900000)failure('ACCESS_DENIED');
     $cabinet=$input['cabinet_profile']??null;
+    if (array_key_exists('receipt_status_only',$input)
+        && ($provider!=='pik'||$operation!=='receipt_pdf'||!is_string($cabinet)||$input['receipt_status_only']!==true)) {
+        failure('ACCESS_DENIED');
+    }
     if (array_key_exists('cabinet_profile',$input)) {
         if (!is_string($cabinet) || !in_array($operation,['accounts','records','original','receipt_print_metadata','receipt_source_file','receipt_pdf','selected_native_print_pdf'],true)
             || !empty($input['credentials']) || !\Modules\Integrations\CabinetSyncAdmission::allows(\App\DB::pdo(),$provider,$operation,$cabinet))failure('ACCESS_DENIED');
@@ -227,7 +231,7 @@ function runInternal(array $input,array $factories=[]):array {
         $data=\PikComfort\receiptPdf($client,$account,$receipt,'',30,static function(string $url,string $filename)use($client):array{
             $body=$client->pdfBytes($url,8*1024*1024);
             return ['filename'=>$filename,'mime'=>'application/pdf','mime_basis'=>'signature','bytes'=>strlen($body),'sha256'=>hash('sha256',$body),'base64'=>base64_encode($body)];
-        });
+        },$input['receipt_status_only']??false);
         return ['data'=>$data,'session'=>$client->session()];
     }
     if($operation==='records'){

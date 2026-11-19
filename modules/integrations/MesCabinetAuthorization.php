@@ -16,6 +16,51 @@ final class MesCabinetAuthorization
 
     public function __construct(private PDO $db) {}
 
+    public function check(): array
+    {
+        if (PHP_SAPI !== 'cli' || getenv('APP_STAND') !== 'ui') {
+            return ['status'=>'failed','code'=>'MES_AUTH_NOT_ADMITTED'];
+        }
+        try {
+            return $this->withProviderLock(function (): array {
+                $context = $this->context();
+                $profile = Config::profile(self::PROVIDER,$context['profile']);
+                Config::assertSecretRevision($profile,$context['revision']);
+                $session = $profile['session']??[];
+                if (!is_array($session)) throw new RuntimeException('MES_SESSION_INVALID');
+                $auth = $session['auth']??'';
+                if ($auth === '') throw new RuntimeException('AUTH_REQUIRED');
+                if (!is_string($auth) || preg_match('/[\x00-\x1f\x7f]/',$auth)) throw new RuntimeException('MES_SESSION_INVALID');
+                $transport = CabinetNetwork::mesTransport();
+                $client = new MesClient(['auth'=>$auth],
+                    function (string $method,string $path,?array $body,array $query,array $headers) use ($transport,$context): array {
+                        if ($method!=='GET' || $path!=='/api/v8/accounts' || $body!==null || $query!==[]) {
+                            throw new RuntimeException('MES_CHECK_REQUEST_REJECTED');
+                        }
+                        if ($this->context()!==$context) throw new RuntimeException('MES_CURRENT_PROFILE_CHANGED');
+                        return $transport($method,$path,$body,$query,$headers);
+                    });
+                $accounts = $client->accounts();
+                if ($this->context()!==$context) throw new RuntimeException('MES_CURRENT_PROFILE_CHANGED');
+                return ['status'=>'success','code'=>'MES_AUTHENTICATED','accounts'=>count($accounts)];
+            });
+        } catch (\Throwable $failure) {
+            $code = match (true) {
+                $failure instanceof \JsonException
+                    || ($failure instanceof \InvalidArgumentException
+                        && preg_match('/^(?:INVALID_JSON|DUPLICATE_JSON|JSON_)/D',$failure->getMessage())) => 'INVALID_ACCOUNT_LIST',
+                in_array($failure->getMessage(),[
+                    'AUTH_REQUIRED','PROVIDER_BUSY','MES_CURRENT_PROFILE_CHANGED','MES_AUTH_NOT_ADMITTED',
+                    'CREDENTIAL_REVISION_CONFLICT','MES_SESSION_INVALID','MES_CHECK_REQUEST_REJECTED',
+                    'CABINET_NETWORK_UNAVAILABLE','EXTERNAL_ACCESS_NOT_AUTHORIZED','NETWORK_OR_TLS_FAILED',
+                    'MES_HTTP_REJECTED','MES_RESPONSE_INVALID','MES_BUDGET_EXCEEDED','INVALID_ACCOUNT_LIST',
+                ],true) => $failure->getMessage(),
+                default => 'MES_CHECK_NOT_CONFIRMED',
+            };
+            return ['status'=>$code==='AUTH_REQUIRED'?'authentication_required':'failed','code'=>$code];
+        }
+    }
+
     public function execute(string $action, string $key, ?string $code = null): array
     {
         if (PHP_SAPI !== 'cli' || getenv('APP_STAND') !== 'ui'
@@ -24,10 +69,7 @@ final class MesCabinetAuthorization
             || ($action === 'confirm' ? !preg_match('/^\d{5}$/D', $code ?? '') : $code !== null)) {
             throw new RuntimeException('MES_MANUAL_ARGUMENTS_REJECTED');
         }
-        $lock = $this->db->prepare('SELECT GET_LOCK(?,0)');
-        $lock->execute([self::LOCK]);
-        if ((int)$lock->fetchColumn() !== 1) throw new RuntimeException('PROVIDER_BUSY');
-        try {
+        return $this->withProviderLock(function () use ($action,$key,$code): array {
             $context = $this->context();
             $reference = $context['profile'];
             $profile = Config::profile(self::PROVIDER, $reference);
@@ -78,6 +120,16 @@ final class MesCabinetAuthorization
                 $this->finish($run['id'], 'uncertain', $safeCode, ['phase'=>$phase]);
                 return ['id'=>$run['id'], 'status'=>'uncertain', 'code'=>$safeCode];
             }
+        });
+    }
+
+    private function withProviderLock(callable $operation): array
+    {
+        $lock = $this->db->prepare('SELECT GET_LOCK(?,0)');
+        $lock->execute([self::LOCK]);
+        if ((int)$lock->fetchColumn() !== 1) throw new RuntimeException('PROVIDER_BUSY');
+        try {
+            return $operation();
         } finally {
             $unlock = $this->db->prepare('SELECT RELEASE_LOCK(?)');
             $unlock->execute([self::LOCK]);

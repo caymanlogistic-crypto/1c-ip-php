@@ -17,8 +17,26 @@ final class Registry
         if($provider==='onec') {if(($raw['DeletionMark']??null)!==false)throw new \InvalidArgumentException('DELETED_OR_UNKNOWN_INVOICE');$id=Support::identity($raw['Ref_Key']??null);$date=Support::day($raw['Date']??null);$number=Support::identity($raw['Number']??null);$amount=Support::money($raw['СуммаДокумента']??null);if(isset($raw['Posted'])&&!is_bool($raw['Posted']))throw new \InvalidArgumentException('INVALID_POSTED_FLAG');$status=($raw['Posted']??false)?'Проведён':'Не проведён';$title='Счёт';}
         elseif($provider==='diadoc') {$message=Support::identity(self::first($v,['message_id','messageId']));$doc=Support::identity(self::first($v,['document_id','documentId']));if(str_contains($message,'/')||str_contains($doc,'/'))throw new \InvalidArgumentException('INVALID_DIADOC_ID');$id=$message.'/'.$doc;$date=Support::day(self::first($v,['message_date','date','document_date'])??$row['date']??null);$number=(string)($v['number']??'');$amount=Support::money($v['amount']??null);$title=(string)($v['name']??'');$st=$v['status']??'';$status=is_array($st)?(string)($st['primary']['text']??''):(string)$st;}
         elseif($provider==='bank') {$id=Support::identity(self::first($v,['Ref_Key','source_id','id','key']));$date=Support::day(self::first($v,['Date','date','document_date']));$number=(string)(self::first($v,['Number','number'])??'');$amount=Support::money(self::first($v,['СуммаДокумента','amount','total']));$status=(string)($v['status']??'Получена');$title='Банковская операция';}
-        else {if($accountId==='')throw new \InvalidArgumentException('ACCOUNT_REQUIRED');$native=Support::identity(self::first($v,['_uid','ID','id','receipt_id','documentId','document_id','DOC_ID','BILL_ID']));$id=$provider==='mosvodokanal'?Support::json([$accountId,$native,Support::identity($v['FL_DOC']??null)]):Support::json([$accountId,$native]);$date=$provider==='pik'?Support::day(self::first($v,['period','billing_period','BILL_PERIOD','accountingPeriod'])):Support::day(self::first($v,['period','DOC_DATE','BILL_DATE','BILL_PERIOD','DATE','date','documentDate','document_date'])??$raw['date']??$row['source_date']??null);$number=(string)(self::first($v,['DOC_NUM','BILL_NUMBER','number','documentNum','documentNumber'])??'');$amount=Support::money(self::first($v,['total','CGS_SUM','DOC_SUM','TOTAL_SUM','SUM','amount','sum']));$status=(string)(self::first($v,['VST_DOC_STATUS_DESCR','status'])??$row['status']??'Получена');$title='Квитанция';}
+        else {if($accountId==='')throw new \InvalidArgumentException('ACCOUNT_REQUIRED');$native=Support::identity(self::first($v,['_uid','ID','id','receipt_id','documentId','document_id','DOC_ID','BILL_ID']));$id=match($provider){
+            'mosvodokanal'=>Support::json([$accountId,$native,Support::identity($v['FL_DOC']??null)]),
+            'mosenergo'=>self::mesSourceId($accountId,$native,$v),
+            default=>Support::json([$accountId,$native]),
+        };$date=$provider==='pik'?Support::day(self::first($v,['period','billing_period','BILL_PERIOD','accountingPeriod'])):Support::day(self::first($v,['period','DOC_DATE','BILL_DATE','BILL_PERIOD','DATE','date','documentDate','document_date'])??$raw['date']??$row['source_date']??null);$number=(string)(self::first($v,['DOC_NUM','BILL_NUMBER','number','documentNum','documentNumber'])??'');$amount=Support::money(self::first($v,['total','CGS_SUM','DOC_SUM','TOTAL_SUM','SUM','amount','sum']));$status=(string)(self::first($v,['VST_DOC_STATUS_DESCR','status'])??$row['status']??'Получена');$title='Квитанция';}
         if(strlen($id)>500)throw new \InvalidArgumentException('SOURCE_ID_TOO_LONG');return ['provider'=>$provider,'source_id'=>$id,'account_id'=>$accountId,'document_date'=>$date,'number'=>$number,'title'=>$title,'amount'=>$amount,'status'=>$status,'raw'=>$row];
+    }
+
+    private static function mesSourceId(string $accountId,string $documentId,array $value): string
+    {
+        $parts = [$accountId,$documentId];
+        $report = $value['reportId']??null;
+        if ($report === null || $report === '') return Support::json($parts);
+        $reportId = Support::identity($report);
+        $type = $value['documentType']??'';
+        $type = is_string($type)?mb_strtolower(trim($type),'UTF-8'):'';
+        $type = str_replace('ё','е',preg_replace('/\s+/u',' ',$type)??'');
+        // Payment invoices already use the unqualified key in the saved archive.
+        if ($type !== 'счет на оплату') $parts[] = $reportId;
+        return Support::json($parts);
     }
     public function import(string $provider,string $original,int $actor,string $requestKey,?string $pendingRun=null): array {
         Support::provider($provider);if(in_array($provider,['email','max'],true))throw new \InvalidArgumentException('DOCUMENT_PROVIDER_REQUIRED');if(strlen($original)>64*1024*1024)throw new \InvalidArgumentException('IMPORT_TOO_LARGE');

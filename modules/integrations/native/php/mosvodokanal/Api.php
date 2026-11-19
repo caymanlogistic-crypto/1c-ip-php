@@ -45,7 +45,7 @@ final class Api
         }
         $this->curl = curl_init();
         $this->startedAt = microtime(true);
-        curl_setopt_array($this->curl, [
+        curl_setopt_array($this->curl, (class_exists(\Modules\Integrations\CabinetNetwork::class)?\Modules\Integrations\CabinetNetwork::options('onewind.mosvodokanal.ru'):[])+[
             CURLOPT_COOKIEFILE => '', // Enable the cookie engine in memory only.
             CURLOPT_ENCODING => '', // The portal also compresses JSON report responses.
             CURLOPT_FOLLOWLOCATION => false,
@@ -171,7 +171,7 @@ final class Api
         $telemetry=\OnlineUtilities\begin($stage,$get?'GET':'POST');
         if($this->fixture!==null){$response=($this->fixture)($path,$parameters,$get);$body=$response['body'];$http=$response['status'];$errno=$response['errno']??0;$ok=$errno===0;}
         else{
-        curl_setopt_array($this->curl, (class_exists(\Modules\Integrations\CabinetNetwork::class)?\Modules\Integrations\CabinetNetwork::options('onewind.mosvodokanal.ru'):[])+[
+        curl_setopt_array($this->curl, [
             CURLOPT_URL => self::BASE . $path . ($get ? '?' . $encoded : ''),
             CURLOPT_POST => !$get,
             CURLOPT_PROXY => '',

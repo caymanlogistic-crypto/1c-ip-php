@@ -200,7 +200,7 @@ class Client {
 }
 
 
-function receiptPdf($client,string $account,array $receipt,string $dir,int $wait=90,?callable $download=null): array {
+function receiptPdf($client,string $account,array $receipt,string $dir,int $wait=90,?callable $download=null,bool $statusOnly=false): array {
     $period=$receipt['period']??'';
     if (!is_string($period) || !preg_match('/^\d{4}-\d{2}-\d{2}$/D',$period)) { throw new ExportError('Receipt period schema mismatch'); }
     $date=\DateTimeImmutable::createFromFormat('!Y-m-d',$period);
@@ -214,6 +214,7 @@ function receiptPdf($client,string $account,array $receipt,string $dir,int $wait
             $client->pdf($result['receipt_url'],$dir.'/'.$file);
             return ['status'=>'complete','file'=>$file,'sha256'=>sha($dir.'/'.$file)];
         }
+        if ($statusOnly) { throw new ExportError('PIK_RECEIPT_NOT_READY'); }
         if (($result['status']??'')!=='PENDING') { throw new ExportError('Receipt generation failed'); }
         if (microtime(true)>=$deadline) { throw new ExportError('PDF still pending; resume later'); }
         usleep((int)(min(3,max(0,$deadline-microtime(true)))*1000000));
