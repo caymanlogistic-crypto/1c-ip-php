@@ -13,7 +13,7 @@ final class YakovlevPage
     {
         Auth::requirePermission('integrations.read');
         $db = DB::pdo();
-        $tabs = YakovlevImport::TABS + ['history'=>'История'];
+        $tabs = YakovlevImport::TABS + ['history'=>'Журнал загрузок'];
         $tab = (string)($_GET['tab']??'parties');
         if (!isset($tabs[$tab])) throw new \RuntimeException('Вкладка не найдена',404);
         $canImport = PageView::canEdit(YakovlevImport::PROVIDER,'integrations.write');
@@ -25,7 +25,11 @@ final class YakovlevPage
             $to = (string)($_POST['to']??'');
             try {
                 $result = (new YakovlevImport($db,Config::store()))->import($tab,$from,$to,$actor,(string)($_POST['request_key']??''));
-                $_SESSION['yakovlev_notice'] = 'Сохранено записей: '.$result['coverage']['records_imported'].'.';
+                $_SESSION['yakovlev_notice'] = match($result['status']) {
+                    'success' => 'Сохранено записей: '.$result['coverage']['records_imported'].'.',
+                    'pending' => 'Этот запуск уже зарегистрирован. Проверьте журнал загрузок.',
+                    default => 'Этот запуск завершился ошибкой. Подробности в журнале загрузок.',
+                };
             } catch (\Throwable $error) {
                 $_SESSION['yakovlev_notice'] = match($error->getMessage()) {
                     'IMPORT_BUSY' => 'Загрузка уже выполняется.',
@@ -92,11 +96,11 @@ final class YakovlevPage
         $query->execute($args);
         $count = (int)$query->fetchColumn();
         $order = $history?'created_at DESC,id':($parties?'title,id':'document_date DESC,number DESC,id');
-        $columns = $history?'id,created_at,coverage_json':'id,number,title,document_date,amount';
+        $columns = $history?'id,operation,status,result_code,created_at,finished_at,coverage_json':'id,number,title,document_date,amount';
         $query = $db->prepare("SELECT $columns FROM $table WHERE $where ORDER BY $order LIMIT 50 OFFSET $offset");
         $query->execute($args);
         $rows = $query->fetchAll(\PDO::FETCH_ASSOC);
-        $labels = $history?['Дата','Раздел','Сохранено']:($parties?['Контрагент','ИНН']:['Дата','Номер','Документ','Сумма']);
+        $labels = $history?['Запуск','Завершение','Раздел','Период','Результат','Получено из 1С']:($parties?['Контрагент','ИНН']:['Дата','Номер','Документ','Сумма']);
         $next = $offset+50<$count?'?'.http_build_query(['tab'=>$tab,'page'=>$page+1,'q'=>$search]):'';
         $html = '<section role="tabpanel" class="table-card registry-ui-card"><div class="table-toolbar registry-ui-toolbar">'
             .'<div class="found-label">Записей: <strong>'.$count.'</strong> · показано: <strong id="visible-count">'.count($rows).'</strong></div>';
@@ -106,9 +110,7 @@ final class YakovlevPage
         $html .= '</tr></thead><tbody id="records-body" data-onec-next="'.$e($next).'">';
         foreach ($rows as $row) {
             if ($history) {
-                $coverage = json_decode($row['coverage_json'],true);
-                $section = substr($coverage['scope']['kind']??'',9);
-                $values = [date('d.m.Y H:i',strtotime($row['created_at'])), YakovlevImport::TABS[$section]??'—', $coverage['records_imported']??0];
+                $values = self::journalValues($row);
             } else {
                 $values = $parties?[$row['title'],$row['number']]:[date('d.m.Y',strtotime($row['document_date'])),$row['number'],$row['title'],RegistryView::money($row['amount'])];
             }
@@ -122,5 +124,38 @@ final class YakovlevPage
         }
         if (!$rows) $html .= '<tr><td colspan="'.count($labels).'">Данных пока нет.</td></tr>';
         return $html.'</tbody></table></div></section><div id="onec-load-feedback" aria-live="polite"></div>';
+    }
+
+    private static function journalValues(array $row): array
+    {
+        $coverage = json_decode($row['coverage_json']??'{}',true);
+        $scope = $coverage['scope']??[];
+        $section = substr($scope['kind']??'',9);
+        $start = $row['operation']==='yakovlev-load' ? date('d.m.Y H:i:s',strtotime($row['created_at'])) : 'Не записан';
+        $finish = $row['finished_at'] ? date('d.m.Y H:i:s',strtotime($row['finished_at'])) : '—';
+        $period = match(true) {
+            isset($scope['from'],$scope['to']) => date('d.m.Y',strtotime($scope['from'])).' — '.date('d.m.Y',strtotime($scope['to'])),
+            $section==='parties' => 'Весь справочник',
+            default => '—',
+        };
+        $status = match($row['status']) {
+            'success' => 'Сохранено',
+            'pending' => time()-strtotime($row['created_at'])<300?'Выполняется':'Завершение не подтверждено',
+            'failed' => match($row['result_code']) {
+                'IMPORT_BUSY' => 'Пропущено: уже идёт загрузка',
+                'AUTH_REQUIRED' => 'Ошибка доступа к 1С',
+                'YAKOVLEV_READ_NOT_ENABLED' => 'Чтение не настроено',
+                'NETWORK_OR_TLS_FAILED','TIME_LIMIT' => 'Ошибка связи с 1С',
+                default => 'Ошибка загрузки',
+            },
+            default => 'Завершение не подтверждено',
+        };
+        $byKind = $coverage['evidence']['received_by_kind']??[];
+        $downloaded = [];
+        foreach (['parties'=>'Контрагентов','bank_in'=>'Поступлений','bank_out'=>'Списаний','invoices'=>'Счетов'] as $kind=>$label) {
+            if (isset($byKind[$kind])) $downloaded[] = $label.' '.$byKind[$kind];
+        }
+        if (!$downloaded && $row['status']==='success') $downloaded[] = (string)($coverage['records_imported']??0);
+        return [$start,$finish,YakovlevImport::TABS[$section]??'—',$period,$status,implode(' · ',$downloaded)?:'—'];
     }
 }
