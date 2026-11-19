@@ -474,6 +474,10 @@ final class ProviderService {
             $code = in_array($e->getMessage(),
                 $allowed,
                 true)?$e->getMessage():'PROVIDER_OPERATION_FAILED';
+            if ($scheduled && $provider==='pik' && $e instanceof \PikComfort\AuthenticationError
+                && $e->getMessage()==='HTTP 401: sign in again') {
+                $code='AUTH_REQUIRED';
+            }
             $status = $operation === 'send_code'?'uncertain':'failed';
             if(in_array($provider,['onec','bank'],true)){
                 $record=$GLOBALS['ONEC_DIAGNOSTIC']['dev_transport']??$GLOBALS['IPPHP_ONEC_DEV_LAST_RECEIPT']??[];
