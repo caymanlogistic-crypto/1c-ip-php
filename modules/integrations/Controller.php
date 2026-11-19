@@ -11,7 +11,7 @@ final class Controller
     private static function field(string $name,string $label,mixed $value='',string $type='text',bool $required=false): string {return '<label class="field"><span class="field-label">'.Support::e($label).'</span><input class="input" name="'.Support::e($name).'" type="'.$type.'" value="'.Support::e($value).'"'.($required?' required':'').'></label>';}
     private static function form(string $p,string $action,string $inner,string $button='Сохранить'): string {return '<form method="post" action="/integrations/action" enctype="multipart/form-data" class="demo-stack"><input type="hidden" name="_csrf" value="'.Support::e(Http::csrf()).'"><input type="hidden" name="provider" value="'.$p.'"><input type="hidden" name="action" value="'.$action.'"><input type="hidden" name="request_key" value="'.Support::uuid().'">'.$inner.'<div class="modal-foot-actions"><button class="btn btn-primary" type="submit">'.$button.'</button></div></form>';}
     public static function page(string $provider): string {self::read($provider);return PageView::render($provider);}
-    public static function status(string $s): string {return ['pending'=>'Прервано или ожидается подтверждение; повтора нет','uncertain'=>'Неопределённо; повтора нет','accepted'=>'Принято провайдером','success'=>'Выполнено','failed'=>'Ошибка','awaiting_code'=>'Ожидается код'][$s]??$s;}
+    public static function status(string $s): string {return ['pending'=>'Прервано или ожидается подтверждение; повтора нет','uncertain'=>'Неопределённо; повтора нет','accepted'=>'Принято провайдером','success'=>'Выполнено','failed'=>'Ошибка','awaiting_code'=>'Ожидается код','partial'=>'Частично'][$s]??$s;}
     public static function resultCode(string $code): string {return Support::e([
         'CHECKED_NO_SEND'=>'Подключение проверено. Сообщение не отправлялось.',
         'AUTH_METADATA_CHECKED'=>'Вход и сведения подключения подтверждены. Документы и файлы не проверялись.',
@@ -30,6 +30,7 @@ final class Controller
         'TRANSPORT_RESULT_UNKNOWN'=>'Результат не подтверждён. Автоматического повтора нет.',
         'TARGET_NOT_APPROVED'=>'Получатель не включён в разрешённый список.',
         'IMPORTED'=>'Полученные документы сохранены.', 'ORIGINAL_BYTES_VERIFIED'=>'Файл получен; целостность и источник подтверждены.',
+        'CABINET_FILES_SAVED'=>'Файлы сохранены.', 'CABINET_FILES_PARTIAL'=>'Часть файлов пока отсутствует.',
         'AUTH_REQUIRED'=>'Требуется вход в подключение.', 'PUSH_REQUIRED'=>'Подтвердите вход в приложении провайдера.',
         'OTP_REQUIRED'=>'Требуется код подтверждения.', 'OTP_SENT'=>'Код подтверждения запрошен.',
         'OTP_EXPIRED_RELOGIN_REQUIRED'=>'Код истёк. Начните вход заново.', 'OTP_REQUEST_NOT_REPLAYABLE'=>'Повтор запроса кода заблокирован; сначала сверьте результат.',

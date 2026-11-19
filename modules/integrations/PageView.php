@@ -25,19 +25,65 @@ final class PageView
     private static function provider(string $p): string {
         $e=Support::e(...);$db=DB::pdo();$c=Config::get($db,$p);$config=json_decode($c['config_json'],true);$tab=(string)($_GET['tab']??'data');if(!in_array($tab,['data','settings','history'],true))$tab='data';$edit=self::canEdit($p,'integrations.write');$title=Support::PROVIDERS[$p];$description=$p==='bank'?'Поступления на расчётный счёт из 1С':'Проверка подключения и получение файлов документов';$body=self::header($title,$description,($p === 'onec' ? '<button class="btn btn-secondary" type="button" data-dialog="onec-settings">Настройки</button>' : '').($edit?'<button class="btn btn-primary" type="submit" form="connection-check">Проверить</button>':'')).self::notice().self::evidence($p);
         if($edit)$body.='<form method="post" action="/integrations/action" id="connection-check">'.self::hidden($p,'check').'</form>';
+        $cabinet = in_array($p,CabinetSyncAdmission::PROVIDERS,true);
         $openSettings = $p === 'onec' && $tab === 'settings';
         if ($openSettings) $tab = 'data';
-        $body.=self::tabs($p === 'onec' ? ['data'=>'Данные','history'=>'История'] : ['data'=>'Данные','settings'=>'Настройки','history'=>'История'],$tab);
+        $body.=self::tabs($p === 'onec' ? ['data'=>'Данные','history'=>'История'] : ['data'=>'Данные','settings'=>'Настройки','history'=>$cabinet?'Журнал загрузок':'История'],$tab);
         if($tab==='data'){$body.='<section role="tabpanel" id="probe-panel" class="demo-stack">'.(!$c['enabled']?'<span class="registry-ui-secondary" id="settings-note">Сначала сохраните настройки подключения.</span>':'').Controller::documents($p).'</section>';if($edit && $p !== 'onec'){$body.='<div class="inline-actions"><button class="btn btn-secondary" type="button" data-dialog="connection-collect">Получить данные</button><button class="btn btn-secondary" type="button" data-dialog="connection-import">Импортировать снимок</button></div><dialog class="modal registry-ui-modal registry-ui-modal--reading ui-detail-card" id="connection-collect" aria-labelledby="collect-title"><form method="post" action="/integrations/action" class="registry-ui-modal-form">'.self::hidden($p,'sync').'<div class="modal-head"><h2 class="modal-title" id="collect-title">Получение документов · '.$e($title).'</h2><button type="button" class="modal-close" data-dialog-close aria-label="Закрыть">×</button></div><div class="modal-body registry-ui-modal-grid"><div class="form-grid-2">'.self::field('from','Период с',$p==='onec'?'2026-09-01':'2026-10-01','date','required').self::field('to','По',date('Y-m-d'),'date','required').'</div><p class="registry-ui-modal-secondary">Будут сохранены только подтверждённые данные выбранного источника. Полнота периода показывается отдельно.</p></div><div class="modal-foot"><div class="modal-foot-actions"><button type="button" class="btn btn-secondary" data-dialog-close>Отмена</button><button type="submit" class="btn btn-primary">Получить данные</button></div></div></form></dialog><dialog class="modal registry-ui-modal registry-ui-modal--reading ui-detail-card" id="connection-import" aria-labelledby="import-title"><form method="post" action="/integrations/action" enctype="multipart/form-data" class="registry-ui-modal-form">'.self::hidden($p,'import').'<div class="modal-head"><h2 class="modal-title" id="import-title">Импорт снимка · '.$e($title).'</h2><button type="button" class="modal-close" data-dialog-close aria-label="Закрыть">×</button></div><div class="modal-body registry-ui-modal-grid"><div class="field"><label class="field-label" for="snapshot">Подготовленный снимок источника</label><input id="snapshot" name="snapshot" type="file" accept=".json,application/json" required></div></div><div class="modal-foot"><div class="modal-foot-actions"><button type="button" class="btn btn-secondary" data-dialog-close>Отмена</button><button type="submit" class="btn btn-primary">Импортировать</button></div></div></form></dialog>';}}
         elseif($tab==='settings'){$body.='<section role="tabpanel" id="settings-panel" class="table-card registry-ui-card"><form method="post" action="/integrations/action" id="connection-settings">'.self::hidden($p,'save').'<input type="hidden" name="revision" value="'.$e($c['revision']).'"><section class="panel-section"><div class="form-grid-2">'.self::field('label','Название подключения',$config['label']??$title).'<div class="field"><span class="field-label">Статус</span><label class="checkbox-inline"><input class="field-checkbox" type="checkbox" name="enabled" value="1"'.($c['enabled']?' checked':'').'> Подключение включено</label></div>'.self::field('access_reference','Профиль доступа',$config['access_reference']??'').self::field('timeout_seconds','Лимит проверки, секунд',$config['timeout_seconds']??300,'number','min="30" max="900"').self::text('note','Примечание',$config['note']??'').'</div><div id="settings-feedback" aria-live="polite"></div>'.($edit?'<button type="submit" class="btn btn-primary">Сохранить</button>':'').'</section></form></section>';
             if($p==='mosenergo'&&$edit)$body.='<section class="table-card registry-ui-card"><section class="panel-section"><h2 class="section-title">Подтверждение входа</h2><div class="inline-actions"><form method="post" action="/integrations/action">'.self::hidden($p,'login').'<button class="btn btn-secondary">Начать вход</button></form><form method="post" action="/integrations/action">'.self::hidden($p,'send_code').'<button class="btn btn-secondary">Запросить код</button></form></div><form method="post" action="/integrations/action">'.self::hidden($p,'confirm').self::field('code','Код подтверждения','','text','inputmode="numeric" pattern="[0-9]{5}" required').'<button class="btn btn-primary">Подтвердить</button></form></section></section>';
         }
+        elseif ($cabinet) $body .= self::cabinetHistory($db,$p,$edit);
         else {$q=$db->prepare('SELECT *,TIMESTAMPDIFF(MICROSECOND,created_at,finished_at) DIV 1000 AS duration_ms FROM integration_runs WHERE provider=? ORDER BY created_at DESC LIMIT 100');$q->execute([$p]);$body.='<section role="tabpanel" id="history-panel" class="table-card registry-ui-card"><div class="table-scroll"><table class="table registry-ui-table registry-ui-data" data-column-profile="connection-history"'.($p==='onec'?' data-column-spec="'.$e(Support::json([['key'=>'started','type'=>'text','size'=>'long'],['key'=>'result','type'=>'text','size'=>'flex'],['key'=>'duration','type'=>'text','size'=>'code']])).'"':'').'><thead><tr><th scope="col">Начало</th><th scope="col">Результат</th><th scope="col">Время</th></tr></thead><tbody id="history-body">';$n=0;foreach($q as $r){$n++;$body.='<tr tabindex="0"><td>'.$e(date('d.m.Y H:i:s',strtotime($r['created_at']))).'</td><td>'.Controller::status($r['status']).'<span class="registry-ui-secondary"> '.Controller::resultCode($r['result_code']??'').'</span>'.($edit&&$r['operation']==='sync'&&in_array($r['status'],['failed','pending'],true)?'<form method="post" action="/integrations/action">'.self::hidden($p,'resume').'<input name="run_id" type="hidden" value="'.$e($r['id']).'"><button class="btn btn-toolbar">Продолжить</button></form>':'').'</td><td>'.$e($r['duration_ms']??'—').' мс</td></tr>';}if(!$n)$body.='<tr><td colspan="3">Проверок ещё не было.</td></tr>';$body.='</tbody></table></div></section>';}
         if ($p === 'onec') {
             $body .= self::onecSettings($c, $config, $edit, $openSettings);
             $body .= '<script defer src="/design/system/palette-runtime.js"></script><script defer src="/design/system/registry-interactions.js"></script>';
         }
+        if ($cabinet && $tab==='history') $body .= '<script defer src="/design/system/registry-interactions.js"></script>';
         return View::page($title,$body,'connection-'.$p,$p === 'onec' ? ['connection-onec-ui.js'] : []);
+    }
+    private static function cabinetHistory(\PDO $db,string $provider,bool $edit): string
+    {
+        $e=Support::e(...);
+        $query=$db->prepare('SELECT *,TIMESTAMPDIFF(MICROSECOND,created_at,finished_at) DIV 1000 AS duration_ms
+            FROM integration_runs WHERE provider=? ORDER BY created_at DESC LIMIT 100');
+        $query->execute([$provider]);
+        $labels=['Начало','Завершение','Запуск','Период','Результат','Получено'];
+        $sizes=['long','long','code','long','flex','short'];
+        $spec=array_map(static fn($index,$size)=>['key'=>'column_'.$index,'type'=>'text','size'=>$size],array_keys($sizes),$sizes);
+        $html='<section role="tabpanel" id="history-panel" class="table-card registry-ui-card"><div class="table-scroll">'
+             .'<table class="table registry-ui-table registry-ui-data registry-ui-data--columns" data-column-profile="cabinet-history" data-column-spec="'.$e(Support::json($spec)).'"><thead><tr>';
+        foreach($labels as $label) $html.='<th scope="col">'.$e($label).'</th>';
+        $html.='</tr></thead><tbody id="history-body">';
+        $empty=true;
+        foreach($query as $run) {
+            $empty=false;
+            $coverage=json_decode($run['coverage_json']??'{}',true)?:[];
+            $context=$coverage['command_context']??[];
+            $hourly=($context['trigger']??null)==='hourly';
+            $status=$run['status']==='pending'&&$hourly&&time()-strtotime($run['created_at'])<2700
+                ?'Выполняется':Controller::status($run['status']);
+            $result=$status.'<span class="registry-ui-secondary"> '.Controller::resultCode($run['result_code']??'').'</span>';
+            if($edit&&!$hourly&&$run['operation']==='sync'&&in_array($run['status'],['failed','pending'],true)) {
+                $result.='<form method="post" action="/integrations/action">'.self::hidden($provider,'resume')
+                    .'<input name="run_id" type="hidden" value="'.$e($run['id']).'"><button class="btn btn-toolbar">Продолжить</button></form>';
+            }
+            $start=$e(date('d.m.Y H:i:s',strtotime($run['created_at'])));
+            $html.='<tr><td>'.$start.'</td>';
+            $finish=$run['finished_at']?date('d.m.Y H:i:s',strtotime($run['finished_at'])):'—';
+            $period=isset($context['from'],$context['to'])?date('d.m.Y',strtotime($context['from'])).' — '.date('d.m.Y',strtotime($context['to'])):'—';
+            $count=isset($coverage['records_imported'])?(string)$coverage['records_imported']:'—';
+            if($run['operation']==='sync-files') {
+                $count='Файлов '.$coverage['files']['saved'].' из '.$coverage['files']['required'];
+            } elseif($hourly&&$run['status']==='success'&&!($coverage['complete']??false)) {
+                $result.='<span class="registry-ui-secondary"> Полнота не подтверждена.</span>';
+            }
+            $html.='<td>'.$e($finish).'</td><td>'.($hourly?'По расписанию':'Вручную').'</td><td>'.$e($period).'</td>'
+                .'<td>'.$result.'</td><td>'.$e($count).'</td>';
+            $html.='</tr>';
+        }
+        if($empty) $html.='<tr><td colspan="'.count($labels).'">Загрузок пока не было.</td></tr>';
+        return $html.'</tbody></table></div></section>';
     }
     public static function onecSettings(array $connection, array $config, bool $edit, bool $open): string
     {

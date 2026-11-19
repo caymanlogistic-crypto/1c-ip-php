@@ -169,7 +169,7 @@ class Client {
             if (PHP_OS_FAMILY==='Windows' && defined('CURLSSLOPT_NATIVE_CA')) { $opts[CURLOPT_SSL_OPTIONS]=CURLSSLOPT_NATIVE_CA; }
             if ($this->caFile!==null) { if(!is_file($this->caFile))throw new ExportError('CA_FILE_NOT_FOUND');$opts[CURLOPT_CAINFO]=$this->caFile; }
             if ($body!==null) { $opts[CURLOPT_POST]=true; $opts[CURLOPT_POSTFIELDS]=$body; }
-            curl_setopt_array($ch,$opts); $ok=curl_exec($ch); $errno=curl_errno($ch); $http=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE);
+            curl_setopt_array($ch,(class_exists(\Modules\Integrations\CabinetNetwork::class)?\Modules\Integrations\CabinetNetwork::options((string)parse_url($url,PHP_URL_HOST)):[])+$opts); $ok=curl_exec($ch); $errno=curl_errno($ch); $http=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE);
             unset($ch);
             }
             \OnlineUtilities\end($telemetry,$http,strlen($raw),$errno);\OnlineUtilities\check();

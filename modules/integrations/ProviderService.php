@@ -24,13 +24,20 @@ final class ProviderService {
     public function native(string $provider,
         string $operation,
         array $secret,
-        array $params = []): array {
+        array $params = [], bool $scheduled = false): array {
         if (is_callable($this->native))return ($this->native)($provider,
             $operation,
             $secret,
             $params);
         \App\NativePlatform::requireOwnerChecks();
-        if (!Config::liveAllowed() && !OnecReadAdmission::allows($this->db,$provider,$operation,$secret))throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
+        if ($scheduled) {
+            if (!CabinetSyncAdmission::allows($this->db,$provider,$operation,$secret['_reference']??null)) {
+                throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
+            }
+            $params['cabinet_profile'] = $secret['_reference'];
+        } elseif (!Config::liveAllowed() && !OnecReadAdmission::allows($this->db,$provider,$operation,$secret)) {
+            throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
+        }
         $devContext=null;
         if(in_array($provider,['onec','bank'],true)&&($devSettings=OnecDevSshTransport::settings())!==null){
             $devContext=OnecReaderFactory::selectedContext($this->db,$secret,$devSettings);
@@ -81,7 +88,7 @@ final class ProviderService {
             else $result = \IpyaAccess\run(['provider' => $provider,
                     'operation' => $operation,
                     'state' => $state,
-                    'credentials' => ['username' => $secret['username']??'',
+                    'credentials' => $scheduled ? [] : ['username' => $secret['username']??'',
                     'password' => $secret['password']??''],
                     'session' => $secret['session']??[],
                     'remaining_ms' => ($params['check_probe']??false)===true?min(300000,max(1,(int)($params['remaining_ms']??300000))):300000]+($provider==='onec'?['profile_reference'=>$devContext['profile_reference']??$secret['_reference']??'',
@@ -169,6 +176,10 @@ final class ProviderService {
         string $requestKey,
         array $params = []): array {
         Support::provider($provider);
+        $scheduled = ($params['trigger']??null)==='hourly';
+        if ($scheduled && ($actor!==0 || $operation!=='sync' || !CabinetSyncAdmission::allows($this->db,$provider,$operation))) {
+            throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
+        }
         if(in_array($provider,['onec','bank'],true))unset($GLOBALS['ONEC_DIAGNOSTIC'],$GLOBALS['IPPHP_ONEC_DEV_LAST_RECEIPT']);
         if (!in_array($operation,
             ['check',
@@ -261,17 +272,19 @@ final class ProviderService {
                 true);
         }
         $reference = Config::reference((string)($public['access_reference']??''));
-        $secret = Config::profile($credentialProvider,
-            $reference);
         $status = 'failed';
         $code = 'NOT_RUN';
         $coverage = ['command_context' => $safeParams]+($bankIdentity === null?[]:['bank_auth_identity' => $bankIdentity]);
         if(in_array($provider,['onec','bank'],true)&&OnecDevSshTransport::settings()!==null)$coverage['transport']=OnecDevSshTransport::identity();
         try{
-            if (!is_callable($this->native) && !Config::liveAllowed() && !OnecReadAdmission::allows($this->db,$provider,$operation))throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
+            $secret = Config::profile($credentialProvider,$reference);
+            if ($scheduled && !CabinetSyncAdmission::allows($this->db,$provider,$operation,$reference)) {
+                throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
+            }
+            if (!$scheduled && !is_callable($this->native) && !Config::liveAllowed() && !OnecReadAdmission::allows($this->db,$provider,$operation))throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
             if ($provider === 'mosenergo'){
                 $client = new MesClient($secret['session']??[],
-                    is_callable($this->native)?$this->native:null);
+                    is_callable($this->native)?$this->native:($scheduled?CabinetNetwork::mesTransport():null));
                 try{
                     if ($operation === 'login' && isset($secret['mail']) && getenv('IPPHP_ALLOW_MES_MAIL') === 'owner-authorized-assigned-mailbox'){
                         $mail = new MesMail($secret['mail']);
@@ -327,8 +340,13 @@ final class ProviderService {
                             $client->documents((string)$account['id'],
                             $from,
                             $to));
+                        if ($scheduled) {
+                            $rows = self::cabinetPeriodRows($provider,$rows,$from,$to);
+                            $this->checkCabinetRevision($provider,$reference);
+                        }
                         $coverage = ['scope' => 'period_all_records',
-                            'complete' => true,
+                            'complete' => !$scheduled,
+                            'scope_limited' => $scheduled,
                             'pagination_exhausted' => true,
                             'period_from' => $from,
                             'period_to' => $to,
@@ -341,11 +359,12 @@ final class ProviderService {
                             $actor,
                             $requestKey . '-import');
                         $result['code'] = 'IMPORTED';
+                        $coverage = $result['coverage'];
                     }
                 }
                 finally{
                     $secret['session'] = $client->session;
-                    if (!is_callable($this->native))Config::saveProfile($credentialProvider,
+                    if (!$scheduled && !is_callable($this->native))Config::saveProfile($credentialProvider,
                         $reference,
                         $secret);
                 }
@@ -357,11 +376,11 @@ final class ProviderService {
                     ['send_code',
                         'confirm'],
                     true))throw new \InvalidArgumentException('OTP_PROVIDER_REQUIRED');
-                $auth = $this->native($provider,
-                    'authenticate',
-                    $secret);
+                $auth = $scheduled && $provider==='diadoc'
+                    ? []
+                    : $this->native($provider,$scheduled?'accounts':'authenticate',$secret,[],$scheduled);
                 $secret['session'] = $auth['session']??[];
-                if (!is_callable($this->native))Config::saveProfile($credentialProvider,
+                if (!$scheduled && !is_callable($this->native))Config::saveProfile($credentialProvider,
                     $reference,
                     $secret);
                 if ($operation === 'check'){
@@ -390,11 +409,15 @@ final class ProviderService {
                         $secret,
                         $from,
                         $to,
-                        $auth);
+                        $auth,$scheduled);
                     $rows = $captured['items'];
+                    if ($scheduled) {
+                        $rows = self::cabinetPeriodRows($provider,$rows,$from,$to);
+                        $this->checkCabinetRevision($provider,$reference);
+                    }
                     $scopeLimited = $captured['scope_limited'];
                     $allTerminal = true;
-                    if (!is_callable($this->native))Config::saveProfile($credentialProvider,
+                    if (!$scheduled && !is_callable($this->native))Config::saveProfile($credentialProvider,
                         $reference,
                         $secret);
                     $coverage = ['scope' => 'period_all_records',
@@ -420,6 +443,8 @@ final class ProviderService {
         catch (\Throwable $e){
             $allowed = ['EXTERNAL_ACCESS_NOT_AUTHORIZED',
                 'AUTH_REQUIRED',
+                'SESSION_OR_BOX_ACCESS_DENIED_RUN_LOGIN',
+                'PROFILE_NOT_CONFIGURED',
                 'PUSH_REQUIRED',
                 'OTP_REQUIRED',
                 'OTP_EXPIRED_RELOGIN_REQUIRED',
@@ -494,7 +519,7 @@ final class ProviderService {
         array &$secret,
         string $from,
         string $to,
-        array $auth): array {
+        array $auth, bool $scheduled = false): array {
         $accounts = ['' => null];
         if (in_array($provider,
             ['pik',
@@ -521,6 +546,7 @@ final class ProviderService {
                 &$secret,
                 $from,
                 $to,
+                $scheduled,
                 $accountId,
                 $account){
                     $operation = 'records';
@@ -537,7 +563,7 @@ final class ProviderService {
                     $r = $this->native($provider,
                     $operation,
                     $secret,
-                    $extra);
+                        $extra,$scheduled);
                     $secret['session'] = $r['session']??$secret['session']??[];
                     $data = $r['data']??[];
                     $items = $data['items']??$data['rows']??null;
@@ -558,5 +584,20 @@ final class ProviderService {
         }
         return ['items' => $rows,
             'scope_limited' => $limited];
+    }
+
+    private function checkCabinetRevision(string $provider,string $reference): void
+    {
+        if (!CabinetSyncAdmission::allows($this->db,$provider,'sync',$reference)) {
+            throw new \RuntimeException('EXTERNAL_ACCESS_NOT_AUTHORIZED');
+        }
+    }
+
+    private static function cabinetPeriodRows(string $provider,array $rows,string $from,string $to): array
+    {
+        return array_values(array_filter($rows,static function(array $row) use ($provider,$from,$to): bool {
+            $date = Registry::normalize($provider,$row)['document_date'];
+            return $date>=$from&&$date<=$to;
+        }));
     }
 }
