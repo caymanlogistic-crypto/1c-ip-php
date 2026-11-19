@@ -1,12 +1,17 @@
 <?php
 declare(strict_types=1);
 
-if (PHP_SAPI!=='cli' || getenv('APP_STAND')!=='ui' || $argc!==1) exit(2);
+if (PHP_SAPI!=='cli' || getenv('APP_STAND')!=='ui') exit(2);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use Modules\Integrations\{CabinetFileArchive,CabinetSyncAdmission,Config,ProviderService,Support};
 
 $profiles = CabinetSyncAdmission::configured();
+$selected=array_slice($argv,1);
+if ($selected) {
+    if (array_diff($selected,array_keys($profiles))||count(array_unique($selected))!==count($selected)) exit(2);
+    $profiles=array_intersect_key($profiles,array_flip($selected));
+}
 if (!$profiles) {
     fwrite(STDERR,"CABINET_READ_PROFILES_NOT_ADMITTED\n");
     exit(2);

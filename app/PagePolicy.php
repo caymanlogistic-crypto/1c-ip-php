@@ -87,6 +87,8 @@ final class PagePolicy {
         ];
         $pages['core.zero-point']=['title'=>'Нулевая точка','module'=>'Администрирование',
             'url'=>'/administration/zero-point','read'=>'identity.permissions','edit'=>['identity.permissions']];
+        $pages['connections.schedule']=['title'=>\Modules\Integrations\CabinetSchedulePage::TITLE,'module'=>'Подключения',
+            'url'=>\Modules\Integrations\CabinetSchedulePage::URL,'read'=>'identity.permissions','edit'=>['identity.permissions']];
         foreach(\Modules\Integrations\OnecOperations::CONNECTIONS as $key=>$definition)$pages['connections.'.$key]=[
             'title'=>$definition['title'],'module'=>'Подключения','url'=>'/connections/'.$key,
             'read'=>'integrations.read','edit'=>['integrations.write','finance.write'],

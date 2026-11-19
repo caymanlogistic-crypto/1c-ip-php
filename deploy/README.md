@@ -110,3 +110,9 @@ sudo /usr/local/sbin/ipphp-deploy ui rollback
 ## Часовая синхронизация 1С ИП Яковлев
 
 Для «1С ИП Яковлев» используется отдельный часовой таймер `deploy/server/ipphp-onec-yakovlev-sync.timer` и соответствующий `.service`. После публикации оператор устанавливает оба файла в `/etc/systemd/system/`, выполняет `systemctl daemon-reload` и включает `systemctl enable --now ipphp-onec-yakovlev-sync.timer`. Служба запускает CLI из текущего контейнера общего сайта от `www-data`. Проверочный запуск — `systemctl start ipphp-onec-yakovlev-sync.service`. Журнал приложения — `/connections/onec-yakovlev?tab=history`. Для паузы расписания — `systemctl disable --now ipphp-onec-yakovlev-sync.timer`. Действующий допуск `.local/onec-yakovlev-read.json` необходим, запросы к 1С выполняются только по GET.
+
+## Применение расписаний кабинетов из приложения
+
+После публикации версии со страницей `/connections/schedule` установить `deploy/server/cabinet-dispatch.sh` как `/usr/local/sbin/ipphp-cabinet-dispatch` с правами 0755. Скопировать `ipphp-cabinet-service-dispatch.conf` в `/etc/systemd/system/ipphp-cabinet-sync.service.d/zz-application-schedule.conf`, а `ipphp-cabinet-timer-dispatch.conf` в `/etc/systemd/system/ipphp-cabinet-sync.timer.d/90-application-schedule.conf`. Имена обеспечивают применение после ранее установленных настроек таймера и проверки сессий. Системный путь к почтовому профилю и файлу допуска остаётся прежним.
+
+Проверить `systemd-analyze verify ipphp-cabinet-sync.service ipphp-cabinet-sync.timer`. Затем выполнить `systemctl daemon-reload` и перезапустить только таймер. В свободную минуту `docker exec --user www-data --workdir /opt/app ipphp-ui-app-1 php bin/cabinet-schedule.php due` выдаёт пустую строку. В свой слот кабинет использует существующие сессию и ограничения чтения. После задержки до 60 минут диспетчер может обработать пропущенный слот один раз.
