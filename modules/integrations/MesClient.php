@@ -25,7 +25,29 @@ final class MesClient
     public function requestCode(): array {$id=$this->otp();if(($this->session['otp_state']??'')!=='not_requested')throw new \RuntimeException('OTP_REQUEST_NOT_REPLAYABLE');$this->session['otp_state']='uncertain';$this->call('POST','/api/v7/users/'.$id.'/email/check/confirmation/send',[]);$this->session['otp_state']='awaiting_code';return ['status'=>'awaiting_code','code'=>'OTP_SENT'];}
     public function confirm(string $code): array {$id=$this->otp();if(!preg_match('/^\d{5}$/D',$code))throw new \InvalidArgumentException('INVALID_OTP');return $this->consume($this->call('POST','/api/v7/users/'.$id.'/email/check/verification',['code'=>$code]));}
     public function check(): array {if(empty($this->session['auth']))throw new \RuntimeException('AUTH_REQUIRED');$a=$this->accounts();return ['status'=>'success','code'=>'CHECKED_NO_SEND','accounts'=>count($a)];}
-    public function accounts(): array {if(empty($this->session['auth']))throw new \RuntimeException('AUTH_REQUIRED');$a=$this->call('GET','/api/v8/accounts')['data'];if(!is_array($a)||!array_is_list($a)||count($a)>100)throw new \RuntimeException('INVALID_ACCOUNT_LIST');$seen=[];foreach($a as $v){$id=(string)($v['id']??'');if(!preg_match('/^\d{1,25}$/D',$id)||isset($seen[$id]))throw new \RuntimeException('INVALID_ACCOUNT_LIST');$seen[$id]=1;}return $a;}
+    private function bearerExpired(string $token): bool {
+        // Expiry can only request a new sign-in. The provider still proves access to accounts.
+        if (strlen($token)>16384||!preg_match('/^[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+$/D',$token,$match)) {
+            return false;
+        }
+        $payload=base64_decode(strtr($match[1],'-_','+/'),true);
+        $claims=is_string($payload)?json_decode($payload,true,16):null;
+        return is_int($claims['exp']??null)&&$claims['exp']>0&&$claims['exp']<=$this->now();
+    }
+
+    public function accounts(): array {
+        $auth=$this->session['auth']??null;
+        if (!is_string($auth)||$auth===''||$this->bearerExpired($auth)) throw new \RuntimeException('AUTH_REQUIRED');
+        $accounts=$this->call('GET','/api/v8/accounts')['data'];
+        if(!is_array($accounts)||!array_is_list($accounts)||count($accounts)>100)throw new \RuntimeException('INVALID_ACCOUNT_LIST');
+        $seen=[];
+        foreach($accounts as $row){
+            $id=(string)($row['id']??'');
+            if(!preg_match('/^\d{1,25}$/D',$id)||isset($seen[$id]))throw new \RuntimeException('INVALID_ACCOUNT_LIST');
+            $seen[$id]=1;
+        }
+        return $accounts;
+    }
     public function documents(string $account,string $from,string $to): array {if(!preg_match('/^\d{1,25}$/D',$account))throw new \InvalidArgumentException('INVALID_ACCOUNT');$owned=array_map(static fn($a)=>(string)$a['id'],$this->accounts());if(!in_array($account,$owned,true))throw new \RuntimeException('ACCOUNT_NOT_AVAILABLE');$first=new \DateTimeImmutable(Support::day($from));$last=new \DateTimeImmutable(Support::day($to));if($last<$first||$first->diff($last)->days>3660)throw new \InvalidArgumentException('INVALID_PERIOD');$all=[];while($first<=$last){$end=min($last,$first->modify('+62 days'));$rows=$this->call('GET','/api/v7/accounts/'.$account.'/documents',null,['period'=>$first->format('d.m.Y').'|'.$end->format('d.m.Y')])['data'];if(!is_array($rows)||!array_is_list($rows)||count($all)+count($rows)>100000)throw new \RuntimeException('MES_SCHEMA_CHANGED');foreach($rows as $r)$all[]=['fields'=>['record'=>$r,'account'=>['id'=>$account]],'account_id'=>$account];$first=$end->modify('+1 day');}return $all;}
     public function pdf(string $account,array $record): string {
         if (!preg_match('/^\d{1,25}$/D',$account)||($record['canDownload']??false)!==true) {
