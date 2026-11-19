@@ -1,5 +1,8 @@
 // Compact dialog reference; existing components only.
 (() => {
+  const word=document.getElementById('word-demo-example');
+  document.querySelector('[data-open-word-example]').addEventListener('click',()=>word.showModal());
+  word.querySelectorAll('[data-close-word-example]').forEach(button=>button.addEventListener('click',()=>word.close()));
   const party=document.getElementById('party-composition-example');
   window.RentalPartyUI?.enhance(document);
   document.querySelector('[data-open-party-example]').addEventListener('click',()=>party.showModal());

@@ -59,17 +59,18 @@ final class WordPack
         if(isset($selection['mode']))$body.=self::hidden('mode',$selection['mode']);
         foreach($plan['sources'] as $kind=>$source)$body.=DirectoryUi::select('template['.$kind.']',OriginalDocuments::TITLES[$kind],OriginalDocuments::choices($db,$kind),$source['template_id']);
         $body.='<div class="demo-row"><button class="btn btn-secondary">Применить выбор шаблонов</button></div></form>';
-        $body.='<form class="registry-ui-modal-grid" id="'.$form.'" method="post" action="/rental/generate">'.$common.self::hidden('_csrf',Http::csrf())
+        $inputs=WordGenerationData::inputs($plan['fields'],$plan['values']);
+        $body.='<form class="registry-ui-modal-grid" id="'.$form.'" data-word-demo-values="'.View::e(Importer::json(WordGenerationDemo::values($inputs,$plan))).'" method="post" action="/rental/generate">'.$common.self::hidden('_csrf',Http::csrf())
             .self::hidden('original_pack',1).self::hidden('request_key',bin2hex(random_bytes(16)));
         foreach($plan['sources'] as $kind=>$source)$body.=self::hidden('template['.$kind.']',$source['template_id'])
             .self::hidden('source_hash['.$kind.']',$source['sha256']);
         if(isset($selection['mode']))$body.=self::hidden('template[mode]',$selection['mode']);
-        $inputs=WordGenerationData::inputs($plan['fields'],$plan['values']);
         if($inputs)$body.=RentalUI::alert('Нужны дополнительные данные','Заполните отсутствующие сведения. Данные договора и расчётные суммы подставляются автоматически. Если счётчиков или пропусков нет, укажите это явно.');
         foreach($inputs as $key=>$field)$body.=Controller::input('data['.$key.']',$field['label'],'',$field['type'],true);
         $body.='</form>';
         return RentalUI::modal(isset($selection['mode'])?'Смена номера помещения · Word':'Сформировать пакет Word',$body,
-            '<button class="btn btn-primary" type="submit" form="'.$form.'">Сформировать документы</button>','approvals');
+            '<button class="btn btn-primary" type="submit" form="'.$form.'">Сформировать документы</button>','approvals',false,
+            $inputs?'<button class="btn btn-danger" type="button" form="'.$form.'" data-word-demo-fill>Заполнить данные Демо</button>':'');
     }
 
     public static function produce(PDO $db,string $entity,int $id,int $version,array $selection,array $input,array $hashes,string $requestKey,array &$created): array
