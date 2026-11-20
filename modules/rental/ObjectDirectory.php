@@ -121,7 +121,11 @@ final class ObjectDirectory
         }
         $body=Controller::heading('Объекты аренды','Помещения и машиноместа: занятость, бронирование и контроль простоя',self::editable()?RentalUI::button('Добавить объект','/rental/edit-object',true):'').$notice
             .Controller::tabs($tabs,$flag,false,['floor'=>$floor,'type'=>$type,'inactive'=>(int)$show,'q'=>$query],'objects')
-            .DirectoryUi::registry('rental-contracts',['Объект аренды','Тип','Этаж','Площадь, м²','Занятость','Договор до','Комментарий'],$rows,['text','text','short','money','flex','code','flex'],$controls,$summary,filterForm:true);
+            .DirectoryUi::registry('rental-contracts',[],$rows,[],$controls,$summary,filterForm:true,
+                design:new DesignTable('rental.objects',[
+                    'name'=>'text','type'=>'text','floor'=>'short','area'=>'money',
+                    'occupancy'=>'flex','until'=>'code','comment'=>'flex',
+                ],['name','type','occupancy','comment']));
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET')==='GET' && ($_SERVER['HTTP_X_RENTAL_OBJECTS_FRAGMENT'] ?? '')==='1') {
             if (PHP_SAPI!=='cli') header('Cache-Control: no-store');
             return View::workspaceFragment($body);

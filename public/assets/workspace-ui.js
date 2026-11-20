@@ -126,6 +126,7 @@
       closeRental(dialog);
     });
     dialog.showModal();
+    window.PlanexInterfaceDesign?.mount(dialog);
     window.RentalPickers?.enhance(dialog);
     window.RentalPartyUI?.enhance(dialog);
   }

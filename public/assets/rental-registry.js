@@ -85,6 +85,7 @@
     for (const button of workspace.querySelectorAll('[data-rental-toggle-group]')) {
       if (groups.has(button.dataset.rentalToggleGroup)) setGroup(button, groups.get(button.dataset.rentalToggleGroup));
     }
+    window.PlanexInterfaceDesign?.mount(workspace);
     history.replaceState(null, '', url.pathname+url.search);
     if (options.preserve) {
       const target = focus && [...workspace.querySelectorAll('input,select,button')].find(node=>focus.id ? node.id===focus.id : node.name===focus.name && node.tagName===focus.tag && node.type===focus.type);

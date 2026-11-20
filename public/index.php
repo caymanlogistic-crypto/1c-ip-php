@@ -21,6 +21,7 @@ try {
     if($_SERVER['REQUEST_METHOD']==='POST')Http::checkCsrf();
     \App\PagePolicy::guard($path,$_SERVER['REQUEST_METHOD']);
     $routes=Identity::routes();
+    $routes[\App\InterfaceDesign::URL]=[\App\InterfaceDesignPage::class,'handle'];
     foreach(glob(APP_ROOT.'/modules/*/module.php') as $module){$definition=(static fn(string $file)=>require $file)($module);$routes=array_merge($routes,$definition['routes']??[]);}
     if(!isset($routes[$path]))throw new RuntimeException('Страница не найдена',404);
     echo $routes[$path]();

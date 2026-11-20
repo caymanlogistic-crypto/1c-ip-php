@@ -2,12 +2,11 @@
 declare(strict_types=1);
 namespace Modules\Rental;
 
-use App\{Menu, View};
+use App\{InterfaceDesign, Menu, View};
 
 /** The two source invoice registers share one financial projection. */
 final class InvoiceRegistry
 {
-    public const HEADERS = ['Счёт','Контрагент','Договор','Вид','Оплатить до','Сумма','Оплачено','Остаток','Состояние'];
     private const COLUMNS = ['code','flex','short','text','code','money','money','money','flex'];
     private const PAYMENT_FLAGS = ['all'=>'Все','waiting'=>'Ожидают оплаты','overdue'=>'Просрочка оплаты','paid'=>'Оплаченные'];
     private const GROUP_FLAGS = ['all'=>'Все','overdue'=>'Просрочка'];
@@ -178,7 +177,7 @@ final class InvoiceRegistry
         return $result;
     }
 
-    private static function groupHeader(array $group): string
+    private static function groupHeader(array $group, DesignTable $table): string
     {
         $t=$group['totals']; $party=$group['items'][0]; $severity=$group['severity'];
         $unknown=$t['amount_unknown'] || $t['paid_unknown'] || $t['debt_unknown'];
@@ -190,26 +189,24 @@ final class InvoiceRegistry
         $reason=implode('; ',array_slice($group['reasons'],0,2));
         if (count($group['reasons'])>2) $reason.=' · ещё '.(count($group['reasons'])-2).' — раскройте счета';
         $name=View::e($party['party_name']); $id=(int)$group['id'];
-        $html='<tr class="'.self::CLASSES[$severity].'" data-row-key="invoice-group:'.$id.'" data-rental-parent-group="'.$id.'">';
-        $html.='<td colspan="5"><strong>'.$name.'</strong>';
-        if ($party['party_inn']) $html.=' · ИНН '.View::e($party['party_inn']);
-        $html.='<div class="doc-meta">Счетов: '.$t['count'].' · Неоплаченных: '.$t['unpaid'].' · Просроченных: '.$t['overdue_count'];
-        if ($t['overdue_count']) $html.=' · Просроченная сумма: '.Controller::money($t['overdue']);
-        $html.=' · Ближайший срок: '.($group['nearest'] ? self::date($group['nearest']) : 'не указан').'</div></td>';
-        foreach (['amount','paid','debt'] as $key) $html.='<td class="registry-ui-number">'.self::totalText($t,$key).'</td>';
-        return $html.'<td class="registry-column-text">'.View::e($status).Menu::badges(self::counts($group['items']),true).($reason ? '<div class="doc-meta">'.View::e($reason).'</div>' : '').'</td><td class="registry-ui-disclosure-cell"><button class="btn btn-secondary registry-ui-disclosure" type="button" data-registry-disclosure data-rental-toggle-group="'.$id.'" data-group-name="'.$name.'" aria-controls="invoice-details-'.$id.'" aria-expanded="false" aria-label="Показать счета: '.$name.'"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button></td></tr>';
+        $attributes='class="'.self::CLASSES[$severity].'" data-row-key="invoice-group:'.$id.'" data-rental-parent-group="'.$id.'"';
+        $description='<div data-design-summary-content><strong>'.$name.'</strong>';
+        if ($party['party_inn']) $description.=' · ИНН '.View::e($party['party_inn']);
+        $description.='<div class="doc-meta">Счетов: '.$t['count'].' · Неоплаченных: '.$t['unpaid'].' · Просроченных: '.$t['overdue_count'];
+        if ($t['overdue_count']) $description.=' · Просроченная сумма: '.Controller::money($t['overdue']);
+        $description.=' · Ближайший срок: '.($group['nearest'] ? self::date($group['nearest']) : 'не указан').'</div></div>';
+        $cells=['party'=>$description,'state'=>View::e($status).Menu::badges(self::counts($group['items']),true)
+            .($reason ? '<div class="doc-meta">'.View::e($reason).'</div>' : '')];
+        foreach (['amount','paid','debt'] as $key) $cells[$key]=self::totalText($t,$key);
+        $disclosure='<td class="registry-ui-disclosure-cell"><button class="btn btn-secondary registry-ui-disclosure" type="button" data-registry-disclosure data-rental-toggle-group="'.$id.'" data-group-name="'.$name.'" aria-controls="invoice-details-'.$id.'" aria-expanded="false" aria-label="Показать счета: '.$name.'"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button></td>';
+        return $table->row($cells,$attributes,$disclosure,true);
     }
 
-    private static function invoiceRow(array $row, bool $grouped): string
+    private static function invoiceRow(array $row, bool $grouped, DesignTable $table): string
     {
-        $html='<tr class="'.self::CLASSES[$row['_view']['severity']].'" data-row-key="invoice:'.(int)$row['id'].'" data-rental-url="/rental/invoice?id='.(int)$row['id'].'" tabindex="0"';
-        if ($grouped) $html.=' data-rental-invoice-group="'.(int)$row['party_id'].'" hidden';
-        $html.='>';
-        foreach (self::row($row) as $index=>$cell) {
-            $class = self::COLUMNS[$index] === 'money' ? 'registry-ui-number' : (in_array($index,[0,2,3,8],true) ? 'registry-column-text' : '');
-            $html.='<td'.($class ? ' class="'.$class.'"' : '').'>'.$cell.'</td>';
-        }
-        return $html.'</tr>';
+        $attributes='class="'.self::CLASSES[$row['_view']['severity']].'" data-row-key="invoice:'.(int)$row['id'].'" data-rental-url="/rental/invoice?id='.(int)$row['id'].'" tabindex="0"';
+        if ($grouped) $attributes.=' data-rental-invoice-group="'.(int)$row['party_id'].'" hidden';
+        return $table->row(array_combine($table->keys(),self::row($row)),$attributes);
     }
 
     private static function controls(array $all,string $query,string $party,string $flag,int $cid,bool $grouped): string
@@ -248,28 +245,27 @@ final class InvoiceRegistry
         $html=self::controls($all,$query,$party,$flag,$cid,$grouped);
         $t=self::totals($chosen);
         $registryId=$grouped ? 'rental-invoices-grouped' : 'rental-invoices-flat';
-        $html.='<section class="table-card registry-ui-card registry-ui-sticky-table registry-ui-scroll" data-rental-invoice-registry data-registry-id="'.$registryId.'" data-registry-managed-markup="true"><form method="get" data-rental-registry-filter class="table-toolbar registry-ui-toolbar"><div class="found-label registry-ui-toolbar-summary">Найдено: <b>'.count($chosen).'</b> · Клиентов: <b>'.count($groups).'</b> · Сумма: <b>'.self::totalText($t,'amount').'</b> · Оплачено: <b>'.self::totalText($t,'paid').'</b> · Остаток: <b>'.self::totalText($t,'debt').'</b></div><div class="toolbar-right">';
+        $designId=$grouped ? 'rental.invoices' : 'rental.invoice-list';
+        $table=new DesignTable($designId,array_combine(array_keys(InterfaceDesign::columns($designId)),self::COLUMNS),
+            ['invoice','contract','kind','state']);
+        $html.='<section class="table-card registry-ui-card registry-ui-sticky-table registry-ui-scroll" data-rental-invoice-registry data-registry-id="'.$registryId.'" data-registry-managed-markup="true"'.$table->attributes().'><form method="get" data-rental-registry-filter class="table-toolbar registry-ui-toolbar"><div class="found-label registry-ui-toolbar-summary">Найдено: <b>'.count($chosen).'</b> · Клиентов: <b>'.count($groups).'</b><span data-design-totals>';
+        $labels=InterfaceDesign::columns($designId);
+        foreach (['amount','paid','debt'] as $key) {
+            $html.='<span data-design-key="'.$key.'"> · <span data-design-label>'.View::e($labels[$key]).'</span>: <b>'.self::totalText($t,$key).'</b></span>';
+        }
+        $html.='</span></div><div class="toolbar-right">';
         if ($cid) $html.='<input type="hidden" name="contract_id" value="'.$cid.'">';
         $html.='<input type="hidden" name="flag" value="'.View::e($flag).'">';
         $html.='<button class="registry-ui-reset" type="submit" name="reset" value="1"'.($query === '' && $party === 'all' ? ' hidden' : '').'>Сбросить фильтры</button>';
         $html.='<select id="party-filter" class="toolbar-select" name="party" aria-label="Контрагент"><option value="all">Все контрагенты</option>';
         foreach ($parties as $id=>$name) $html.='<option value="'.(int)$id.'"'.((string)$id === $party ? ' selected' : '').'>'.View::e($name).'</option>';
-        $html.='</select>'.DirectoryUi::search($query,true).'</div></form><div class="table-scroll"><table class="table registry-ui-table registry-ui-data" data-column-profile="rental-contracts"><colgroup>';
-        foreach (self::COLUMNS as $column) $html.='<col class="registry-column-'.$column.'">';
-        if ($grouped) $html.='<col class="registry-ui-disclosure-column">';
-        $html.='</colgroup><thead><tr>';
-        foreach (self::HEADERS as $i=>$header) $html.='<th'.(self::COLUMNS[$i] === 'money' ? ' class="registry-ui-number"' : '').'>'.$header.'</th>';
-        if ($grouped) $html.='<th aria-label="Раскрыть счета"></th>';
-        $html.='</tr></thead><tbody>';
+        $html.='</select>'.DirectoryUi::search($query,true).'</div></form><div class="table-scroll">'.$table->start($grouped);
         foreach ($groups as $group) {
             if ($grouped) {
-                $html.=self::groupHeader($group).'<tr id="invoice-details-'.(int)$group['id'].'" data-rental-invoice-group="'.(int)$group['id'].'" hidden><td colspan="10" class="registry-ui-disclosure-content"><div class="registry-ui-nested-table-scroll"><table class="table registry-ui-table registry-ui-data registry-ui-table--details" data-column-profile="rental-contracts" aria-label="Счета контрагента '.View::e($group['items'][0]['party_name']).'"><colgroup>';
-                foreach (self::COLUMNS as $column) $html.='<col class="registry-column-'.$column.'">';
-                $html.='</colgroup><thead><tr>';
-                foreach (self::HEADERS as $i=>$header) $html.='<th'.(self::COLUMNS[$i] === 'money' ? ' class="registry-ui-number"' : '').'>'.$header.'</th>';
-                $html.='</tr></thead><tbody>';
+                $html.=self::groupHeader($group,$table).'<tr id="invoice-details-'.(int)$group['id'].'" data-rental-invoice-group="'.(int)$group['id'].'" hidden><td colspan="10" class="registry-ui-disclosure-content"><div class="registry-ui-nested-table-scroll">'
+                    .$table->start(details:'Счета контрагента '.$group['items'][0]['party_name']);
             }
-            foreach ($group['items'] as $row) $html.=self::invoiceRow($row,$grouped);
+            foreach ($group['items'] as $row) $html.=self::invoiceRow($row,$grouped,$table);
             if ($grouped) $html.='</tbody></table></div></td></tr>';
         }
         if (!$chosen) $html.='<tr><td colspan="'.($grouped ? 10 : 9).'">По заданным условиям счета не найдены.</td></tr>';

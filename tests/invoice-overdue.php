@@ -75,8 +75,14 @@ try{
             $_GET=['contract_id'=>$cid,'flag'=>$flag];
             try { $rendered=InvoiceRegistry::render(true); }
             catch (RuntimeException $e) { if($e->getCode()!==403)throw $e;$denied++;continue; }
+            $rendered=preg_replace_callback('/ data-interface-design="([^"]*)"/',static function ($match) use ($check,$user) {
+                $design=json_decode(html_entity_decode($match[1],ENT_QUOTES,'UTF-8'),true,16,JSON_THROW_ON_ERROR);
+                $check(isset($design['csrf'])===($user['role_id']==='admin'),'Only administrators receive editor metadata');
+                $public=array_intersect_key($design,['id'=>true,'applied'=>true]);
+                return ' data-interface-design="'.App\View::e(json_encode($public,JSON_THROW_ON_ERROR)).'"';
+            },$rendered);
             $baseline[$flag]??=$rendered;
-            $check($rendered===$baseline[$flag],'Identical grouped markup for role '.$role.' flag '.$flag);
+            $check($rendered===$baseline[$flag],'Identical applied layout and grouped markup for role '.$role.' flag '.$flag);
             $tested[$user['role']]=true;
         }
         if(App\Menu::allowed('invoices',$user)&&App\Auth::can('rental.read')) {
