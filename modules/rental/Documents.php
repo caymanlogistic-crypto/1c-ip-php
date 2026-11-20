@@ -449,10 +449,12 @@ final class Documents {
                 FileOrder::lock($db);
                 Service::get($db, 'invoices', $id);
                 $invoice = Controller::query(
-                    'SELECT i.*,c.number contract_number,p.name party_name,p.inn party_inn,p.address party_address '
+                    'SELECT i.*,p.name party_name '
                     .'FROM invoices i JOIN contracts c ON c.id=i.contract_id JOIN parties p ON p.id=c.party_id WHERE i.id=?',
                     [$id]
                 )[0] ?? throw new RuntimeException('Счёт не найден.', 404);
+                $original = InvoiceDocument::original($db, $id);
+                if ($original) return $original['id'];
                 $bytes = self::renderPdf(InvoiceDocument::html($db, $invoice));
                 $fileId = bin2hex(random_bytes(16));
                 $path = self::directory().'/'.$fileId.'.pdf';
@@ -463,7 +465,7 @@ final class Documents {
                     "INSERT INTO rental_files(id,entity_type,entity_id,version,kind,filename,path,sha256,mime) "
                     ."VALUES(?,'invoice',?,?,'pdf',?,?,?,'application/pdf')"
                 )->execute([
-                    $fileId, $id, $invoice['version'], 'Счёт '.$invoice['number'].'.pdf',
+                    $fileId, $id, $invoice['version'], InvoiceDocument::filename($invoice, $invoice['party_name']),
                     basename($path), hash('sha256', $bytes),
                 ]);
                 $order = FileOrder::assign($db, $fileId);
@@ -480,6 +482,29 @@ final class Documents {
         }
         Http::redirect('/rental/download?id='.$fileId);
     }
+    public static function invoicePdfResponse(array $invoice, ?array $original, bool $download): never
+    {
+        if ($original) {
+            Access::file($original);
+            $path = self::directory().'/'.basename($original['path']);
+            $bytes = file_get_contents($path);
+            if ($bytes === false || !hash_equals($original['sha256'], hash('sha256', $bytes))) {
+                throw new RuntimeException('Проверка целостности оригинала не пройдена.', 409);
+            }
+            $filename = $original['filename'];
+        } else {
+            $bytes = self::renderPdf(InvoiceDocument::html(DB::pdo(), $invoice));
+            $filename = InvoiceDocument::filename($invoice, $invoice['party_name']);
+        }
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: '.($download ? 'attachment' : 'inline')
+            .'; filename="invoice.pdf"; filename*=UTF-8\'\''.rawurlencode($filename));
+        header('Content-Length: '.strlen($bytes));
+        header('Cache-Control: private, no-store');
+        echo $bytes;
+        exit;
+    }
+
     public static function download():never {
         Auth::requirePermission('rental.read');
         $id = (string)($_GET['id'] ?? '');
