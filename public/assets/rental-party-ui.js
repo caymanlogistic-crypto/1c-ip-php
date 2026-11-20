@@ -32,6 +32,18 @@
     if (floor && parent && floor.value === '') floor.value = parent.selectedOptions[0]?.dataset.floor || '';
   }
 
+  function syncPartyType(form) {
+    const type = form.querySelector('select[name="party_type"]');
+    if (!type) return;
+    for (const fields of form.querySelectorAll('[data-party-type-fields]')) {
+      fields.hidden = fields.dataset.partyTypeFields !== type.value;
+      for (const input of fields.querySelectorAll('input')) input.disabled = fields.hidden;
+    }
+    for (const input of form.querySelectorAll('[data-party-bank] input')) {
+      input.required = type.value !== 'person';
+    }
+  }
+
   function syncObjectActivity(form) {
     if (!form?.matches('[data-rental-object-editor]')) return;
     const state = form.querySelector('[name="active"]');
@@ -46,6 +58,7 @@
     for (const form of container.querySelectorAll('form')) {
       syncAddress(form);
       syncRecipients(form);
+      syncPartyType(form);
       syncObjectFloor(form);
       syncObjectActivity(form);
     }
@@ -60,6 +73,7 @@
   }, true);
 
   document.addEventListener('change', event => {
+    if (event.target.matches('select[name="party_type"]')) syncPartyType(event.target.closest('form'));
     if (event.target.matches('select[name="active"]')) syncObjectActivity(event.target.closest('form'));
     if (event.target.matches('select[name="cadastre_id"]')) syncObjectFloor(event.target.closest('form'));
     // Source default applies only to a new cadastre until the user chooses it.

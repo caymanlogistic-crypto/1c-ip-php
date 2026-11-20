@@ -48,6 +48,26 @@ final class DirectoryRules
         return $id === 0 ? ['manager', 'accountant'] : ['manager'];
     }
 
+    public const PARTY_TYPES=['company'=>'Организация','entrepreneur'=>'ИП','person'=>'Физлицо'];
+
+    public static function partyDetails(array $input,array $old): array
+    {
+        foreach (['party_type'=>20,'search_name'=>255,'ogrn'=>15,'ogrnip'=>15,'passport'=>500,
+            'receipt_email'=>255,'contact_position'=>150,'contact_role'=>150,'additional_contact_position'=>150,
+            'additional_contact_role'=>150,'signer'=>255,'signer_position'=>150,'signer_basis'=>255] as $field=>$limit) {
+            if (array_key_exists($field,$input)) $old[$field]=DirectoryDetails::text($input,$field,$limit);
+        }
+        $type=$old['party_type'] ?? '';
+        if ($type!=='' && !isset(self::PARTY_TYPES[$type])) throw new RuntimeException('Выберите тип клиента.',422);
+        foreach (['ogrn'=>13,'ogrnip'=>15] as $field=>$length) {
+            if (!empty($old[$field]) && !preg_match('/^\d{'.$length.'}$/D',$old[$field]))
+                throw new RuntimeException('Проверьте длину ОГРН или ОГРНИП.',422);
+        }
+        if (!empty($old['receipt_email']) && !filter_var($old['receipt_email'],FILTER_VALIDATE_EMAIL))
+            throw new RuntimeException('Укажите корректную почту для чека.',422);
+        return $old;
+    }
+
     public static function party(array $input,?array $old): array
     {
         if (!empty($old['blocked'])) throw new RuntimeException('Работа с контрагентом заблокирована.',403);

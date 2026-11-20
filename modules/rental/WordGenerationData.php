@@ -25,6 +25,8 @@ final class WordGenerationData
         $contract=$entity==='contract'?$record:Service::get($db,'contracts',(int)$record['contract_id']);
         if ($entity==='document'&&!hash_equals($record['base_hash'],Evidence::documentBase($db,(int)$contract['id'])))throw new RuntimeException('Исходные условия договора изменились.',409);
         $q=$db->prepare('SELECT * FROM parties WHERE id=?');$q->execute([$contract['party_id']]);$party=$q->fetch()?:throw new RuntimeException('Контрагент не найден.');
+        $partyDetails=DirectoryDetails::read($db,'parties',(int)$party['id']);
+        $partyType=$partyDetails['party_type'] ?? '';
         $org=$db->query('SELECT * FROM organization WHERE id=1')->fetch();
         if ($org['vat']===null)throw new RuntimeException('Укажите НДС нашей организации в реквизитах перед формированием Word.',422);
         if ($record['amount']===null||bccomp($record['amount'],'0',2)<=0)throw new RuntimeException('Нужна подтверждённая сумма договора.',422);
@@ -59,7 +61,12 @@ final class WordGenerationData
             'end_date_words'=>$record['end_date']?self::dateWords($record['end_date']):'',
             'party_full_name'=>$party['name'],'party_short_name'=>$party['name'],'party_address'=>$party['address']??'',
             'party_postal_address'=>$party['postal_address']??'', 'party_email'=>$party['email']??'',
-            'party_inn'=>$party['inn']??'','party_kpp'=>$party['kpp']??'','party_ogrn'=>$party['ogrn']??'',
+            'party_inn'=>$party['inn']??'','party_kpp'=>in_array($partyType,['','company'],true)?($party['kpp']??''):'',
+            'party_ogrn'=>match($partyType) {
+                'company'=>$partyDetails['ogrn']??'', 'entrepreneur'=>$partyDetails['ogrnip']??'', default=>'',
+            },
+            'party_signer_title'=>$partyDetails['signer_position'] ?? '',
+            'party_signer_basis'=>$partyDetails['signer_basis'] ?? '',
             'party_bank_line'=>!empty($bank['account'])&&!empty($bank['bank'])?$bank['account'].' в '.$bank['bank']:'',
             'party_correspondent'=>$bank['correspondent_account']??'','party_bik'=>$bank['bik']??'',
             'area'=>$areaKnown?rtrim(rtrim($area,'0'),'.'):'','room_numbers'=>implode(', ',array_unique($numbers)),
@@ -72,6 +79,8 @@ final class WordGenerationData
             'service_start_words'=>$record['start_date']?self::dateWords($record['start_date']):'',
             'service_end_words'=>$record['end_date']?self::dateWords($record['end_date']):'',
             'addendum_date_words'=>$entity==='document'&&$record['document_date']?self::dateWords($record['document_date']):''];
+        if (preg_match('/^(\S+)\s+(\S)\S*(?:\s+(\S)\S*)?$/u',$partyDetails['signer'] ?? '',$signer))
+            $values['party_signer_short']=$signer[1].' '.$signer[2].'.'.(isset($signer[3])?$signer[3].'.':'');
         if (!empty($party['postal_same_as_legal'])&&$values['party_address']!=='')$values['party_postal_address']=$values['party_address'];
         $values+=self::moneyFields($record['amount'],(string)$org['vat'],'rent');
         $orgBank=$db->query('SELECT * FROM organization_bank_accounts WHERE organization_id=1 AND is_primary=1 ORDER BY id LIMIT 1')->fetch()?:[];

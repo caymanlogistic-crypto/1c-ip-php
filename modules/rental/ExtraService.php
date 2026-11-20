@@ -51,6 +51,10 @@ final class ExtraService {
             ];
             if ($table === 'parties') {
                 $fields=DirectoryRules::party($in,$old);
+                $partyDetails=DirectoryRules::partyDetails($in,$old?DirectoryDetails::read($p,'parties',$id):[]);
+                $type=$partyDetails['party_type'] ?? '';
+                if ($type==='company' && !empty($fields['kpp']) && !preg_match('/^\d{9}$/D',$fields['kpp']))
+                    throw new RuntimeException('КПП должен содержать 9 цифр.',422);
                 if ($fields['inn']!=='') {
                     // Lock the identity range in the command transaction, including concurrent inserts.
                     $q=$p->query('SELECT id,inn,blocked FROM parties ORDER BY id FOR UPDATE');
@@ -60,7 +64,11 @@ final class ExtraService {
                         if(!$old || preg_replace('/\D/','',(string)$old['inn'])!==$fields['inn'])throw new RuntimeException('Контрагент с ИНН '.$fields['inn'].' уже существует. Выберите существующую карточку.',422);
                     }
                 }
-                if (!$old || array_intersect(['bank','account','bik','correspondent_account'],array_keys($in))) {
+                $keys=['bank','account','bik','correspondent_account'];
+                $bankInput=array_intersect_key($in,array_flip($keys));
+                if ($type==='person' && !array_filter($bankInput,static fn($value)=>trim((string)$value)!=='')) {
+                    $in=array_diff_key($in,$bankInput);
+                } elseif (!$old || $bankInput) {
                     $in=array_replace($in,DirectoryRules::bank($in));
                 }
             }
@@ -154,6 +162,7 @@ final class ExtraService {
                 . implode(',', array_fill(0, count($fields), '?'))
                 . ')')->execute(array_values($fields));
             }
+            if ($table==='parties' && $partyDetails) DirectoryDetails::store($p,$table,$id,$partyDetails);
             if ($table==='cadastre' && (array_key_exists('ownership_record',$in) || array_key_exists('ownership_date',$in))) {
                 $details=DirectoryDetails::read($p,$table,$id);
                 foreach (['ownership_record','ownership_date'] as $field) {
