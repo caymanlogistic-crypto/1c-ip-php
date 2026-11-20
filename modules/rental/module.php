@@ -9,6 +9,7 @@ $routes['/rental/parties']=[\Modules\Rental\PartyDirectory::class,'page'];
 $routes['/rental/party']=[\Modules\Rental\PartyDirectory::class,'card'];
 $routes['/rental/edit-party']=[\Modules\Rental\PartyDirectory::class,'editor'];
 $routes['/rental/party-reference']=[\Modules\Rental\PartyReference::class,'lookup'];
+$routes['/rental/party-review']=[\Modules\Rental\PartyLegalReview::class,'form'];
 $routes['/rental/party-status']=[\Modules\Rental\PartyDirectory::class,'status'];
 $routes['/rental/organization']=[\Modules\Rental\OrganizationDirectory::class,'page'];
 $routes['/rental/edit-organization']=[\Modules\Rental\OrganizationDirectory::class,'editor'];

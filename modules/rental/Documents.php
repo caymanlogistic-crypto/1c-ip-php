@@ -120,21 +120,24 @@ final class Documents {
         $type = (string)($_POST['entity_type'] ?? 'contract');
         $id = (int)($_POST['id'] ?? 0);
         $version = (int)($_POST['version'] ?? 0);
-        $state['entity_category']=in_array($type,['contract','document'],true)?$type:'other';
+        $state['entity_category']=in_array($type,['contract','document','party'],true)?$type:'other';
         $state['entity_id']=$id;
         $state['kind_category']=in_array($kind,['signed-contract','signed-return-act','lawyer-file','signed-addendum','removed-return-act'],true)?$kind:'other';
         if ($type === 'contract')Access::contract($id, 2);
         elseif($type === 'document')Access::document($id, 2);
+        elseif($type === 'party')Access::pages(['parties'],2);
         else throw new RuntimeException('Неизвестный контекст документа.', 403);
+        if (($type==='party')!==($kind===PartyLegalReview::FILE) ||
+            (isset(ContractRevision::KINDS[$kind]) && $type!=='contract'))
+            throw new RuntimeException('Вид файла не соответствует карточке.',422);
         if (!in_array($kind, [
             'signed-contract',
             'signed-return-act',
             'lawyer-file',
             'signed-addendum',
-            'removed-return-act'
-        ], true) || !in_array($type, [
-            'contract',
-            'document'
+            'removed-return-act',
+            PartyLegalReview::FILE,
+            ...array_keys(ContractRevision::KINDS),
         ], true))throw new RuntimeException('Неизвестный вид документа.');
         Auth::requirePermission($kind === 'lawyer-file'?'rental.approve.legal':'rental.write');
         Service::roles($kind === 'lawyer-file'?[
@@ -180,7 +183,8 @@ final class Documents {
             DB::transaction(function($p)use($f, $path, $fid, $ext, $kind, $type, $id, $version, $u, &$state) {
                 $state['stage']='row_lock';
                 FileOrder::lock($p);
-                $r = Service::get($p, $type === 'contract'?'contracts':'rental_documents', $id);
+                $table=match($type){'contract'=>'contracts','party'=>'parties',default=>'rental_documents'};
+                $r = Service::get($p,$table,$id);
                 $state['current_version']=(int)$r['version'];
                 $state['current_status']=in_array($r['status'],['draft','legal','accounting','returned','approved','sent','active','signed','reconciling','closed','cancelled'],true)?$r['status']:'other';
                 $state['stage']='row_version';
@@ -189,6 +193,8 @@ final class Documents {
                     throw new RuntimeException('Версия документа изменилась.');
                 }
                 $state['stage']='row_stage';
+                if ($type==='party') PartyLegalReview::checkUpload($r);
+                if (isset(ContractRevision::KINDS[$kind])) ContractRevision::requireOpen($p,$r);
                 if (($kind === 'signed-contract' && ($type !== 'contract' || !in_array($r['status'], [
                     'sent',
                     'active'
@@ -254,6 +260,8 @@ final class Documents {
             throw $e;
         }
         $state['stage']='redirect';
+        if ($kind===PartyLegalReview::FILE) Http::redirect('/rental/party-review?id='.$id.'&action='.PartyLegalReview::SUBMIT);
+        if (isset(ContractRevision::KINDS[$kind])) Http::redirect('/rental/action-form?id='.$id.'&action='.ContractRevision::ACTION);
         if ($kind === ReturnAct::KIND) Http::redirect('/rental/action-form?id='.$id.'&action=contract.return-act');
         Http::redirect('/rental/'
         . ($type === 'contract'?'contract':'document')

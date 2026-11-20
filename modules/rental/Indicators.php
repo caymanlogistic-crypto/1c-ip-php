@@ -80,7 +80,10 @@ final class Indicators {
                 catch(\RuntimeException $error){if($error instanceof \PDOException)throw $error;}
                 $legalCalendarRead=true;
             }
-            return LegalSla::evaluate($record,WorkflowEvents::latest(DB::pdo(),$kind,(int)$record['id'],true),$today.' '.$time.(strlen($time)===5?':00':''),$legalCalendar);
+            $db=DB::pdo();$id=(int)$record['id'];
+            $handoff=WorkflowEvents::latest($db,$kind,$id,true);
+            if ($kind==='contract') $handoff=ContractRevision::legalHandoff($db,$id,$handoff);
+            return LegalSla::evaluate($record,$handoff,$today.' '.$time.(strlen($time)===5?':00':''),$legalCalendar);
         };
         $add = function(string $entity, int $id, string $role, string $severity, string $page, string $text, ?int $contract = null, array $metadata=[])use(&$tasks) {
             $tasks[] = [

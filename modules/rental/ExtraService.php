@@ -163,6 +163,7 @@ final class ExtraService {
                 . ')')->execute(array_values($fields));
             }
             if ($table==='parties' && $partyDetails) DirectoryDetails::store($p,$table,$id,$partyDetails);
+            if ($table==='parties' && !$old) PartyLegalReview::requireOnNewParty($p,$id);
             if ($table==='cadastre' && (array_key_exists('ownership_record',$in) || array_key_exists('ownership_date',$in))) {
                 $details=DirectoryDetails::read($p,$table,$id);
                 foreach (['ownership_record','ownership_date'] as $field) {

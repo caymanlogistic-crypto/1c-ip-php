@@ -54,9 +54,27 @@ final class ApprovalRegistry
         $create=in_array($role,['admin','manager'],true) && PagePolicy::level('rental.contracts',Auth::user())>=2?RentalUI::button('Создать договор','/rental/document-creator',true):'';
         $body=Controller::heading('Согласование документов','Назначенные проверки, ожидание подписания и история решений.',$create)
             .Controller::tabs($tabs,$flag,true,['filter'=>$filter])
+            .(in_array($flag,['all','mine'],true)?self::customerReviews($role,$query):'')
             .DirectoryUi::registry('rental-approvals',['Документ','Контрагент','Начало','Окончание','Объекты аренды','Стадия','Комментарий','Аренда с НДС','Ответственный'],$rows,
                 ['short','flex','short','code','flex','text','flex','money','text'],$controls,filterForm:true);
         return View::page('Согласование документов',$body,'approvals');
+    }
+
+    private static function customerReviews(string $role,string $query): string
+    {
+        if (!in_array($role,['lawyer','manager','admin'],true) || PagePolicy::level('rental.parties',Auth::user())<1) return '';
+        $status=$role==='manager'?'returned':'pending';
+        $rows=[];
+        foreach (Controller::query("SELECT p.id,p.name,p.inn,JSON_UNQUOTE(JSON_EXTRACT(d.fact_json,'$.reason')) reason "
+            ."FROM rental_facts d JOIN parties p ON d.source_key=CAST(p.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci "
+            ."WHERE d.namespace='directory_party_legal_review' AND d.operative=1 AND p.blocked=0 "
+            ."AND JSON_UNQUOTE(JSON_EXTRACT(d.fact_json,'$.status'))=? ORDER BY p.name",[$status]) as $party) {
+            if (!WorkRegistry::matches($query,[$party['name'],$party['inn'],$party['reason']])) continue;
+            $rows[]=[View::e($party['name']),View::e($party['inn']),View::e($party['reason'] ?: 'Сверить с исходной карточкой'),
+                RentalUI::button('Открыть карточку','/rental/party?id='.(int)$party['id'])];
+        }
+        return $rows?'<span class="registry-ui-modal-summary">'.($status==='pending'?'Клиенты на проверке':'Карточки клиентов на исправлении').'</span>'
+            .Controller::table(['Клиент','ИНН','Действие','Карточка'],$rows,['flex','code','flex','text']):'';
     }
 
     private static function entry(string $kind,array $record,array $contract,string $role,array $tasks): array

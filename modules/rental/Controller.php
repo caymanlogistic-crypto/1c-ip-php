@@ -1170,6 +1170,7 @@ final class Controller {
             }
             if (str_starts_with($action, 'reservation.') && !empty($result['id']))$target = '/rental/booking?id='
             . $result['id'];
+            if (str_starts_with($action,'party.review.')) $target='/rental/party?id='.(int)$result['id'];
             $_SESSION['rental_notice'] = ($result['message'] ?? 'Сохранено.').$maxNotice;
             if(is_string($in['command_key']??null))$_SESSION['rental_top_command']=$in['command_key'];
             $completion = self::completionTarget($action, $in);
