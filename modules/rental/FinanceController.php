@@ -211,7 +211,6 @@ final class FinanceController {
         . '<div class="demo-row">'
         . RentalUI::button('Просмотр и печать', '/rental/invoice-preview?id='
         . $id)
-        . '<a class="btn btn-secondary" href="/rental/invoice-html?id='.$id.'">Скачать HTML</a>'
         . RentalUI::button('Открыть договор', '/rental/contract?id='
         . $r['contract_id'])
         . RentalUI::button('История договора', '/rental/history?contract_id='
@@ -480,10 +479,13 @@ final class FinanceController {
     }
     public static function html(): never {
         $invoice=self::invoice((int)($_GET['id'] ?? 0));
+        $body = InvoiceDocument::html(DB::pdo(), $invoice);
         header('Content-Type: text/html; charset=UTF-8');
-        header('Content-Disposition: attachment; filename="invoice.html"; filename*=UTF-8\'\''.rawurlencode('Счёт '.$invoice['number'].'.html'));
+        header('Content-Disposition: attachment; filename="invoice.html"; filename*=UTF-8\'\''
+            .rawurlencode(InvoiceDocument::filename($invoice, $invoice['party_name'], 'html')));
         header('X-Content-Type-Options: nosniff');
-        echo InvoiceDocument::html(DB::pdo(),$invoice);
+        header('Cache-Control: private, no-store');
+        echo $body;
         exit;
     }
 
@@ -505,59 +507,38 @@ final class FinanceController {
     }
 
     public static function preview():string {
-        Auth::requirePermission('rental.read');
-        $i = self::invoice((int)($_GET['id'] ?? 0));
+        $invoice = self::invoice((int)($_GET['id'] ?? 0));
+        $db = DB::pdo();
+        $id = (int)$invoice['id'];
+        $original = InvoiceDocument::original($db, $id);
+        $mode = $_GET['pdf'] ?? '';
+        if ($mode === 'inline' || $mode === 'download') {
+            Service::version($invoice, ['version'=>$_GET['version'] ?? null]);
+            Documents::invoicePdfResponse($invoice, $original, $mode === 'download');
+        }
+        $data = $original ? null : InvoiceDocument::data($db, $invoice);
         $body = RentalUI::pairs([
-            [
-                'Счёт',
-                $i['number']
-            ],
-            [
-                'Контрагент',
-                $i['party_name']
-            ],
-            [
-                'Договор',
-                $i['contract_number']
-            ],
-            [
-                'Назначение',
-                $i['purpose']?:$i['title']?:$i['kind']
-            ],
-            [
-                'Период',
-                $i['period']
-            ],
-            [
-                'Сумма с НДС',
-                Controller::money($i['amount'])
-            ],
-            [
-                'НДС',
-                $i['vat'] === null?'НДС не указан':$i['vat']
-                . '%'
-            ],
-            [
-                'Оплатить до',
-                Documents::dateText($i['due'])
-            ]
+            ['Номер в реестре', $invoice['number']],
+            ['Контрагент', $invoice['party_name']],
+            ['Договор', $invoice['contract_number']],
+            ['Назначение', $data['purpose'] ?? ($invoice['purpose'] ?: ($invoice['title'] ?: $invoice['kind']))],
+            ['Период', $invoice['period']],
+            ['Сумма с НДС', Controller::money($invoice['amount'])],
+            ['Оплатить до', Documents::dateText($invoice['due'])],
         ]);
-        $fid = 'invoice-print-form';
-        $body.='<form id="'
-        . $fid
-        . '" method="post" action="/rental/invoice-pdf"><input type="hidden" name="_csrf" value="'
-        . View::e(Http::csrf())
-        . '"><input type="hidden" name="id" value="'
-        . $i['id']
-        . '"></form>';
-        return RentalUI::modal('Счёт №'
-        . $i['number']
-        . ' от '
-        . Documents::dateText($i['issued']), $body, '<button class="btn btn-primary" type="submit" form="'
-        . $fid
-        . '">Открыть для печати PDF</button>'
-        . RentalUI::button('Вернуться к счёту', '/rental/invoice?id='
-        . $i['id']), 'invoice-list');
+        $actions = '';
+        $missing = $data['missing'] ?? [];
+        if ($missing) {
+            $body .= RentalUI::alert('Печатная форма требует проверки', 'Уточните: '.implode(', ', $missing).'.', 'warning');
+        } else {
+            $url = '/rental/invoice-preview?id='.$id.'&version='.(int)$invoice['version'].'&pdf=';
+            $actions = '<a class="btn btn-secondary" href="'.View::e($url.'download').'">Скачать PDF</a>'
+                .'<a class="btn btn-primary" target="_blank" rel="noopener" href="'.View::e($url.'inline').'">'
+                .($original ? 'Открыть оригинал PDF' : 'Открыть для печати PDF').'</a>';
+        }
+        return RentalUI::modal('Счёт № '.InvoiceDocument::number($invoice['number']).' от '
+            .Documents::dateText($invoice['issued']), $body,
+            RentalUI::button('Вернуться к счёту', '/rental/invoice?id='.$id).$actions, 'invoice-list');
     }
     public static function persist(array $in,?array $upload=null): array {
         $stored = null;
