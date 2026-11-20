@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Modules\Rental;
 
-use App\{Auth,PagePolicy,View};
+use App\{Auth,DB,PagePolicy,View};
 use RuntimeException;
 
 final class ObjectDirectory
@@ -62,7 +62,7 @@ final class ObjectDirectory
             $object=$item['object'];$facts=$item['facts'];
             return match($key) {
                 'free'=>$facts['eligible'] && $facts['free'],
-                'work'=>in_array($facts['severity'],['green','blue'],true),
+                'work'=>!empty($facts['work']) || in_array($facts['severity'],['green','blue'],true),
                 'inactive'=>!$object['active'],
                 default=>($show || $object['active']) && ($key==='all' || $key==='office' && $object['type']==='Офис' || $key==='parking' && $object['type']==='Машиноместо'),
             };
@@ -119,7 +119,7 @@ final class ObjectDirectory
         if (isset($_SESSION['rental_notice'])) {
             $notice=RentalUI::alert((string)$_SESSION['rental_notice']);unset($_SESSION['rental_notice']);
         }
-        $body=Controller::heading('Объекты аренды','Помещения и машиноместа: занятость, бронирование и контроль простоя',self::editable()?RentalUI::button('Добавить объект','/rental/edit-object',true):'').$notice
+        $body=Controller::heading('Объекты аренды','Помещения и машиноместа: занятость, резервирование и контроль простоя',self::editable()?RentalUI::button('Добавить объект','/rental/edit-object',true):'').$notice
             .Controller::tabs($tabs,$flag,false,['floor'=>$floor,'type'=>$type,'inactive'=>(int)$show,'q'=>$query],'objects')
             .DirectoryUi::registry('rental-contracts',[],$rows,[],$controls,$summary,filterForm:true,
                 design:new DesignTable('rental.objects',[
@@ -139,33 +139,68 @@ final class ObjectDirectory
         if ($facts['recent']) $comment='<strong class="registry-ui-success">'.ObjectFacts::days($facts['recent']['days']).'</strong><span class="registry-ui-secondary">Новый с '.Documents::dateText($facts['recent']['date']).': '.View::e($facts['lease']['tenant']).'</span>';
         elseif ($facts['severity']==='blue') {
             $comments=[];foreach($facts['bookings'] as $booking)$comments[]=View::e(($booking['client_name'] ?: 'Клиент не указан').' до '.Documents::dateText($booking['until_date']).($booking['comment']?': '.$booking['comment']:''));
-            $comment=(count($comments)>1?'<strong>Брони: '.count($comments).'</strong><br>':'').implode('<br>',$comments);
+            $comment=(count($comments)>1?'<strong>Резервирования: '.count($comments).'</strong><br>':'').implode('<br>',$comments);
         }
         elseif ($facts['free']) $comment=($facts['idleUnknown']?'<span class="registry-ui-secondary">'.View::e($facts['idleUnknown']).'</span>':'<strong class="registry-ui-error">'.($facts['days']===null?'Указать дату':ObjectFacts::days($facts['days'])).'</strong>').'<span class="registry-ui-secondary">Последний арендатор: '.View::e($facts['previous'] ?: 'Не указан').'</span>';
         if ($facts['deadline']) $comment.='<div><strong class="registry-ui-error">'.View::e($facts['deadline']).'</strong></div><div class="doc-meta">Необходимо подписать допсоглашение о пролонгации или начать процедуру завершения договора</div>';
+        if (!empty($facts['work']['contract'])) $comment.='<div class="doc-meta">Заключение договора</div>';
+        if (!empty($facts['work']['renewal'])) $comment.='<div class="doc-meta">Продление договора</div>';
         return $comment;
     }
 
     public static function card(): string
     {
         $object=self::record((int)($_GET['id'] ?? 0));
+        $details=DirectoryDetails::read(DB::pdo(),'rental_objects',(int)$object['id']);
         $availability=self::availability();
         $facts=ObjectFacts::project($object,self::parent($object),$availability[$object['id']] ?? null,date('Y-m-d'));
         $body=DirectoryUi::pairs([
-            ['Объект',$object['name']],['Тип',$object['type']],['Этаж',$object['floor']],['Площадь сдачи, м²',DirectoryUi::area($object['area'])],
+            ['Внутренний номер / название',$object['name']],
+            ['Номер по документам здания',$details['building_room_number'] ?? '—'],['Тип',$object['type']],['Этаж',$object['floor']],['Площадь сдачи, м²',DirectoryUi::area($object['area'])],
             ['Кадастровый объект',$object['cadastral']],['Кадастровая площадь, м²',DirectoryUi::area($object['parent_area'])],
             ['Состояние',$facts['status'],$facts['free']],['Дата освобождения',$facts['free']?($object['free_since']?Documents::dateText($object['free_since']):'Не указана'):'—'],
             ['Простой',$facts['free']?($facts['idleUnknown'] ?: ($facts['days']===null?'Указать дату':ObjectFacts::days($facts['days']))):'—',$facts['free'] && !$facts['idleUnknown']],['Последний арендатор',$facts['previous'] ?: '—'],
         ]);
+        $plan=DirectoryDetails::read(DB::pdo(),'object_plan',(int)$object['id']);
+        if ($plan) $body.='<p><a class="btn btn-secondary" href="/rental/object-plan?id='.(int)$object['id'].'" target="_blank" rel="noopener">Открыть план помещения</a></p>';
+        $activity=Controller::query("SELECT e.id,e.actor_id,e.action,e.contract_id,e.source_json,u.name actor "
+            ."FROM rental_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.action='object.save' "
+            ."AND CAST(JSON_UNQUOTE(JSON_EXTRACT(e.source_json,'$.object_id')) AS UNSIGNED)=? ORDER BY e.id DESC",[(int)$object['id']]);
+        if ($activity) {
+            $history=[];
+            foreach ($activity as $row) {
+                $entry=ObjectActivity::decode($row);
+                if ($entry) $history[]=[
+                    Documents::dateText($entry['changed_on']),$entry['to_active']?'Возвращён в сдачу':'Снят со сдачи',$row['actor'] ?? '—',
+                ];
+            }
+            if ($history) $body.='<span class="registry-ui-modal-summary">История активности</span>'
+                .Controller::table(['Дата','Действие','Кто изменил'],array_map(static fn($row)=>array_map(View::e(...),$row),$history),['code','text','text']);
+        }
         $actions=self::editable()?RentalUI::button('Редактировать','/rental/edit-object?id='.$object['id']):'';
-        if (self::editable() && $facts['eligible'] && PagePolicy::level('rental.contracts',Auth::user())>=2) $actions.=RentalUI::button('Забронировать','/rental/reservations?object_id='.$object['id'],true);
+        if (self::editable() && $facts['eligible'] && PagePolicy::level('rental.contracts',Auth::user())>=2) $actions.=RentalUI::button('Резервирование','/rental/reservations?object_id='.$object['id'],true);
         return RentalUI::modal('Объект аренды '.$object['name'],$body,$actions,'objects');
+    }
+
+    public static function plan(): never
+    {
+        $id=(int)($_GET['id'] ?? 0);
+        $contractId=(int)($_GET['contract_id'] ?? 0);
+        if ($contractId) {
+            Access::contract($contractId);
+            if (!Controller::query('SELECT 1 FROM contract_objects WHERE contract_id=? AND object_id=?',[$contractId,$id]))
+                throw new RuntimeException('План помещения не найден.',404);
+        } else self::record($id);
+        $plan=DirectoryDetails::read(DB::pdo(),'object_plan',$id);
+        if (!$plan) throw new RuntimeException('План помещения не найден.',404);
+        ObjectPlan::output($plan);
     }
 
     public static function editor(): string
     {
         Access::pages(['objects'],2);Auth::requirePermission('rental.write');Service::roles(['manager']);
         $id=(int)($_GET['id'] ?? 0);$object=$id?self::record($id,2):[];
+        $details=$id?DirectoryDetails::read(DB::pdo(),'rental_objects',$id):[];
         $parentOptions='<option value="">Выберите кадастровый объект</option>';
         foreach (Controller::query('SELECT * FROM cadastre ORDER BY id') as $parent) {
             if (!DirectoryScope::realCadastre($parent)) continue;
@@ -176,7 +211,8 @@ final class ObjectDirectory
         $types=['Офис','Машиноместо','Техническое помещение'];if (!empty($object['type']) && !in_array($object['type'],$types,true)) array_unshift($types,$object['type']);
         $body='<label class="field"><span class="field-label">Исходный кадастровый объект</span>'
             .'<select class="field-select field-input" name="cadastre_id" required>'.$parentOptions.'</select></label>'
-            .DirectoryUi::input('name','Наименование объекта аренды',$object['name'] ?? '','text',true)
+            .DirectoryUi::input('name','Внутренний номер / название',$object['name'] ?? '','text',true)
+            .DirectoryUi::input('building_room_number','Номер по документам здания',$details['building_room_number'] ?? '')
             .DirectoryUi::select('type','Тип',array_combine($types,$types),$object['type'] ?? 'Офис')
             .'<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'.DirectoryUi::input('floor','Этаж',$object['floor'] ?? '','text',true)
             .DirectoryUi::input('area','Площадь сдачи, м²',$object['area'] ?? '','number',true).'</div>'
@@ -184,8 +220,11 @@ final class ObjectDirectory
             .DirectoryUi::select('active','Состояние',['1'=>'Активен','0'=>'Неактивен'],$object['active'] ?? 1)
             .($object?DirectoryUi::input('active_on','Дата изменения состояния',date('Y-m-d'),'date',true):'').'</div>'
             .DirectoryUi::input('free_since','Дата освобождения / начала простоя',$object['free_since'] ?? ($object?'':date('Y-m-d')),'date');
+        $body.='<label class="field"><span class="field-label">План с границами помещения</span>'
+            .'<input class="field-input" type="file" name="object_plan" accept=".pdf,.jpg,.jpeg,.png">'
+            .'<span class="field-msg">PDF, JPEG или PNG до 2 МБ</span></label>';
         [$form,$actions]=DirectoryUi::form('object.save',$object,$body);
-        $form=str_replace('<form ', '<form class="registry-ui-modal-grid" data-rental-object-editor data-original-active="'.(int)($object['active'] ?? 1).'"'.(!$object?' data-rental-new-object':'').' ', $form);
+        $form=str_replace('<form ', '<form enctype="multipart/form-data" class="registry-ui-modal-grid" data-rental-object-editor data-original-active="'.(int)($object['active'] ?? 1).'"'.(!$object?' data-rental-new-object':'').' ', $form);
         return RentalUI::modal($object?'Редактировать объект':'Создать объект аренды',$form,$actions,'objects');
     }
 }

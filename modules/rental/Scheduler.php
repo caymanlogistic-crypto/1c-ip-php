@@ -12,17 +12,35 @@ final class Scheduler
         $date=Service::date($date??date('Y-m-d'));
         if($apply){Auth::requirePermission('rental.read');Auth::requirePermission('finance.write');Service::roles(['accountant']);\App\PagePolicy::requireCommand('document.apply');}
         $plan=[];foreach(Controller::query("SELECT * FROM rental_documents WHERE status='signed' AND applied=0 AND effective_date<=? ORDER BY effective_date,id",[$date]) as $d)$plan[]=['key'=>'document-effective:'.$d['id'],'action'=>'document.effective','id'=>(int)$d['id'],'version'=>(int)$d['version'],'contract_id'=>(int)$d['contract_id']];
-        foreach(Controller::query("SELECT * FROM reservations WHERE status='active' AND document_id IS NULL AND until_date<? ORDER BY id",[$date]) as $r)$plan[]=['key'=>'booking-expire:'.$r['id'].':'.$r['version'],'action'=>'reservation.expire','id'=>(int)$r['id'],'version'=>(int)$r['version']];
+        $tomorrow=(new \DateTimeImmutable($date))->modify('+1 day')->format('Y-m-d');
+        $reservationNotices=[];
+        $reservations=Controller::query("SELECT r.*,o.name object_name FROM reservations r JOIN rental_objects o ON o.id=r.object_id "
+            ."WHERE r.document_id IS NULL AND r.contract_id IS NULL AND r.status IN ('active','expired') AND r.until_date<=? AND "
+            .WorkspaceReset::visibleSql('r')." ORDER BY r.id",[$tomorrow]);
+        foreach ($reservations as $reservation) {
+            $expired=CustomerBookings::expired($reservation,$date);
+            if (!$expired && $reservation['until_date']!==$tomorrow) continue;
+            $kind=$expired?'review':'reminder';
+            $reservationNotices[]=[
+                'key'=>'reservation:'.$kind.':'.$reservation['id'].':'.$reservation['until_date'],
+                'action'=>'reservation.'.$kind,
+                'id'=>(int)$reservation['id'],
+                'author_id'=>$reservation['author_id'],
+                'text'=>'Резервирование №'.$reservation['id'].' · '.$reservation['object_name'].' · '
+                    .($expired?'срок истёк. Продлите или снимите резервирование.':'истекает завтра, '.Documents::dateText($tomorrow).'.'),
+            ];
+        }
         if(count($plan)>5000)throw new RuntimeException('План превышает безопасный лимит.');$done=[];$blocked=[];
         if($apply)DB::transaction(function(PDO $p)use($plan,$date,&$done,&$blocked){$p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();foreach($plan as $item){$p->exec('SAVEPOINT rental_dated_event');try{
             $q=$p->prepare('SELECT 1 FROM rental_schedule_runs WHERE run_key=?');$q->execute([$item['key']]);if($q->fetchColumn())continue;
             if($item['action']==='document.effective'){$d=Service::get($p,'rental_documents',$item['id']);if($d['status']!=='signed'||$d['applied']||$d['effective_date']>$date||(int)$d['version']!==$item['version'])continue;$c=Service::get($p,'contracts',(int)$d['contract_id']);if($c['status']!=='active'||$d['base_hash']!==Evidence::documentBase($p,(int)$c['id']))throw new RuntimeException('Исходные условия изменились после подписания ДС.');$signedFile=Evidence::latest($p,'document',(int)$d['id'],'signed-addendum',(int)$d['version']-1);Evidence::signedDocumentParts($p,$d,$signedFile);
                 if($d['kind']==='termination')$p->prepare("UPDATE contracts SET status='reconciling',finish_date=?,finish_reason=?,version=version+1 WHERE id=?")->execute([$d['effective_date'],'Подписанное соглашение о завершении',$c['id']]);else Addenda::apply($p,$c,$d,'document.apply',Auth::user(),'parts-apply-'.hash('sha256',$item['key'].':'.$item['version']));
                 $p->prepare('UPDATE rental_documents SET applied=1,version=version+1 WHERE id=?')->execute([$d['id']]);Service::event($p,Auth::user(),'document.effective','Наступила дата подписанного ДС №'.$d['number'],(int)$c['id']);
-            }else{\App\PagePolicy::requireCommand('reservation.cancel');$r=Service::get($p,'reservations',$item['id']);if($r['status']!=='active'||$r['document_id']!==null||(int)$r['version']!==$item['version']||$r['until_date']===null||$r['until_date']>=$date)continue;$p->prepare("UPDATE reservations SET status='expired',version=version+1 WHERE id=?")->execute([$r['id']]);Service::event($p,Auth::user(),'reservation.expire','Истёк срок брони №'.$r['id']);}
+            }
             $p->prepare('INSERT INTO rental_schedule_runs(run_key,action,details_json) VALUES(?,?,?)')->execute([$item['key'],$item['action'],Importer::json($item+['effective_on'=>$date])]);$done[]=$item['key'];
         }catch(RuntimeException $e){$p->exec('ROLLBACK TO SAVEPOINT rental_dated_event');if($e->getCode()===403)throw $e;$blocked[]=['key'=>$item['key'],'reason'=>$e->getMessage()];}}});
-        return ['mode'=>$apply?'applied':'plan','date'=>$date,'calendarRequired'=>false,'externalSends'=>0,'plan'=>$plan,'applied'=>$done,'blocked'=>$blocked];
+        return ['mode'=>$apply?'applied':'plan','date'=>$date,'calendarRequired'=>false,'externalSends'=>0,
+            'plan'=>$plan,'reservationNotices'=>$reservationNotices,'applied'=>$done,'blocked'=>$blocked];
     }
     public static function run(?string $date=null,?string $time=null,bool $apply=false,bool $catchup=false,?SourceCalendar $reference=null):array
     {

@@ -8,6 +8,16 @@ use RuntimeException;
 /** Client requests may overlap. Document reservations remain exclusive. */
 final class CustomerBookings
 {
+    public static function openForDecision(array $row): bool
+    {
+        return $row['document_id']===null && $row['contract_id']===null && in_array($row['status'],['active','expired'],true);
+    }
+
+    public static function expired(array $row,string $date): bool
+    {
+        return self::openForDecision($row) && ($row['status']==='expired' || ($row['until_date'] && $row['until_date']<$date));
+    }
+
     public static function checkActivation(PDO $pdo,array $contract): void
     {
         $q=$pdo->prepare('SELECT co.object_id,'.Occupancy::boundary('start_date').' start_date,'.Occupancy::boundary('end_date').' end_date FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE co.contract_id=? AND '.\App\ContractOccupancy::physicalPredicate('co').' ORDER BY co.object_id');

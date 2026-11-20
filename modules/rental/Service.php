@@ -192,7 +192,7 @@ final class Service {
             ]);
             foreach ($q->fetchAll() as $booking) {
                 if ($sharedCustomerBookings && $booking['document_id']===null && (!$consume || $bookingId!==(int)$booking['id']))continue;
-                if ($booking['document_id'] !== null || $partyId === null || ((int)$booking['party_id'] !== $partyId && !($bookingId === (int)$booking['id'] && $booking['party_id'] === null)))throw new RuntimeException('Объект забронирован.');
+                if ($booking['document_id'] !== null || $partyId === null || ((int)$booking['party_id'] !== $partyId && !($bookingId === (int)$booking['id'] && $booking['party_id'] === null)))throw new RuntimeException('Объект уже в резервировании.');
                 if ($consume)$p->prepare("UPDATE reservations SET status='consumed',version=version+1 WHERE id=?")->execute([
                     $booking['id']
                 ]);
@@ -338,16 +338,17 @@ final class Service {
                 $priorRelations=$old?Occupancy::relations($p,$id):[];
                 $booking = null;
                 if (!empty($in['booking_id'])) {
-                    if ($old && (int)(ContractDraft::input($old)['booking_id'] ?? 0)!==(int)$in['booking_id'])throw new RuntimeException('Бронь используется только при создании договора.');
+                    if ($old && (int)(ContractDraft::input($old)['booking_id'] ?? 0)!==(int)$in['booking_id'])throw new RuntimeException('Резервирование используется только при создании договора.');
                     $booking = self::get($p, 'reservations', (int)$in['booking_id']);
                     self::version($booking, [
                         'version' => $in['booking_version'] ?? 0
                     ]);
-                    if ($booking['status'] !== 'active' || $booking['contract_id'] !== null || $booking['document_id'] !== null || $booking['until_date']<date('Y-m-d'))throw new RuntimeException('Бронь уже изменена или истекла.', 409);
-                    if (!in_array((int)$booking['object_id'], $ids, true))throw new RuntimeException('В договор не включено забронированное помещение.');
+                    if ($booking['status'] !== 'active' || $booking['contract_id'] !== null || $booking['document_id'] !== null || $booking['until_date']<date('Y-m-d'))throw new RuntimeException('Резервирование уже изменено или истекло.', 409);
+                    if ($booking['party_id']!==null && (int)$booking['party_id']!==$party)
+                        throw new RuntimeException('Резервирование относится к другому клиенту.',422);
                 }
                 $physicalIds=array_values(array_filter($ids,static fn($oid)=>Occupancy::physical($priorRelations[(int)$oid] ?? null)));
-                self::available($p, $physicalIds, $start, $end, $old?$id:null, $party, true, $booking?(int)$booking['id']:null, true);
+                self::available($p, $physicalIds, $start, $end, $old?$id:null, $party, false, null, true);
                 if ($old)$p->prepare('UPDATE contracts SET number=?,party_id=?,start_date=?,end_date=?,amount=?,version=version+1 WHERE id=?')->execute([
                     $number,
                     $party,
@@ -397,7 +398,7 @@ final class Service {
                     $template,
                     $id
                 ]);
-                if ($booking)$p->prepare('UPDATE reservations SET contract_id=?,party_id=? WHERE id=?')->execute([
+                if ($booking)$p->prepare("UPDATE reservations SET contract_id=?,party_id=?,status='consumed',version=version+1 WHERE id=?")->execute([
                     $id,
                     $party,
                     $booking['id']

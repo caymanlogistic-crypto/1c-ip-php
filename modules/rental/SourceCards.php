@@ -31,7 +31,9 @@ final class SourceCards {
         $role = Auth::user()['role'];
         if(in_array($role,['admin','manager'],true) && Auth::can('rental.write') && \App\PagePolicy::level('rental.contracts',Auth::user())>=2 && empty(json_decode($c['source_json'],true)['imported']) && in_array($c['status'],['draft','returned'],true) && $c['return_to']!=='lawyer')return ContractForm::render();
         $managed = empty(json_decode($c['source_json'], true)['imported']);
-        $rows = Controller::query('SELECT o.* FROM rental_objects o JOIN contract_objects co ON co.object_id=o.id WHERE co.contract_id=? ORDER BY o.id', [
+        $rows = Controller::query("SELECT o.*,p.id plan_id FROM rental_objects o JOIN contract_objects co ON co.object_id=o.id "
+            ."LEFT JOIN rental_facts p ON p.namespace='directory_object_plan' AND p.source_key=CAST(o.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AND p.operative=1 "
+            ."WHERE co.contract_id=? ORDER BY o.id", [
             $id
         ]);
         if (($draft=ContractDraft::input($c)) !== null) $rows=ContractDraft::objects(\App\DB::pdo(),$draft);
@@ -77,6 +79,11 @@ final class SourceCards {
 
         ];
         $body = '';
+        foreach ($rows as $object) {
+            if (empty($object['plan_id'])) continue;
+            $body.='<p><a class="btn btn-secondary" href="/rental/object-plan?id='.(int)$object['id'].'&amp;contract_id='.$id
+                .'" target="_blank" rel="noopener">План помещения '.View::e($object['name']).'</a></p>';
+        }
         $delivery=Delivery::presentation(\App\DB::pdo(),'contract',$id);
         if ($delivery && $delivery['message']!=='') $body.=RentalUI::alert('Документы и доставка',$delivery['message'],$delivery['error']?'error':'info');
         $actions = '';
@@ -163,7 +170,7 @@ final class SourceCards {
                 'active'
             ], true) && !$c['signed'])$add('Загрузить подписанный договор', 'contract.sign', true);
             if ($c['status'] === 'active') {
-                $actions.=RentalUI::button($managed?'Пролонгация и бронь':'Создать допсоглашение', '/rental/addendum-form?contract_id='
+                $actions.=RentalUI::button($managed?'Продление и резервирование':'Создать допсоглашение', '/rental/addendum-form?contract_id='
                 . $id, true);
                 $add('Завершение договора', 'contract.reconcile');
             }

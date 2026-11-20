@@ -294,7 +294,7 @@ final class Controller {
             'approvals'
         ], true)) {
             $headActions = RentalUI::button('Создать договор', '/rental/document-creator', true);
-            if ($page === 'contracts')$headActions.=RentalUI::button('Забронировать помещение', '/rental/reservations');
+            if ($page === 'contracts')$headActions.=RentalUI::button('Резервирование помещения', '/rental/reservations');
         }
         if (in_array($u['role'], [
             'admin',
@@ -321,7 +321,7 @@ final class Controller {
         if ($page==='templates' && in_array($u['role'],['admin','lawyer'],true) && Auth::can('rental.approve.legal')
             && \App\PagePolicy::level('rental.templates',$u)>=2) $headActions=RentalUI::button('Создать шаблон','/rental/template-editor',true);
         $sub = match ($page) {
-            'contracts' => 'Двойной щелчок открывает редактор черновика или карточку брони.', 'contracts-active' => 'Действующие условия аренды, сроки и назначенные действия.', 'contracts-completed' => 'История завершённой аренды и подтверждений расчётов.', 'approvals' => 'Назначенные проверки, ожидание подписания и история решений.', 'invoices', 'payments' => 'Счета сгруппированы по контрагентам. Раскройте строку, чтобы открыть нужный счёт.', 'invoice-list' => 'Счета, оплаты и остатки по каждому документу.', 'templates'=>'Юрист готовит новую версию, руководитель утверждает.', 'objects' => 'Помещения и машиноместа: занятость, бронирование и контроль простоя', 'cadastre' => 'Кадастровая площадь и доступность для сдачи.', default => ''
+            'contracts' => 'Двойной щелчок открывает редактор черновика или карточку резервирования.', 'contracts-active' => 'Действующие условия аренды, сроки и назначенные действия.', 'contracts-completed' => 'История завершённой аренды и подтверждений расчётов.', 'approvals' => 'Назначенные проверки, ожидание подписания и история решений.', 'invoices', 'payments' => 'Счета сгруппированы по контрагентам. Раскройте строку, чтобы открыть нужный счёт.', 'invoice-list' => 'Счета, оплаты и остатки по каждому документу.', 'templates'=>'Юрист готовит новую версию, руководитель утверждает.', 'objects' => 'Помещения и машиноместа: занятость, резервирование и контроль простоя', 'cadastre' => 'Кадастровая площадь и доступность для сдачи.', default => ''
         };
         $h = self::heading($title, $sub, $headActions);
         if (isset($_SESSION['rental_notice'])) {
@@ -1147,6 +1147,11 @@ final class Controller {
             . (int)($in['id'] ?? 0), str_starts_with($action, 'party.') => '/rental/parties', str_starts_with($action, 'object.') => '/rental/objects', str_starts_with($action, 'cadastre.') => '/rental/cadastre', str_starts_with($action, 'organization.') => '/rental/organization', str_starts_with($action, 'reservation.') => '/rental/reservations', str_starts_with($action, 'template.') => '/rental/templates', default => '/rental/invoices'
         };
         try {
+            unset($in['object_plan']);
+            if ($action==='object.save') {
+                $plan=ObjectPlan::upload($_FILES['object_plan'] ?? null);
+                if ($plan!==null) $in['object_plan']=$plan;
+            }
             $freshCommittedEventId=null;
             $result = Service::command($action, $in, $freshCommittedEventId);
             $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''));

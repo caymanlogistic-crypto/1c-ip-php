@@ -23,7 +23,7 @@ final class Availability {
             if (!DirectoryScope::signals($o, [
                 'number'=>$o['cadastre_number'],'type'=>$o['cadastre_type'],'rentable'=>$o['cadastre_rentable'],'source_json'=>$o['cadastre_source']
             ])) continue;
-            $reason=isset($held[$o['id']])?'Ожидается акт возврата':(isset($busy[$o['id']])?'Занято договором или ожидается возврат':(isset($reserved[$o['id']])?'Забронировано':''));
+            $reason=isset($held[$o['id']])?'Ожидается акт возврата':(isset($busy[$o['id']])?'Занято договором или ожидается возврат':(isset($reserved[$o['id']])?'Резервирование':''));
             $bookingCount=$bookingCounts[$o['id']] ?? 0;
             $area = $o['area'] === null?'—':rtrim(rtrim($o['area'], '0'), '.');
             $rows[] = [
@@ -39,7 +39,7 @@ final class Availability {
                 . ' · '
                 . $area
                 . ' м² · '
-                . ($reason?:'Доступно').($bookingCount?' · броней: '.$bookingCount:''),
+                . ($reason?:'Доступно').($bookingCount?' · резервирований: '.$bookingCount:''),
                 'available' => $reason === '',
                 'disabled' => $reason !== ''
             ];

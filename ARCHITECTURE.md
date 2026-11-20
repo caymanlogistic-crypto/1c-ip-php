@@ -54,7 +54,9 @@ Word-пакеты: GET `/rental/word-form` → `WordPack::plan` / `WordGeneratio
 | /rental/finance-save | FinanceController::save | Сохранение через существующий командный путь |
 | /rental/action | Controller::action | Service::command; затем событие/уведомление |
 | /rental/parties и /rental/party | PartyDirectory::page / card | Контрагенты |
+| /rental/party-reference | PartyReference::lookup | Только чтение учебного справочника в изолированном локальном запуске. Реквизиты вступают в силу после команды party.save |
 | /rental/objects и /rental/object | ObjectDirectory::page / card | Сдаваемые единицы |
+| /rental/object-plan | ObjectDirectory::plan | План объекта после проверки доступа к его карточке или связанному договору |
 | /rental/reservations и /rental/booking-action | BookingController::create / action | Бронь |
 | /rental/documents и /rental/document | AddendumController::listing / card | Документы/ДС |
 | /rental/addendum-form и /rental/addendum-action | AddendumController::editor / action | Создание/команды ДС |

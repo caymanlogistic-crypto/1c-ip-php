@@ -25,6 +25,8 @@ final class WordGenerationData
         $contract=$entity==='contract'?$record:Service::get($db,'contracts',(int)$record['contract_id']);
         if ($entity==='document'&&!hash_equals($record['base_hash'],Evidence::documentBase($db,(int)$contract['id'])))throw new RuntimeException('Исходные условия договора изменились.',409);
         $q=$db->prepare('SELECT * FROM parties WHERE id=?');$q->execute([$contract['party_id']]);$party=$q->fetch()?:throw new RuntimeException('Контрагент не найден.');
+        $partyDetails=DirectoryDetails::read($db,'parties',(int)$party['id']);
+        $partyType=$partyDetails['party_type'] ?? '';
         $org=$db->query('SELECT * FROM organization WHERE id=1')->fetch();
         if ($org['vat']===null)throw new RuntimeException('Укажите НДС нашей организации в реквизитах перед формированием Word.',422);
         if ($record['amount']===null||bccomp($record['amount'],'0',2)<=0)throw new RuntimeException('Нужна подтверждённая сумма договора.',422);
@@ -33,26 +35,52 @@ final class WordGenerationData
         if (array_filter($terms,static fn($t)=>$t['target_kind']!=='physical-object'))throw new RuntimeException('Эти исходники предназначены для физических помещений и машино-мест. Для иного предмета нужен соответствующий шаблон.',422);
         $q=$db->prepare('SELECT * FROM party_bank_accounts WHERE party_id=? AND operational=1 ORDER BY id LIMIT 1');$q->execute([$party['id']]);$bank=$q->fetch()?:[];
         $area='0.0000';$areaKnown=true;$numbers=[];$floors=[];$cadastres=[];
+        $buildingNumbers=[];$rights=[];$rightDates=[];
+        $ordinal=new \NumberFormatter('ru_RU',\NumberFormatter::SPELLOUT);
+        $ordinal->setTextAttribute(\NumberFormatter::DEFAULT_RULESET,'%spellout-ordinal-masculine-prepositional');
+        $q=$db->prepare('SELECT c.id,c.number FROM rental_objects o JOIN cadastre c ON c.id=o.cadastre_id WHERE o.id=?');
         foreach ($terms as $term) {
             if ($term['amount']===null||bccomp($term['amount'],'0',2)<=0)throw new RuntimeException('Нужна подтверждённая цена каждого помещения.',422);
             $numbers[]=$term['name'];if ($term['area']===null)$areaKnown=false;else $area=bcadd($area,$term['area'],4);
             if ($term['floor']!==null&&trim($term['floor'])!=='')$floors[]=$term['floor'];
-            $q=$db->prepare('SELECT c.number FROM rental_objects o JOIN cadastre c ON c.id=o.cadastre_id WHERE o.id=?');$q->execute([$term['object_id']]);$number=$q->fetchColumn();if($number)$cadastres[]=$number;
+            $object=DirectoryDetails::read($db,'rental_objects',(int)$term['object_id']);
+            $buildingNumbers[]=$object['building_room_number'] ?? '';
+            $q->execute([$term['object_id']]);
+            if ($cadastre=$q->fetch()) {
+                $cadastres[]=$cadastre['number'];
+                $recordDetails=DirectoryDetails::read($db,'cadastre',(int)$cadastre['id']);
+                $rights[]=$recordDetails['ownership_record'] ?? '';
+                $rightDates[]=empty($recordDetails['ownership_date'])?'':self::dateWords($recordDetails['ownership_date']);
+            }
         }
+        $knownList=static fn(array $items): string=>in_array('',$items,true)?'':implode(', ',array_unique($items));
+        $floorWords=array_map(static fn(string $floor): string=>preg_match('/^[1-9]\d{0,2}$/D',$floor)
+            ? (string)$ordinal->format((int)$floor) : '',$floors);
         $values=['number'=>(string)$contract['number'],'date'=>$contract['document_date']?Documents::dateText($contract['document_date']):'',
             'date_words'=>$contract['document_date']?self::dateWords($contract['document_date']):'',
             'end_date_words'=>$record['end_date']?self::dateWords($record['end_date']):'',
             'party_full_name'=>$party['name'],'party_short_name'=>$party['name'],'party_address'=>$party['address']??'',
             'party_postal_address'=>$party['postal_address']??'', 'party_email'=>$party['email']??'',
-            'party_inn'=>$party['inn']??'','party_kpp'=>$party['kpp']??'','party_ogrn'=>$party['ogrn']??'',
+            'party_inn'=>$party['inn']??'','party_kpp'=>in_array($partyType,['','company'],true)?($party['kpp']??''):'',
+            'party_ogrn'=>match($partyType) {
+                'company'=>$partyDetails['ogrn']??'', 'entrepreneur'=>$partyDetails['ogrnip']??'', default=>'',
+            },
+            'party_signer_title'=>$partyDetails['signer_position'] ?? '',
+            'party_authority'=>$partyDetails['signer_basis'] ?? '',
             'party_bank_line'=>!empty($bank['account'])&&!empty($bank['bank'])?$bank['account'].' в '.$bank['bank']:'',
             'party_correspondent'=>$bank['correspondent_account']??'','party_bik'=>$bank['bik']??'',
             'area'=>$areaKnown?rtrim(rtrim($area,'0'),'.'):'','room_numbers'=>implode(', ',array_unique($numbers)),
             'floor'=>implode(', ',array_unique($floors)),'cadastre_numbers'=>implode(', ',array_unique($cadastres)),
+            'floor_words'=>count($floors)===count($terms)?$knownList($floorWords):'',
+            'building_room_numbers'=>$knownList($buildingNumbers),
+            'ownership_record'=>count($rights)===count($terms)?$knownList($rights):'',
+            'ownership_date_words'=>count($rightDates)===count($terms)?$knownList($rightDates):'',
             'vat'=>rtrim(rtrim(bcadd((string)$org['vat'],'0',4),'0'),'.'),
             'service_start_words'=>$record['start_date']?self::dateWords($record['start_date']):'',
             'service_end_words'=>$record['end_date']?self::dateWords($record['end_date']):'',
             'addendum_date_words'=>$entity==='document'&&$record['document_date']?self::dateWords($record['document_date']):''];
+        if (preg_match('/^(\S+)\s+(\S)\S*(?:\s+(\S)\S*)?$/u',$partyDetails['signer'] ?? '',$signer))
+            $values['party_signer_short']=$signer[1].' '.$signer[2].'.'.(isset($signer[3])?$signer[3].'.':'');
         if (!empty($party['postal_same_as_legal'])&&$values['party_address']!=='')$values['party_postal_address']=$values['party_address'];
         $values+=self::moneyFields($record['amount'],(string)$org['vat'],'rent');
         $orgBank=$db->query('SELECT * FROM organization_bank_accounts WHERE organization_id=1 AND is_primary=1 ORDER BY id LIMIT 1')->fetch()?:[];

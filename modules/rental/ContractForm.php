@@ -21,7 +21,7 @@ final class ContractForm {
         $draft = ContractDraft::input($c);
         if ($draft !== null) foreach (['party_id','document_date','start_date','end_date'] as $field) $c[$field]=$draft[$field] ?? '';
         $booking = !$c && !empty($_GET['booking_id'])?BookingController::record((int)$_GET['booking_id']):null;
-        if ($booking && ($booking['status'] !== 'active' || $booking['contract_id'] !== null || $booking['until_date']<date('Y-m-d')))throw new RuntimeException('Бронь уже изменена или истекла.', 409);
+        if ($booking && ($booking['status'] !== 'active' || $booking['contract_id'] !== null || $booking['until_date']<date('Y-m-d')))throw new RuntimeException('Резервирование уже изменено или истекло.', 409);
         $start = $c['start_date'] ?? $booking['start_date'] ?? '';
         $end = $c['end_date'] ?? '';
         // Undated drafts show today's availability only as a picker preview.
@@ -36,21 +36,23 @@ final class ContractForm {
             $number = (string)($max+1);
         }
         $options = '<option value="">Выберите контрагента</option>';
-        foreach (Controller::query('SELECT id,name,inn FROM parties WHERE blocked=0 ORDER BY name') as $party)$options.='<option value="'
+        foreach (Controller::query("SELECT p.id,p.name,p.inn,NULLIF(JSON_UNQUOTE(JSON_EXTRACT(d.fact_json,'$.search_name')),'') search_name "
+            ."FROM parties p LEFT JOIN rental_facts d ON d.namespace='directory_parties' AND d.source_key=CAST(p.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AND d.operative=1 "
+            ."WHERE p.blocked=0 ORDER BY COALESCE(search_name,p.name)") as $party)$options.='<option value="'
         . $party['id']
         . '" data-name="'
-        . View::e($party['name'])
+        . View::e($party['search_name'] ?: $party['name'])
         . '" data-description="'
         . View::e($party['inn']?'ИНН: '
         . $party['inn']:'')
         . '" data-search="'
-        . View::e($party['name']
+        . View::e(($party['search_name'] ?? '').' '.$party['name']
         . ' '
         . $party['inn'])
         . '"'
         . ((int)($c['party_id'] ?? $booking['party_id'] ?? 0) === (int)$party['id']?' selected':'')
         . '>'
-        . View::e($party['name'])
+        . View::e($party['search_name'] ?: $party['name'])
         . '</option>';
         $selected = [
         ];
@@ -79,7 +81,7 @@ final class ContractForm {
         $section = static fn(string $key): string => $design!=='' ? ' data-design-key="'.$key.'"' : '';
         $field = static fn(string $key, string $html): string => $design!=='' ? '<div data-design-key="'.$key.'">'.$html.'</div>' : $html;
         $fields = $booking?'<span class="registry-ui-modal-help">'
-        . View::e(($booking['client_name']?'Бронь: '
+        . View::e(($booking['client_name']?'Резервирование: '
         . $booking['client_name']
         . '. ':'')
         . 'Выберите или создайте карточку клиента.')

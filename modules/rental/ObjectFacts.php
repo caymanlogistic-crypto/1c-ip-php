@@ -63,12 +63,15 @@ final class ObjectFacts
             .'FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN parties p ON p.id=c.party_id '
             .'LEFT JOIN contract_terms t ON t.id=(SELECT MAX(t2.id) FROM contract_terms t2 WHERE t2.contract_id=c.id AND t2.object_id=co.object_id AND (t2.effective_date IS NULL OR t2.effective_date<=?)) '
             .'WHERE '.ContractOccupancy::physicalPredicate('co')." AND co.object_id=? AND c.status IN ('active','reconciling') ORDER BY c.id DESC LIMIT 1",[$today,$object['id']])[0] ?? null);
-        if ($free) $lease=null;
+        if ($free || !$eligible) $lease=null;
         if ($lease && $lease['status']==='reconciling') $status='Финальная сверка договора '.$lease['number'].'; возврат ещё не завершён';
         $bookings=$read ? $read->bookings((int)$object['id']) : Controller::query('SELECT r.id,r.until_date,r.comment,COALESCE(NULLIF(r.client_name,\'\'),p.name) client_name '
             .'FROM reservations r LEFT JOIN parties p ON p.id=r.party_id WHERE '.Occupancy::reservationPredicate('r')
             ." AND r.object_id=? AND r.status='active' AND r.until_date>=? ORDER BY r.id DESC",[$object['id'],$today]);
+        if (!$eligible) $bookings=[];
         $booking=$bookings[0] ?? null;
+        $id=(int)$object['id'];
+        $work=$eligible?($read?$read->work($id):(ObjectReadModel::pendingWork($id)[$id] ?? [])):[];
         $days=self::idleDays($object,$free,$today);
         if ($read) $previous=$read->previous((int)$object['id']);
         else {
@@ -81,7 +84,7 @@ final class ObjectFacts
         $idleUnknown=self::reviewedUnknownHistory($object,$free,$days,$previous);
         $severity=''; $recent=null;
         if ($eligible) $severity=self::idleSeverity($days);
-        if ($eligible && !$free && $booking && str_contains($status,'бронир')) $severity='blue';
+        if ($eligible && !$free && $booking && $status==='Резервирование') $severity='blue';
         if ($eligible && !$free && $lease && $lease['status']==='active' && !$booking && ($lease['term_start'] ?? $today)<=$today) {
             $event=$read ? $read->event((int)$lease['id']) : (Controller::query("SELECT DATE(MIN(created_at)) at FROM rental_events WHERE contract_id=? AND id>? AND action IN ('contract.sign','contract.activated')",[$lease['id'],ZeroPoint::eventFloor(\App\DB::pdo())])[0]['at'] ?? null);
             foreach (($read ? $read->applied((int)$lease['id']) : Controller::query("SELECT DATE(a.created_at) at,a.after_json FROM audit_log a JOIN rental_documents d ON d.id=a.entity_id WHERE a.action='document.objects-applied' AND a.entity_type='document' AND d.contract_id=? AND d.applied=1 AND d.status='signed'",[$lease['id']])) as $applied) {
@@ -117,7 +120,7 @@ final class ObjectFacts
                 }
             }
         }
-        return compact('eligible','free','status','lease','document','booking','bookings','days','previous','severity','recent','deadline','idleUnknown');
+        return compact('eligible','free','status','lease','document','booking','bookings','days','previous','severity','recent','deadline','idleUnknown','work');
     }
 
     public static function reviewedUnknownHistory(array $object,bool $free,?int $days,?string $previous): ?string

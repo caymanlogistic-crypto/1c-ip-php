@@ -51,6 +51,10 @@ final class ExtraService {
             ];
             if ($table === 'parties') {
                 $fields=DirectoryRules::party($in,$old);
+                $partyDetails=DirectoryRules::partyDetails($in,$old?DirectoryDetails::read($p,'parties',$id):[]);
+                $type=$partyDetails['party_type'] ?? '';
+                if ($type==='company' && !empty($fields['kpp']) && !preg_match('/^\d{9}$/D',$fields['kpp']))
+                    throw new RuntimeException('КПП должен содержать 9 цифр.',422);
                 if ($fields['inn']!=='') {
                     // Lock the identity range in the command transaction, including concurrent inserts.
                     $q=$p->query('SELECT id,inn,blocked FROM parties ORDER BY id FOR UPDATE');
@@ -60,7 +64,11 @@ final class ExtraService {
                         if(!$old || preg_replace('/\D/','',(string)$old['inn'])!==$fields['inn'])throw new RuntimeException('Контрагент с ИНН '.$fields['inn'].' уже существует. Выберите существующую карточку.',422);
                     }
                 }
-                if (!$old || array_intersect(['bank','account','bik','correspondent_account'],array_keys($in))) {
+                $keys=['bank','account','bik','correspondent_account'];
+                $bankInput=array_intersect_key($in,array_flip($keys));
+                if (($old || $type==='person') && !array_filter($bankInput,static fn($value)=>trim((string)$value)!=='')) {
+                    $in=array_diff_key($in,$bankInput);
+                } elseif (!$old || $bankInput) {
                     $in=array_replace($in,DirectoryRules::bank($in));
                 }
             }
@@ -154,6 +162,25 @@ final class ExtraService {
                 . implode(',', array_fill(0, count($fields), '?'))
                 . ')')->execute(array_values($fields));
             }
+            if ($table==='parties' && $partyDetails) DirectoryDetails::store($p,$table,$id,$partyDetails);
+            if ($table==='cadastre' && (array_key_exists('ownership_record',$in) || array_key_exists('ownership_date',$in))) {
+                $details=DirectoryDetails::read($p,$table,$id);
+                foreach (['ownership_record','ownership_date'] as $field) {
+                    if (array_key_exists($field,$in)) $details[$field]=DirectoryDetails::text($in,$field,150);
+                }
+                if (empty($details['ownership_record'])!==empty($details['ownership_date']))
+                    throw new RuntimeException('Укажите номер и дату записи ЕГРН вместе.',422);
+                if (!empty($details['ownership_date'])) Service::date($details['ownership_date']);
+                DirectoryDetails::store($p,$table,$id,$details);
+            }
+            if ($table==='rental_objects') {
+                if (array_key_exists('building_room_number',$in)) {
+                    $details=DirectoryDetails::read($p,$table,$id);
+                    $details['building_room_number']=DirectoryDetails::text($in,'building_room_number',150);
+                    DirectoryDetails::store($p,$table,$id,$details);
+                }
+                if (isset($in['object_plan'])) DirectoryDetails::store($p,'object_plan',$id,$in['object_plan']);
+            }
             if ($table === 'rental_objects' && !$old)$p->prepare('INSERT INTO rental_object_periods(object_id,active,started_on,reason) VALUES(?,?,CURRENT_DATE,?)')->execute([
                 $id,
                 $fields['active'],
@@ -200,26 +227,27 @@ final class ExtraService {
             $old = $id?Service::get($p, 'reservations', $id):null;
             if ($old) {
                 Service::version($old, $in);
-                if ($old['document_id'] !== null)throw new RuntimeException('Бронь допсоглашения меняется через само ДС.');
+                if ($old['document_id'] !== null)throw new RuntimeException('Резервирование по допсоглашению меняется через само ДС.');
             }
             if ($action === 'reservation.cancel') {
-                if (!$old || $old['status'] !== 'active')throw new RuntimeException('Бронь неактивна.');
+                if (!$old || !CustomerBookings::openForDecision($old)) throw new RuntimeException('Резервирование уже завершено.');
                 $p->prepare("UPDATE reservations SET status='cancelled',version=version+1 WHERE id=?")->execute([
                     $id
                 ]);
             }
             elseif($action === 'reservation.extend') {
-                if (!$old || $old['status'] !== 'active')throw new RuntimeException('Бронь неактивна.');
+                if (!$old || !CustomerBookings::openForDecision($old)) throw new RuntimeException('Резервирование уже завершено.');
                 $until = Service::date($in['until_date'] ?? '');
-                if ($until<date('Y-m-d'))throw new RuntimeException('Укажите будущую дату.');
-                $p->prepare('UPDATE reservations SET until_date=?,version=version+1 WHERE id=?')->execute([
+                if ($until<date('Y-m-d') || $until<=$old['until_date'])throw new RuntimeException('Укажите новую дату окончания резервирования.');
+                $start=max(date('Y-m-d'),$old['start_date']);
+                Service::available($p,[(int)$old['object_id']],$start,$start,null,null,false,null,true);
+                $p->prepare("UPDATE reservations SET until_date=?,status='active',version=version+1 WHERE id=?")->execute([
                     $until,
                     $id
                 ]);
             }
             elseif($action === 'reservation.create') {
-                if (trim((string)($in['client_name'] ?? '')) === '' && empty($in['party_id']))throw new RuntimeException('Укажите клиента для брони.',422);
-                if (trim((string)($in['comment'] ?? '')) === '')throw new RuntimeException('Укажите описание брони.');
+                if (trim((string)($in['client_name'] ?? '')) === '' && empty($in['party_id']))throw new RuntimeException('Укажите предварительное имя клиента.',422);
                 $oid = (int)($in['object_id'] ?? 0);
                 $party = !empty($in['party_id'])?(int)$in['party_id']:null;
                 if ($party) {
@@ -228,7 +256,7 @@ final class ExtraService {
                 }
                 $start = Service::date($in['start_date'] ?? date('Y-m-d'));
                 $until = Service::date($in['until_date'] ?? '');
-                if ($until<date('Y-m-d'))throw new RuntimeException('Бронь уже истекла.');
+                if ($until<date('Y-m-d'))throw new RuntimeException('Срок резервирования уже истёк.');
                 Service::available($p, [
                     $oid
                 ], $start, $start, null, null, false, null, true);
@@ -244,12 +272,12 @@ final class ExtraService {
                     $in['comment'] ?? ''
                 ]);
             }
-            else throw new RuntimeException('Неизвестное действие брони.');
-            Service::event($p, $u, $action, 'Изменена бронь #'
+            else throw new RuntimeException('Неизвестное действие резервирования.');
+            Service::event($p, $u, $action, 'Изменено резервирование #'
             . $id);
             return [
                 'id' => $id,
-                'message' => $action === 'reservation.cancel'?'Бронь снята.':'Бронь сохранена.'
+                'message' => $action === 'reservation.cancel'?'Резервирование снято.':'Резервирование сохранено.'
             ];
         }
         if (str_starts_with($action, 'template.')) return TemplateService::execute($p,$u,$action,$in);

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Modules\Rental;
 
-use App\{Auth,PagePolicy,View};
+use App\{Auth,DB,PagePolicy,View};
 use RuntimeException;
 
 final class CadastreDirectory
@@ -63,10 +63,13 @@ final class CadastreDirectory
     public static function card(): string
     {
         $row=self::record((int)($_GET['id'] ?? 0));
+        $details=DirectoryDetails::read(DB::pdo(),'cadastre',(int)$row['id']);
         $allocation=Controller::query('SELECT SUM(area) area FROM rental_objects WHERE cadastre_id=?',[$row['id']])[0]['area'] ?? '0';
         $remaining=$row['area']===null?'Площадь не указана':DirectoryUi::area(bcsub($row['area'],$allocation,4));
         $body=DirectoryUi::pairs([
             ['Объект',$row['number']],['Тип',$row['type']],['Этаж',$row['floor']],['Кадастровая площадь, м²',DirectoryUi::area($row['area'])],
+            ['Номер записи ЕГРН',$details['ownership_record'] ?? '—'],
+            ['Дата записи ЕГРН',empty($details['ownership_date'])?'—':Documents::dateText($details['ownership_date'])],
             ['Доступность',DirectoryScope::cadastreAvailable($row)?'Доступен для сдачи':'Недоступен для сдачи'],
             ['Выделено под объекты аренды, м²',DirectoryUi::area($allocation)],['Осталось выделить, м²',$remaining],
         ]);
@@ -77,6 +80,7 @@ final class CadastreDirectory
     {
         Access::pages(['cadastre'],2); Auth::requirePermission('rental.write'); Service::roles(['manager']);
         $id=(int)($_GET['id'] ?? 0); $row=$id?self::record($id,2):[];
+        $details=$id?DirectoryDetails::read(DB::pdo(),'cadastre',$id):[];
         $types=['Офис','Машиноместо','Коридор','Техническое помещение'];
         if (!empty($row['type']) && !in_array($row['type'],$types,true)) array_unshift($types,$row['type']);
         $body='<div data-rental-cadastre-editor'.(!$row?' data-rental-new-cadastre':'').'>'
@@ -85,6 +89,9 @@ final class CadastreDirectory
             .'<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
             .DirectoryUi::input('floor','Этаж',$row['floor'] ?? '','text',true)
             .DirectoryUi::input('area','Кадастровая площадь, м²',$row['area'] ?? '','number',true).'</div>'
+            .'<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
+            .DirectoryUi::input('ownership_record','Номер записи ЕГРН',$details['ownership_record'] ?? '')
+            .DirectoryUi::input('ownership_date','Дата записи ЕГРН',$details['ownership_date'] ?? '','date').'</div>'
             .DirectoryUi::select('rentable','Доступность для сдачи',['1'=>'Доступен для сдачи','0'=>'Недоступен для сдачи'],$row?(int)DirectoryScope::cadastreAvailable($row):1).'</div>';
         [$form,$actions]=DirectoryUi::form('cadastre.save',$row,$body);
         return RentalUI::modal($row?'Редактировать объект':'Добавить кадастровый объект',$form,$actions,'cadastre');

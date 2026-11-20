@@ -19,7 +19,7 @@ $check(ObjectFacts::idleDays(['free_since'=>null],true,$today)===null,'Missing d
 $check(ObjectFacts::idleDays(['free_since'=>date('Y-m-d',strtotime('+1 day'))],true,$today)===null,'Future date');
 $check(ObjectFacts::idleDays(['free_since'=>'2000-01-01'],false,$today)===null,'Occupied object');
 $check(str_contains(Menu::badges([0,0,1,1],true,'objects'),'Недавно сданы: 1'),'Menu green label');
-$check(str_contains(DirectoryUi::counts([0,0,1,1],'objects'),'Брони: 1'),'Tab blue label');
+$check(str_contains(DirectoryUi::counts([0,0,1,1],'objects'),'Резервирование: 1'),'Tab blue label');
 
 $session=$_SESSION ?? [];
 $get=$_GET;

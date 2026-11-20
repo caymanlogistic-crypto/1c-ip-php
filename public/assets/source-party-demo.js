@@ -16,6 +16,7 @@
     const weights=[2,4,10,3,5,9,4,6,8];
     const inn=base+(weights.reduce((sum,w,i)=>sum+w*Number(base[i]),0)%11%10);
     const values={
+      party_type:variant,
       name:'ДЕМО · ООО «Пример аренды '+suffix+'»',inn,
       address:'ДЕМО: г. Примерск, ул. Образцовая, д. 1, офис 10',
       postal_address:'ДЕМО: г. Примерск, ул. Образцовая, д. 1, офис 10',
