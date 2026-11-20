@@ -39,9 +39,11 @@
       fields.hidden = fields.dataset.partyTypeFields !== type.value;
       for (const input of fields.querySelectorAll('input')) input.disabled = fields.hidden;
     }
-    for (const input of form.querySelectorAll('[data-party-bank] input')) {
-      input.required = type.value !== 'person';
-    }
+    const bank = form.querySelector('[data-party-bank]');
+    if (!bank) return;
+    const required = type.value !== 'person' && bank.dataset.bankRequired === '1';
+    for (const input of bank.querySelectorAll('input')) input.required = required;
+    for (const mark of bank.querySelectorAll('.req')) mark.hidden = !required;
   }
 
   const referenceLabels = {

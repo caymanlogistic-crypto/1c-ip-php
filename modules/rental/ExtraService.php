@@ -66,7 +66,7 @@ final class ExtraService {
                 }
                 $keys=['bank','account','bik','correspondent_account'];
                 $bankInput=array_intersect_key($in,array_flip($keys));
-                if ($type==='person' && !array_filter($bankInput,static fn($value)=>trim((string)$value)!=='')) {
+                if (($old || $type==='person') && !array_filter($bankInput,static fn($value)=>trim((string)$value)!=='')) {
                     $in=array_diff_key($in,$bankInput);
                 } elseif (!$old || $bankInput) {
                     $in=array_replace($in,DirectoryRules::bank($in));

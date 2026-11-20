@@ -118,14 +118,22 @@ final class PartyDirectory
     {
         $party=self::record((int)($_GET['id'] ?? 0));
         $details=DirectoryDetails::read(DB::pdo(),'parties',(int)$party['id']);
+        $type=$details['party_type'] ?? '';
+        $requisites=match($type) {
+            'company'=>[['КПП',$party['kpp']],['ОГРН',$details['ogrn'] ?? '']],
+            'entrepreneur'=>[['ОГРНИП',$details['ogrnip'] ?? '']],
+            'person'=>[['Почта для чека',$details['receipt_email'] ?? '']],
+            default=>[],
+        };
+        if ($type==='person' && in_array(Auth::user()['role'],['manager','lawyer','admin'],true))
+            $requisites[]=['Паспортные сведения',$details['passport'] ?? ''];
         $origin=PartyOrigin::read($party);
         $body=$party['blocked']?RentalUI::alert('Контрагент заблокирован',$party['block_reason'] ?? '','error'):'';
         $body.=DirectoryUi::pairs([
-            ['Тип клиента',DirectoryRules::PARTY_TYPES[$details['party_type'] ?? ''] ?? '—'],
+            ['Тип клиента',DirectoryRules::PARTY_TYPES[$type] ?? '—'],
             ['Название для поиска',($details['search_name'] ?? '') ?: $party['name']],['Название в документах',$party['name']],
             ['Источник',$origin['label']],['ID в базе',$origin['local_id']],['Код 1С',$origin['code'] ?: '—'],['GUID 1С',$origin['guid'] ?: '—'],['ИНН',$party['inn']],['Адрес',$party['address']],
-            ['КПП',$party['kpp']],['ОГРН',$details['ogrn'] ?? ''],['ОГРНИП',$details['ogrnip'] ?? ''],
-            ['Почта для чека',$details['receipt_email'] ?? ''],
+            ...$requisites,
             ['Почтовый адрес',$party['postal_address'] ?: 'Не указан'],['Основной контакт',$party['contact']],['Телефон',$party['phone']],
             ['Должность',$details['contact_position'] ?? ''],['Роль контакта',$details['contact_role'] ?? ''],
             ['Электронная почта',$party['email']],['Получает документацию',self::selected($party['document_recipient'])?'Да':'Нет'],
@@ -197,7 +205,7 @@ final class PartyDirectory
             .DirectoryUi::input('signer','ФИО подписанта',$details['signer'] ?? '')
             .'<div class="registry-ui-form-row">'.DirectoryUi::input('signer_position','Должность подписанта',$details['signer_position'] ?? '')
             .DirectoryUi::input('signer_basis','Основание полномочий',$details['signer_basis'] ?? '').'</div></section>'
-            .'<section class="registry-ui-form-section" data-party-bank data-bank-prefix="" aria-labelledby="party-bank-title"><h3 class="registry-ui-modal-summary" id="party-bank-title">Банковские реквизиты</h3>'
+            .'<section class="registry-ui-form-section" data-party-bank data-bank-required="'.(!$id || $bank?'1':'0').'" data-bank-prefix="" aria-labelledby="party-bank-title"><h3 class="registry-ui-modal-summary" id="party-bank-title">Банковские реквизиты</h3>'
             .'<div class="registry-ui-form-row registry-ui-form-row--wide-code">'
             .DirectoryUi::input('bank','Наименование банка',$bankValue('bank'),'text',true)
             .DirectoryUi::input('bik','БИК',$bankValue('bik'),'text',true).'</div>'
