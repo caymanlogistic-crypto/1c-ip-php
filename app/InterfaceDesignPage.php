@@ -12,17 +12,32 @@ final class InterfaceDesignPage
         $method = $_SERVER['REQUEST_METHOD'];
         header('Cache-Control: private, no-store');
         if ($method === 'POST') {
-            if ((int)($_SERVER['CONTENT_LENGTH']??0)>16384) throw new RuntimeException('Компоновка слишком велика.',413);
+            if ((int)($_SERVER['CONTENT_LENGTH']??0)>65536) throw new RuntimeException('Компоновка слишком велика.',413);
+            $id = (string)($_POST['id']??'');
+            $action = (string)($_POST['action']??'');
+            $document = $_POST['layout']??'null';
+            if (!is_string($document)) throw new RuntimeException('Некорректная компоновка.',422);
+            if (strlen($document)>16384) throw new RuntimeException('Компоновка слишком велика.',413);
             $revision = filter_var($_POST['revision']??null,FILTER_VALIDATE_INT);
             if ($revision===false || $revision<0) throw new RuntimeException('Укажите версию компоновки.',400);
             try {
-                $layout = json_decode((string)($_POST['layout']??'null'),true,16,JSON_THROW_ON_ERROR);
+                $layout = json_decode($document,true,16,JSON_THROW_ON_ERROR);
             } catch (\JsonException) {
                 throw new RuntimeException('Некорректная компоновка.',422);
             }
-            Http::json(InterfaceDesignStore::change((string)($_POST['id']??''),$revision,(string)($_POST['action']??''),$layout));
+            if ($action==='import-preview') {
+                $state=InterfaceDesignStore::readAtRevision($id,$revision);
+                Http::json(['layout'=>InterfaceDesign::importLayout($id,$layout),'hasDraft'=>$state['draft']!==null]);
+            }
+            Http::json(InterfaceDesignStore::change($id,$revision,$action,$layout,($_POST['replace_draft']??null)==='1'));
         }
         if ($method!=='GET') throw new RuntimeException('Метод не поддерживается.',405);
+        if (isset($_GET['export'])) {
+            $id = (string)$_GET['export'];
+            $document = InterfaceDesign::exportLayout($id,InterfaceDesignStore::read($id));
+            header('Content-Disposition: attachment; filename="planex-'.$id.'.json"');
+            Http::json($document);
+        }
         if (isset($_GET['backup'])) {
             $screens = [];
             foreach (InterfaceDesign::SCREENS as $id=>$_) $screens[$id]=InterfaceDesignStore::read($id);

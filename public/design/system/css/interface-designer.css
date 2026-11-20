@@ -89,3 +89,14 @@
   cursor: nwse-resize;
   color: var(--p-accent);
 }
+
+.interface-designer-file {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 6px;
+}
+.interface-designer-file input[type="file"] { max-width: min(225px, 100%); font: inherit; }
+.interface-designer-review { min-width: 0; overflow-wrap: anywhere; }
+.interface-designer-review ul { margin: 4px 0 8px; padding-inline-start: 20px; }
+[data-design-saving] [data-design-handle-host] { pointer-events: none; }

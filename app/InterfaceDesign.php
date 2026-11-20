@@ -53,6 +53,20 @@ final class InterfaceDesign
         return array_map(static fn($key)=>['key'=>$key,'width'=>$width],array_keys($labels));
     }
 
+    public static function exportLayout(string $id, array $state): array
+    {
+        return ['schema'=>1,'screen'=>$id,'layout'=>self::normalize($id,$state['applied'] ?? self::defaults($id))];
+    }
+
+    public static function importLayout(string $id, mixed $document): array
+    {
+        if (!is_array($document) || count($document)!==3 || ($document['schema']??null)!==1) {
+            throw new RuntimeException('Версия файла компоновки не поддерживается.',422);
+        }
+        if (($document['screen']??null)!==$id) throw new RuntimeException('Файл предназначен для другого экрана.',422);
+        return self::normalize($id,$document['layout']??null);
+    }
+
     public static function normalize(string $id, mixed $input): array
     {
         $result = self::defaults($id);

@@ -22,7 +22,14 @@ final class InterfaceDesignStore
         return $state;
     }
 
-    public static function change(string $id, int $revision, string $action, mixed $layout=null): array
+    public static function readAtRevision(string $id, int $revision): array
+    {
+        $state = self::read($id);
+        if ($state['revision']!==$revision) throw new RuntimeException('Компоновка изменилась. Откройте экран заново.',409);
+        return $state;
+    }
+
+    public static function change(string $id, int $revision, string $action, mixed $layout=null, bool $replaceDraft=false): array
     {
         $path = self::path($id);
         $directory = dirname($path);
@@ -31,11 +38,16 @@ final class InterfaceDesignStore
         if (!$lock) throw new RuntimeException('Interface design lock unavailable.');
         try {
             if (!flock($lock,LOCK_EX)) throw new RuntimeException('Interface design lock unavailable.');
-            $state = self::read($id);
-            if ($state['revision']!==$revision) throw new RuntimeException('Компоновка изменилась. Откройте экран заново.',409);
+            $state = self::readAtRevision($id,$revision);
             switch ($action) {
                 case 'draft':
                     $state['draft'] = InterfaceDesign::normalize($id,$layout);
+                    break;
+                case 'import-draft':
+                    if ($state['draft']!==null && !$replaceDraft) {
+                        throw new RuntimeException('У экрана уже есть черновик. Подтвердите его замену.',409);
+                    }
+                    $state['draft'] = InterfaceDesign::importLayout($id,$layout);
                     break;
                 case 'apply':
                     if ($state['draft']===null) throw new RuntimeException('Сначала сохраните черновик.',409);

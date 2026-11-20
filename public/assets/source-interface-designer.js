@@ -2,6 +2,38 @@
 (() => {
   const mounted = new WeakSet();
   const editing = new Map();
+  const shortcuts = new WeakMap();
+  const groupLabels = {columns:'Колонки',sections:'Секции',fields:'Поля',actions:'Кнопки'};
+  const windowLabels = {width:'Ширина окна',height:'Высота окна',x:'По горизонтали',y:'По вертикали'};
+  const endpoint = '/administration/interface-designer';
+
+  function differences(before, after, labels) {
+    const result = [];
+    const change = (name, from, to) => {
+      if (from !== to) result.push(name + ': ' + from + ' → ' + to);
+    };
+    for (const [key, caption] of Object.entries(windowLabels)) {
+      if (!before.window) break;
+      const display = value => value === 0 && ['width','height'].includes(key) ? 'Авто' : value + ' px';
+      change(caption, display(before.window[key]), display(after.window[key]));
+    }
+    for (const [group, caption] of Object.entries(groupLabels)) {
+      if (!before[group]) continue;
+      const original = new Map(before[group].map(item => [item.key,item]));
+      const title = key => labels?.[group]?.[key] || original.get(key).label;
+      const oldKeys = before[group].map(item => item.key);
+      const newKeys = after[group].map(item => item.key);
+      if (oldKeys.join() !== newKeys.join()) change(caption + ' · порядок', oldKeys.map(title).join(' / '), newKeys.map(title).join(' / '));
+      for (const item of after[group]) {
+        const was = original.get(item.key);
+        const name = title(item.key);
+        if (group==='columns') change(name + ' · заголовок', was.label, item.label);
+        const display = value => !value ? 'Авто' : value + (['sections','fields'].includes(group) ? ' из 12' : ' px');
+        change(name + ' · ширина', display(was.width), display(item.width));
+      }
+    }
+    return result;
+  }
   const clamp = (value, min, max) => Math.min(max, Math.max(min, Math.round(value)));
   const element = (tag, text, className) => {
     const node = document.createElement(tag);
@@ -110,10 +142,14 @@
       node.setPointerCapture(event.pointerId);
       const origin = start(event);
       const update = e => move(origin, e.clientX - event.clientX, e.clientY - event.clientY);
+      let cancelled = false;
+      const cancel = () => { cancelled = true; };
       const stop = () => {
         node.removeEventListener('pointermove', update);
-        end?.();
+        node.removeEventListener('pointercancel', cancel);
+        end?.(cancelled);
       };
+      node.addEventListener('pointercancel', cancel);
       node.addEventListener('pointermove', update);
       node.addEventListener('lostpointercapture', stop, {once:true});
     });
@@ -132,11 +168,11 @@
     if (!isTable) {
       const fit = () => geometry(root, (session?.layout || config.applied).window);
       root.addEventListener('design:geometry', fit);
-
     }
     if (!config.csrf && !config.demo) return;
     let dragging = null;
     let busy = false;
+    let undoButton, redoButton;
     const pane = element('div', '', 'interface-designer');
     const commands = element('div', '', 'interface-designer-controls');
     const controls = element('div', '', 'interface-designer-controls');
@@ -152,50 +188,194 @@
       paint(current());
       if (focus !== document.activeElement && root.contains(focus)) focus.focus({preventScroll:true});
     }
-    async function save(action) {
+    async function request(action, layout = null, replaceDraft = false) {
+      const body = new URLSearchParams({_csrf:config.csrf,id:config.id,revision:config.revision,action});
+      if (layout !== null) body.set('layout', JSON.stringify(layout));
+      if (replaceDraft) body.set('replace_draft','1');
+      const response = await fetch(endpoint, {method:'POST',body});
+      if (!response.ok) {
+        const error = new DOMParser().parseFromString(await response.text(),'text/html').querySelector('[role="alert"]');
+        throw new Error(error?.textContent || 'Не удалось обработать компоновку.');
+      }
+      if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Сеанс завершён. Войдите снова.');
+      return response.json();
+    }
+    async function run(task) {
       if (busy) return;
       busy = true;
-      commands.querySelectorAll('button').forEach(node => { node.disabled = true; });
+      pane.inert = true;
+      root.toggleAttribute('data-design-saving',true);
       try {
-        let state;
-        if (config.demo) {
-          state = {applied:config.applied,draft:config.draft,previous:config.previous};
-          if (action === 'draft') state.draft = structuredClone(session.layout);
-          if (action === 'apply') [state.applied,state.previous,state.draft] = [state.draft,state.applied,null];
-          if (action === 'restore') [state.applied,state.previous] = [state.previous,state.applied];
-        } else {
-          const body = new URLSearchParams({_csrf:config.csrf,id:config.id,revision:config.revision,action});
-          if (action === 'draft') body.set('layout', JSON.stringify(session.layout));
-          const response = await fetch('/administration/interface-designer', {method:'POST',body});
-          if (!response.ok) {
-            const error = new DOMParser().parseFromString(await response.text(),'text/html').querySelector('[role="alert"]');
-            throw new Error(error?.textContent || 'Не удалось сохранить компоновку.');
-          }
-          state = await response.json();
-        }
-        config = {...config,...state,applied:state.applied || config.applied};
-        if (action !== 'draft') {
-          session = null;
-          editing.delete(config.id);
-        } else session.saved = true;
-        status.textContent = {draft:'Черновик сохранён.',apply:'Компоновка применена для всех ролей.',restore:'Предыдущая версия восстановлена.'}[action];
+        await task();
       } catch (error) {
         status.textContent = error.message;
       } finally {
         busy = false;
+        pane.inert = false;
+        root.removeAttribute('data-design-saving');
         render();
       }
     }
-    function changed(rebuild = false) {
-      session.saved = false;
-      status.textContent = 'Есть несохранённые изменения.';
+    function endSession() {
+      session = null;
+      editing.delete(config.id);
+    }
+    function startSession(layout, details = {}) {
+      session = {layout:structuredClone(layout),preview:false,selected:{},undo:[],redo:[],...details};
+      editing.set(config.id, session);
+    }
+    function saved() {
+      return config.draft && differences(config.draft,session.layout,config.labels).length===0;
+    }
+    function save(action) {
+      const importDraft = action === 'import-draft';
+      const isDraft = importDraft || action === 'draft';
+      run(async () => {
+        let state;
+        if (config.demo) {
+          state = {applied:config.applied,draft:config.draft,previous:config.previous};
+          if (isDraft) state.draft = structuredClone(session.layout);
+          if (action === 'apply') [state.applied,state.previous,state.draft] = [state.draft,state.applied,null];
+          if (action === 'restore') [state.applied,state.previous] = [state.previous,state.applied];
+        } else {
+          const layout = importDraft ? session.imported : isDraft ? session.layout : null;
+          state = await request(action,layout,importDraft && session.replaceDraft);
+        }
+        config = {...config,...state,applied:state.applied || config.applied};
+        if (!isDraft) endSession();
+        else if (importDraft) startSession(state.draft,{preview:true});
+        status.textContent = isDraft ? 'Черновик сохранён.' :
+          action === 'apply' ? 'Компоновка применена для всех ролей.' : 'Предыдущая версия восстановлена.';
+      });
+    }
+    function historyControls() {
+      if (!undoButton) return;
+      undoButton.disabled = !session.undo.length;
+      redoButton.disabled = !session.redo.length;
+    }
+    function noteEdit(before, rebuild = false) {
+      if (differences(before,session.layout,config.labels).length) {
+        session.undo.push(before);
+        session.redo.length = 0;
+        status.textContent = saved() ? 'Открыт сохранённый черновик.' : 'Есть несохранённые изменения.';
+      }
       if (rebuild) render();
-      else previewPaint();
+      else {
+        previewPaint();
+        historyControls();
+      }
+    }
+    function traverseHistory(redo) {
+      if (!session || session.imported || busy) return;
+      const source = redo ? session.redo : session.undo;
+      const target = redo ? session.undo : session.redo;
+      if (!source.length) return;
+      target.push(session.layout);
+      session.layout = source.pop();
+      status.textContent = redo ? 'Изменение повторено.' : 'Изменение отменено.';
+      render();
+      const control = redo ? redoButton : undoButton;
+      (control.disabled ? (redo ? undoButton : redoButton) : control).focus({preventScroll:true});
+    }
+    shortcuts.set(root,traverseHistory);
+
+    function draftImport(file) {
+      run(async () => {
+        if (file.size>16384) throw new Error('Файл компоновки слишком велик.');
+        let document;
+        try { document = JSON.parse(await file.text()); }
+        catch { throw new Error('Файл должен содержать корректный JSON.'); }
+        let result;
+        if (config.demo) {
+          if (document?.schema!==1 || document.screen!==config.id) throw new Error('Файл предназначен для другого примера или версии.');
+          for (const [key, value] of Object.entries(config.applied)) {
+            const incoming = document.layout?.[key];
+            if (Array.isArray(value)) {
+              const keys = incoming?.map?.(item => item?.key).sort().join();
+              if (keys!==value.map(item => item.key).sort().join()
+                  || incoming.some(item => !Number.isInteger(item.width) || (key==='columns' && typeof item.label!=='string'))) {
+                throw new Error('Проверьте состав компоновки.');
+              }
+            } else if (!Object.keys(value).every(field => Number.isInteger(incoming?.[field]))) {
+              throw new Error('Проверьте размеры окна.');
+            }
+          }
+          result = {layout:document.layout,hasDraft:Boolean(config.draft)};
+        } else result = await request('import-preview',document);
+        startSession(result.layout,{preview:true,imported:document,hasDraft:result.hasDraft,replaceDraft:false});
+        status.textContent = '';
+      });
+    }
+    function exportLink() {
+      if (config.demo) {
+        return button('Экспорт применённого дизайна',() => {
+          const bytes = JSON.stringify({schema:1,screen:config.id,layout:config.applied},null,2);
+          const url = URL.createObjectURL(new Blob([bytes],{type:'application/json'}));
+          const download = element('a');
+          download.href = url;
+          download.download = 'planex-'+config.id+'.json';
+          download.click();
+          setTimeout(() => URL.revokeObjectURL(url),1000);
+        });
+      }
+      const link = element('a','Экспорт применённого дизайна','btn btn-secondary');
+      link.href = endpoint+'?export='+encodeURIComponent(config.id);
+      return link;
+    }
+    function fileInput() {
+      const label = element('label','Загрузить JSON','interface-designer-file');
+      const file = element('input');
+      file.type = 'file';
+      file.accept = '.json,application/json';
+      file.addEventListener('change',() => {
+        if (file.files[0]) draftImport(file.files[0]);
+      });
+      label.append(file);
+      return label;
+    }
+    function importReview() {
+      const changes = differences(config.applied,session.layout,config.labels);
+      const review = element('div','','interface-designer-review');
+      review.append(element('strong',changes.length ? 'Отличия от применённого дизайна' : 'Отличий от применённого дизайна нет.'));
+      if (changes.length) {
+        const list = element('ul');
+        changes.forEach(change => list.append(element('li',change)));
+        review.append(list);
+      }
+      if (session.hasDraft) {
+        const label = element('label','Заменить существующий черновик при сохранении','registry-ui-checkbox');
+        const replace = element('input');
+        replace.type = 'checkbox';
+        replace.checked = session.replaceDraft;
+        const confirm = commands.querySelector('[data-design-import-save]');
+        confirm.disabled = !replace.checked;
+        replace.addEventListener('change',() => {
+          session.replaceDraft = replace.checked;
+          confirm.disabled = !replace.checked;
+        });
+        label.prepend(replace);
+        review.append(label);
+      }
+      controls.append(review);
+    }
+    function pointerEdit(node, start, update) {
+      let before;
+      dragPointer(node,() => {
+        before = structuredClone(session.layout);
+        return start();
+      },(origin,dx,dy) => {
+        update(origin,dx,dy);
+        previewPaint();
+      },cancelled => {
+        if (cancelled) session.layout = before;
+        noteEdit(before,true);
+      });
     }
     function move(list, from, to) {
       if (from === to || to < 0 || to >= list.length) return;
+      const before = structuredClone(session.layout);
       list.splice(to,0,list.splice(from,1)[0]);
-      changed(true);
+      noteEdit(before,true);
     }
     function number(label, value, min, max, onChange) {
       const host = element('label', label, 'interface-designer-number');
@@ -203,8 +383,9 @@
       Object.assign(input,{type:'number',value,min,max});
       input.addEventListener('change',() => {
         const result = clamp(input.valueAsNumber || 0,min,max);
+        const before = structuredClone(session.layout);
         input.value = onChange(result);
-        changed();
+        noteEdit(before);
       });
       host.append(input);
       return host;
@@ -231,11 +412,12 @@
         title.maxLength = 80;
         title.setAttribute('aria-label','Заголовок колонки');
         title.addEventListener('change',() => {
+          const before = structuredClone(session.layout);
           const label = title.value.trim();
           if (label) item.label = label;
           title.value = item.label;
           selected.selectedOptions[0].textContent = item.label;
-          changed();
+          noteEdit(before);
         });
         row.append(title);
       }
@@ -290,11 +472,10 @@
           dragHandle(host,'columns',key);
           const edge = element('span','','interface-designer-column-edge');
           edge.title = 'Потяните границу колонки';
-          dragPointer(edge,() => th.getBoundingClientRect().width,(width,dx) => {
-            item.width = clamp(width+dx,48,1000);
+          pointerEdit(edge,() => ({pixels:th.getBoundingClientRect().width,width:item.width}),(origin,dx) => {
+            item.width = dx ? clamp(origin.pixels+dx,48,1000) : origin.width;
             session.selected.columns = key;
-            changed();
-          },render);
+          });
           host.append(edge);
           th.append(host);
         }
@@ -317,38 +498,57 @@
       const size = element('span','◢','interface-designer-window-size');
       size.dataset.designHandleHost = '';
       size.title = 'Изменить размер окна';
-      dragPointer(grip,() => ({x:parseFloat(root.style.getPropertyValue('--design-x'))||0,y:parseFloat(root.style.getPropertyValue('--design-y'))||0}),(origin,dx,dy) => {
-        Object.assign(session.layout.window,{x:clamp(origin.x+dx,-1600,1600),y:clamp(origin.y+dy,-1200,1200)});
-        changed();
-      },render);
-      dragPointer(size,() => ({width:root.offsetWidth,height:root.offsetHeight}),(origin,dx,dy) => {
-        Object.assign(session.layout.window,{width:clamp(origin.width+dx,320,1600),height:clamp(origin.height+dy,280,1200)});
-        changed();
-      },render);
+      pointerEdit(grip,() => ({
+        settings:{...session.layout.window},
+        x:parseFloat(root.style.getPropertyValue('--design-x'))||0,
+        y:parseFloat(root.style.getPropertyValue('--design-y'))||0
+      }),(origin,dx,dy) => {
+        Object.assign(session.layout.window,{
+          x:dx ? clamp(origin.x+dx,-1600,1600) : origin.settings.x,
+          y:dy ? clamp(origin.y+dy,-1200,1200) : origin.settings.y
+        });
+      });
+      pointerEdit(size,() => ({settings:{...session.layout.window},width:root.offsetWidth,height:root.offsetHeight}),(origin,dx,dy) => {
+        Object.assign(session.layout.window,{
+          width:dx ? clamp(origin.width+dx,320,1600) : origin.settings.width,
+          height:dy ? clamp(origin.height+dy,280,1200) : origin.settings.height
+        });
+      });
       head.insertBefore(grip,head.lastElementChild);
       root.append(size);
     }
     function render() {
       commands.replaceChildren();
       controls.replaceChildren();
+      undoButton = redoButton = null;
+      const exit = button('Выйти из редактора',() => { endSession(); status.textContent=''; render(); });
       const open = () => {
-        session = {layout:structuredClone(config.draft || config.applied),preview:false,selected:{},saved:Boolean(config.draft)};
-        editing.set(config.id, session);
+        startSession(config.draft || config.applied);
         status.textContent = config.draft ? 'Открыт сохранённый черновик.' : '';
         render();
       };
       if (!session) {
-        commands.append(button(config.draft?'Открыть черновик дизайна':'Редактировать дизайн',open));
+        commands.append(button(config.draft?'Открыть черновик дизайна':'Редактировать дизайн',open),exportLink(),fileInput());
         if (config.previous) commands.append(button('Вернуть предыдущую версию',() => save('restore')));
+      } else if (session.imported) {
+        const confirm = button('Сохранить черновик дизайна',() => save('import-draft'),true);
+        confirm.dataset.designImportSave = '';
+        commands.append(confirm,exit);
+        importReview();
       } else {
-        commands.append(
+        undoButton = button('Отменить изменение',() => traverseHistory(false));
+        redoButton = button('Повторить изменение',() => traverseHistory(true));
+        undoButton.setAttribute('aria-keyshortcuts','Control+Z');
+        redoButton.setAttribute('aria-keyshortcuts','Control+Shift+Z');
+        historyControls();
+        commands.append(undoButton,redoButton,
           button(session.preview?'К редактированию':'Предпросмотр',() => { session.preview=!session.preview; render(); }),
           button('Сохранить черновик дизайна',() => save('draft')),
           button('Применить для всех ролей',() => {
-            if (!session.saved) { status.textContent='Сначала сохраните черновик дизайна.'; return; }
+            if (!saved()) { status.textContent='Сначала сохраните черновик дизайна.'; return; }
             save('apply');
           },true),
-          button('Выйти из редактора',() => { editing.delete(config.id); session=null; status.textContent=''; render(); })
+          exit
         );
         if (!session.preview) {
           if (isTable) itemEditor('columns',null,0,1000);
@@ -377,6 +577,18 @@
     if (root.matches?.('[data-interface-design]')) mountRoot(root);
     for (const node of root.querySelectorAll('[data-interface-design]')) mountRoot(node);
   }
+  document.addEventListener('keydown', event => {
+    if (event.defaultPrevented || !event.ctrlKey || event.altKey || event.metaKey
+        || (event.code!=='KeyZ' && event.key.toLowerCase()!=='z')
+        || event.target.closest?.('input,textarea,select,[contenteditable]')) return;
+    const dialog = document.querySelector('dialog[open]');
+    const root = dialog || event.target.closest?.('[data-interface-design]')
+      || [...document.querySelectorAll('[data-interface-design]')].find(node => node.querySelector('[aria-keyshortcuts]'));
+    const shortcut = shortcuts.get(root);
+    if (!shortcut || !root.querySelector('[aria-keyshortcuts]')) return;
+    event.preventDefault();
+    shortcut(event.shiftKey);
+  });
   window.addEventListener('resize', () => {
     for (const dialog of document.querySelectorAll('dialog[open][data-interface-design]')) {
       dialog.dispatchEvent(new Event('design:geometry'));
