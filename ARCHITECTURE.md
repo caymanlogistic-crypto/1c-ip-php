@@ -67,6 +67,9 @@ OriginalDocuments выбирает исходник владельца или у
 | /rental/approvals | ApprovalRegistry::page | Реестр согласований |
 | /rental/action-form?action=contract.legal | SourceCards::action → LegalReview | Проверка условий/актуального файла; POST /rental/action → Service::command; повторное согласование после возврата B→L |
 | /rental/action-form?action=contract.return-act | SourceCards::action → ReturnAct | Загрузка через Documents::upload. Подтверждение через Service::command сверяет ID показанного файла, версию договора и данные сверки. Квитанция в audit_log связывает акт с закрытием и ссылкой в карточке |
+| /rental/acts, /rental/object-inventory | PremisesActsCard, PremisesInventoryCard | Менеджер указывает согласованное количество и подтверждает акты допуска и передачи через Service::command. Documents загружает подписанные файлы и фотографии в rental_files. В подтверждении возврата ReturnAct сохраняются прежние проверки файла, подписи и сверки |
+
+Текущая опись хранится по объектам. Снимок акта в `rental_facts` закрепляет объект на дату акта, поля описи и SHA-256 файлов. Перемещение меняет текущий объект позиции. После применения ДС история актов читается по договору и сохраняет прежние помещения. Для нового акта проверяется текущая связь с объектом. Скачать фото из истории можно по правам договора и принадлежности файла подписанному снимку. Для текущей описи действуют права раздела объектов. Подтверждение допуска, передачи и сохранение описи не меняют начисления, первый счёт или занятость.
 | /rental/contracts-active и /rental/contracts-completed | LeaseRegistry::page | Действующие/завершённые договоры |
 | /rental/operations и /rental/operation-action | OperationsRegistry::page / OperationActionController::action | Операции и их обработка |
 | /rental/generate, /rental/download, /rental/upload | Documents::generate / download / upload | Генерация и файлы |

@@ -178,6 +178,7 @@ final class ObjectDirectory
                 .Controller::table(['Дата','Действие','Кто изменил'],array_map(static fn($row)=>array_map(View::e(...),$row),$history),['code','text','text']);
         }
         $actions=self::editable()?RentalUI::button('Редактировать','/rental/edit-object?id='.$object['id']):'';
+        if (!PremisesActs::parking($object)) $actions.=RentalUI::button('Опись имущества','/rental/object-inventory?id='.$object['id']);
         if (self::editable() && $facts['eligible'] && PagePolicy::level('rental.contracts',Auth::user())>=2) $actions.=RentalUI::button('Резервирование','/rental/reservations?object_id='.$object['id'],true);
         return RentalUI::modal('Объект аренды '.$object['name'],$body,$actions,'objects');
     }

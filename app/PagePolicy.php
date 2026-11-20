@@ -137,6 +137,7 @@ final class PagePolicy {
         if (str_starts_with($action, 'cadastre.'))return 'rental.cadastre';
         if (str_starts_with($action, 'template.'))return 'rental.templates';
         if (in_array($action, \Modules\Rental\HandoverQuestion::ACTIONS, true))return 'rental.contracts-active';
+        if (in_array($action, [\Modules\Rental\PremisesActs::COUNT,\Modules\Rental\PremisesActs::CONFIRM], true))return 'rental.contracts-active';
         if ((str_starts_with($action, 'closing.') || str_starts_with($action, 'reconcile.')) || in_array($action, [
             'contract.reconcile',
             'contract.close',
@@ -249,6 +250,7 @@ final class PagePolicy {
                 'cadastre-card' => 'cadastre',
                 'edit-object' => 'objects',
                 'object' => 'objects',
+                'object-inventory' => 'objects',
                 'operation' => 'operations',
                 'operation-action' => 'operations',
                 'operation-manual' => 'operations',
@@ -282,6 +284,7 @@ final class PagePolicy {
             }
             elseif(in_array($route, [
                 'contract',
+                'acts',
                 'conditions',
                 'history',
                 'documents',

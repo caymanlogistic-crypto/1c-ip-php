@@ -22,6 +22,14 @@ final class RentalUI
         return '<div class="form-alert alert-'.$tone.'" role="'.($tone==='error'?'alert':'status').'"><span class="alert-mark" aria-hidden="true">'.($tone==='error'?'×':($tone==='warning'?'!':'i')).'</span><div class="alert-body"><div class="alert-body-title">'.View::e($title).'</div>'.($sub?'<div class="alert-body-sub">'.View::e($sub).'</div>':'').'</div></div>';
     }
 
+    public static function notice(): string
+    {
+        if (!isset($_SESSION['rental_notice'])) return '';
+        $message=(string)$_SESSION['rental_notice'];
+        unset($_SESSION['rental_notice']);
+        return self::alert($message);
+    }
+
     public static function modal(string $title,string $body,string $actions='',string $active='contracts',bool $wide=false,string $leadingActions='',string $closeLabel='Закрыть',bool $extractForms=true,bool $canvas=false,bool $tableOnly=false, string $design=""):string
     {
         if ($actions==='' && $extractForms)

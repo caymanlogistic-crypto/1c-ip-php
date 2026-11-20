@@ -46,8 +46,17 @@ final class Access
         return $q->fetch() ?: throw new RuntimeException('Документ не найден.',404);
     }
     public static function finance(int $level=1):void{self::pages(['invoices','invoice-list'],$level);}
-    public static function file(array $f):void
+    public static function file(array $f,int $contractId=0):void
     {
+        if ($f['entity_type']==='object' && $f['kind']===PremisesInventory::PHOTO) {
+            if ($contractId) {
+                self::contract($contractId);
+                if (!PremisesActs::includesPhoto(DB::pdo(),$contractId,$f)) {
+                    throw new RuntimeException('Фотография не относится к подписанной описи этого договора.',404);
+                }
+            } else self::pages(['objects']);
+            return;
+        }
         Auth::requirePermission('rental.read');$id=(int)$f['entity_id'];$p=DB::pdo();switch($f['entity_type']){case 'contract':self::contract($id);return;case 'document':$q=$p->prepare('SELECT contract_id FROM rental_documents WHERE id=?');$q->execute([$id]);$contract=$q->fetchColumn();if(!$contract)throw new RuntimeException('Документ не найден.',404);self::document($id);return;case 'invoice':self::finance();$q=$p->prepare('SELECT contract_id FROM invoices WHERE id=?');$q->execute([$id]);$contract=$q->fetchColumn();if(!$contract)throw new RuntimeException('Счёт не найден.',404);return;case 'payment':self::finance();$q=$p->prepare('SELECT DISTINCT i.contract_id FROM payment_allocations a JOIN invoices i ON i.id=a.invoice_id WHERE a.payment_id=?');$q->execute([$id]);$contracts=$q->fetchAll(\PDO::FETCH_COLUMN);if(!$contracts){Auth::requirePermission('finance.write');Service::roles(['accountant']);return;}return;case 'template':self::pages(['templates']);Service::roles(['lawyer','director']);return;case 'party':self::pages(['parties']);return;default:throw new RuntimeException('Неизвестный контекст файла.',403);}
     }
 }
