@@ -87,11 +87,13 @@ final class SourceCards {
             unset($_SESSION['rental_notice']);
         }
         if ($c['status'] === 'returned')$body.=RentalUI::alert(Controller::status($c['status']), $c['reason'] ?? '', 'error');
+        $actState = null;
         if (in_array($c['status'], [
             'reconciling',
             'ended',
             'closed'
         ], true)) {
+            $actState = ReturnAct::state(\App\DB::pdo(), $c);
             $body.=RentalUI::pairs([
                 [
                     'Причина завершения',
@@ -123,14 +125,14 @@ final class SourceCards {
             ] as $r)$check[] = [
                 View::e($r[0]),
                 View::e($r[1]),
-                $c[$r[2]]?'Подтверждено':'Ожидается подтверждение'
+                ($r[2]==='return_confirmed'?$actState['confirmed']:$c[$r[2]])?'Подтверждено':'Ожидается подтверждение'
             ];
             $body.='<span class="registry-ui-modal-summary">Условия завершения</span>'
             . Controller::table([
                 'Участник',
                 'Проверка',
                 'Состояние'
-            ], $check);
+            ], $check).ReturnAct::summary($actState);
         }
         $body.=RentalUI::pairs($pairs);
         $add = function(string $label, string $action, bool $primary = false)use(&$actions, $id) {
@@ -164,7 +166,7 @@ final class SourceCards {
                 . $id, true);
                 $add('Завершение договора', 'contract.reconcile');
             }
-            if ($c['status'] === 'reconciling')$add('Загрузить акт возврата', 'contract.return-act', true);
+            if ($c['status'] === 'reconciling' && !$actState['confirmed'])$add('Акт возврата', 'contract.return-act', true);
             if ($managed && in_array($c['status'], [
                 'returned',
                 'legal',
@@ -308,6 +310,7 @@ final class SourceCards {
             'reconcile.legal' => 'Претензий нет'
         ];
         $title = $allowed[$action] ?? throw new RuntimeException('Действие не найдено.', 404);
+        if ($action === 'contract.return-act') return ReturnAct::form($c);
         $legalFile=null;
         if ($action==='contract.legal') {
             Service::roles(['lawyer']);
@@ -363,13 +366,9 @@ final class SourceCards {
                 . (TemplateAssets::contractKind(\App\DB::pdo(),$c)==='office'?RentalUI::button('Word: смена номера помещения','/rental/word-form?id='.$id.'&version='.$c['version'].'&mode=room-change'):'');
             }
         }
-        if (in_array($action, [
-            'contract.sign',
-            'contract.return-act'
-        ], true)) {
+        if ($action === 'contract.sign') {
             $fields.='<label class="registry-ui-checkbox"><input type="checkbox" name="both_signed" value="1" required><span>Подписано обеими сторонами</span></label>';
-            $extra = AuxController::uploadForm($c, $action === 'contract.sign'?'signed-contract':'signed-return-act', 'Подписанный файл');
-            if ($action === 'contract.return-act')$fields.=Controller::input('return_date', 'Дата возврата', $c['finish_date'] ?? date('Y-m-d'), 'date', true);
+            $extra = AuxController::uploadForm($c, 'signed-contract', 'Подписанный файл');
         }
         if (in_array($action, [
             'reconcile.finance',
