@@ -1147,6 +1147,11 @@ final class Controller {
             . (int)($in['id'] ?? 0), str_starts_with($action, 'party.') => '/rental/parties', str_starts_with($action, 'object.') => '/rental/objects', str_starts_with($action, 'cadastre.') => '/rental/cadastre', str_starts_with($action, 'organization.') => '/rental/organization', str_starts_with($action, 'reservation.') => '/rental/reservations', str_starts_with($action, 'template.') => '/rental/templates', default => '/rental/invoices'
         };
         try {
+            unset($in['object_plan']);
+            if ($action==='object.save') {
+                $plan=ObjectPlan::upload($_FILES['object_plan'] ?? null);
+                if ($plan!==null) $in['object_plan']=$plan;
+            }
             $freshCommittedEventId=null;
             $result = Service::command($action, $in, $freshCommittedEventId);
             $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''));

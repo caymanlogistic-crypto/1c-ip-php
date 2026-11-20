@@ -33,12 +33,27 @@ final class WordGenerationData
         if (array_filter($terms,static fn($t)=>$t['target_kind']!=='physical-object'))throw new RuntimeException('Эти исходники предназначены для физических помещений и машино-мест. Для иного предмета нужен соответствующий шаблон.',422);
         $q=$db->prepare('SELECT * FROM party_bank_accounts WHERE party_id=? AND operational=1 ORDER BY id LIMIT 1');$q->execute([$party['id']]);$bank=$q->fetch()?:[];
         $area='0.0000';$areaKnown=true;$numbers=[];$floors=[];$cadastres=[];
+        $buildingNumbers=[];$rights=[];$rightDates=[];
+        $ordinal=new \NumberFormatter('ru_RU',\NumberFormatter::SPELLOUT);
+        $ordinal->setTextAttribute(\NumberFormatter::DEFAULT_RULESET,'%spellout-ordinal-masculine-prepositional');
+        $q=$db->prepare('SELECT c.id,c.number FROM rental_objects o JOIN cadastre c ON c.id=o.cadastre_id WHERE o.id=?');
         foreach ($terms as $term) {
             if ($term['amount']===null||bccomp($term['amount'],'0',2)<=0)throw new RuntimeException('Нужна подтверждённая цена каждого помещения.',422);
             $numbers[]=$term['name'];if ($term['area']===null)$areaKnown=false;else $area=bcadd($area,$term['area'],4);
             if ($term['floor']!==null&&trim($term['floor'])!=='')$floors[]=$term['floor'];
-            $q=$db->prepare('SELECT c.number FROM rental_objects o JOIN cadastre c ON c.id=o.cadastre_id WHERE o.id=?');$q->execute([$term['object_id']]);$number=$q->fetchColumn();if($number)$cadastres[]=$number;
+            $object=DirectoryDetails::read($db,'rental_objects',(int)$term['object_id']);
+            $buildingNumbers[]=$object['building_room_number'] ?? '';
+            $q->execute([$term['object_id']]);
+            if ($cadastre=$q->fetch()) {
+                $cadastres[]=$cadastre['number'];
+                $recordDetails=DirectoryDetails::read($db,'cadastre',(int)$cadastre['id']);
+                $rights[]=$recordDetails['ownership_record'] ?? '';
+                $rightDates[]=empty($recordDetails['ownership_date'])?'':self::dateWords($recordDetails['ownership_date']);
+            }
         }
+        $knownList=static fn(array $items): string=>in_array('',$items,true)?'':implode(', ',array_unique($items));
+        $floorWords=array_map(static fn(string $floor): string=>preg_match('/^[1-9]\d{0,2}$/D',$floor)
+            ? (string)$ordinal->format((int)$floor) : '',$floors);
         $values=['number'=>(string)$contract['number'],'date'=>$contract['document_date']?Documents::dateText($contract['document_date']):'',
             'date_words'=>$contract['document_date']?self::dateWords($contract['document_date']):'',
             'end_date_words'=>$record['end_date']?self::dateWords($record['end_date']):'',
@@ -49,6 +64,10 @@ final class WordGenerationData
             'party_correspondent'=>$bank['correspondent_account']??'','party_bik'=>$bank['bik']??'',
             'area'=>$areaKnown?rtrim(rtrim($area,'0'),'.'):'','room_numbers'=>implode(', ',array_unique($numbers)),
             'floor'=>implode(', ',array_unique($floors)),'cadastre_numbers'=>implode(', ',array_unique($cadastres)),
+            'floor_words'=>count($floors)===count($terms)?$knownList($floorWords):'',
+            'building_room_numbers'=>$knownList($buildingNumbers),
+            'ownership_record'=>count($rights)===count($terms)?$knownList($rights):'',
+            'ownership_date_words'=>count($rightDates)===count($terms)?$knownList($rightDates):'',
             'vat'=>rtrim(rtrim(bcadd((string)$org['vat'],'0',4),'0'),'.'),
             'service_start_words'=>$record['start_date']?self::dateWords($record['start_date']):'',
             'service_end_words'=>$record['end_date']?self::dateWords($record['end_date']):'',

@@ -150,6 +150,24 @@ final class ExtraService {
                 . implode(',', array_fill(0, count($fields), '?'))
                 . ')')->execute(array_values($fields));
             }
+            if ($table==='cadastre' && (array_key_exists('ownership_record',$in) || array_key_exists('ownership_date',$in))) {
+                $details=DirectoryDetails::read($p,$table,$id);
+                foreach (['ownership_record','ownership_date'] as $field) {
+                    if (array_key_exists($field,$in)) $details[$field]=DirectoryDetails::text($in,$field,150);
+                }
+                if (empty($details['ownership_record'])!==empty($details['ownership_date']))
+                    throw new RuntimeException('Укажите номер и дату записи ЕГРН вместе.',422);
+                if (!empty($details['ownership_date'])) Service::date($details['ownership_date']);
+                DirectoryDetails::store($p,$table,$id,$details);
+            }
+            if ($table==='rental_objects') {
+                if (array_key_exists('building_room_number',$in)) {
+                    $details=DirectoryDetails::read($p,$table,$id);
+                    $details['building_room_number']=DirectoryDetails::text($in,'building_room_number',150);
+                    DirectoryDetails::store($p,$table,$id,$details);
+                }
+                if (isset($in['object_plan'])) DirectoryDetails::store($p,'object_plan',$id,$in['object_plan']);
+            }
             if ($table === 'rental_objects' && !$old)$p->prepare('INSERT INTO rental_object_periods(object_id,active,started_on,reason) VALUES(?,?,CURRENT_DATE,?)')->execute([
                 $id,
                 $fields['active'],

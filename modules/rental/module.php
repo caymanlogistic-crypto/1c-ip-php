@@ -16,6 +16,7 @@ $routes['/rental/cadastre-card']=[\Modules\Rental\CadastreDirectory::class,'card
 $routes['/rental/edit-cadastre']=[\Modules\Rental\CadastreDirectory::class,'editor'];
 $routes['/rental/objects']=[\Modules\Rental\ObjectDirectory::class,'page'];
 $routes['/rental/object']=[\Modules\Rental\ObjectDirectory::class,'card'];
+$routes['/rental/object-plan']=[\Modules\Rental\ObjectDirectory::class,'plan'];
 $routes['/rental/edit-object']=[\Modules\Rental\ObjectDirectory::class,'editor'];
 $routes['/rental/approvals']=[\Modules\Rental\ApprovalRegistry::class,'page'];
 $routes['/rental/summary']=[\Modules\Rental\SummaryRegistry::class,'page'];
