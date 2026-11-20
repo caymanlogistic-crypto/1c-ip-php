@@ -31,6 +31,7 @@ final class ObjectPlan
         header('Content-Type: '.$plan['mime']);
         header('Content-Disposition: inline; filename="'.$plan['name'].'"');
         header('Content-Length: '.strlen($bytes));
+        header('Cache-Control: private, no-store');
         header('X-Content-Type-Options: nosniff');
         echo $bytes;
         exit;
