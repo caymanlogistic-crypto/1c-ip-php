@@ -142,6 +142,7 @@ final class Documents {
         ]:[
             'manager'
         ]);
+        if ($kind === ReturnAct::KIND) \App\PagePolicy::requireCommand('contract.return-act');
         $state['stage']='upload_payload';
         $f = $_FILES['file'] ?? null;
         $state['upload_error']=is_array($f)&&is_int($f['error']??null)?$f['error']:null;
@@ -151,17 +152,23 @@ final class Documents {
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document'=>'docx',
             'application/msword'=>'doc',default=>'other'};
         if (!$f || $f['error'] !== UPLOAD_ERR_OK || $f['size'] <= 0 || $f['size']>20*1024*1024 || !is_uploaded_file($f['tmp_name']))throw new RuntimeException('Выберите Word или PDF размером до 20 МБ.', 422);
+        $isReturnAct = $kind === ReturnAct::KIND;
         $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
         if (!in_array($ext, [
             'doc',
             'docx',
             'pdf'
-        ], true))throw new RuntimeException('Поддерживаются Word и PDF.');
+        ], true))throw new RuntimeException($isReturnAct?'Поддерживаются файлы PDF, DOC и DOCX.':'Поддерживаются Word и PDF.', $isReturnAct?422:0);
         $head = file_get_contents($f['tmp_name'], false, null, 0, 8);
-        if (($ext === 'pdf' && !str_starts_with($head, '%PDF-')) || ($ext === 'docx' && !str_starts_with($head, 'PK')) || ($ext === 'doc' && !str_starts_with($head, "\xD0\xCF\x11\xE0")))throw new RuntimeException('Формат файла не соответствует расширению.');
+        if (($ext === 'pdf' && !str_starts_with($head, '%PDF-')) || ($ext === 'docx' && !str_starts_with($head, 'PK')) || ($ext === 'doc' && !str_starts_with($head, "\xD0\xCF\x11\xE0")))throw new RuntimeException('Формат файла не соответствует расширению.', $isReturnAct?422:0);
         $state['extension_category']=in_array($ext,['pdf','docx','doc'],true)?$ext:'other';
         $state['stage']='file_validation';
-        self::validateFile($f['tmp_name'], $ext);
+        try {
+            self::validateFile($f['tmp_name'], $ext);
+        } catch (RuntimeException $e) {
+            if (!$isReturnAct) throw $e;
+            throw new RuntimeException($e->getMessage(), 422, $e);
+        }
         $fid = bin2hex(random_bytes(16));
         $state['stage']='target_directory';
         $path = self::directory()
@@ -177,16 +184,26 @@ final class Documents {
                 $state['current_version']=(int)$r['version'];
                 $state['current_status']=in_array($r['status'],['draft','legal','accounting','returned','approved','sent','active','signed','reconciling','closed','cancelled'],true)?$r['status']:'other';
                 $state['stage']='row_version';
-                if ((int)$r['version'] !== $version)throw new RuntimeException('Версия документа изменилась.');
+                if ((int)$r['version'] !== $version) {
+                    if ($kind === ReturnAct::KIND) throw new RuntimeException('Версия документа изменилась. Откройте карточку и повторите загрузку.', 409);
+                    throw new RuntimeException('Версия документа изменилась.');
+                }
                 $state['stage']='row_stage';
                 if (($kind === 'signed-contract' && ($type !== 'contract' || !in_array($r['status'], [
                     'sent',
                     'active'
-                ], true))) || ($kind === 'signed-addendum' && ($type !== 'document' || $r['status'] !== 'sent')) || ($kind === 'signed-return-act' && $type !== 'contract') || ($kind === 'removed-return-act' && ($type !== 'document' || $r['status'] !== 'signed' || !$r['applied'])))throw new RuntimeException('Вид файла не соответствует документу или этапу.');
+                ], true))) || ($kind === 'signed-addendum' && ($type !== 'document' || $r['status'] !== 'sent')) || ($kind === ReturnAct::KIND && $type !== 'contract') || ($kind === 'removed-return-act' && ($type !== 'document' || $r['status'] !== 'signed' || !$r['applied'])))throw new RuntimeException('Вид файла не соответствует документу или этапу.', $kind === ReturnAct::KIND?409:0);
                 if ($kind === 'lawyer-file' && !($r['status'] === 'legal' || ($r['status'] === 'returned' && $r['return_to'] === 'lawyer')))throw new RuntimeException('Работа с файлом не назначена юристу.');
-                if ($kind === 'signed-return-act' && $r['status'] !== 'reconciling')throw new RuntimeException('Договор не на сверке.');
+                if ($kind === ReturnAct::KIND && $r['status'] !== 'reconciling')throw new RuntimeException('Договор не на сверке.', 409);
                 $state['stage']='baseline';
                 $baseline = $type === 'contract'?Evidence::signature($p, $id):null;
+                $filename = mb_substr(basename($f['name']), 0, 250);
+                if ($kind === ReturnAct::KIND) {
+                    $act = ReturnAct::state($p, $r, $baseline);
+                    if ($act['confirmed']) throw new RuntimeException('Акт возврата уже подтверждён.', 409);
+                    if ($act['file'] && $act['file']['filename'] === $filename
+                        && hash_equals($act['file']['sha256'], hash_file('sha256', $f['tmp_name']))) return;
+                }
                 $state['stage']='file_move';
                 $state['move_succeeded']=move_uploaded_file($f['tmp_name'], $path);
                 if (!$state['move_succeeded'])throw new RuntimeException('Файл не сохранён.');
@@ -197,9 +214,7 @@ final class Documents {
                     $id,
                     $version,
                     $kind,
-                    mb_substr(basename($f['name']),
-                    0,
-                    250),
+                    $filename,
                     basename($path),
                     hash_file('sha256',
                     $path),
@@ -230,7 +245,7 @@ final class Documents {
                     'kind' => $kind,
                     'sha256' => hash_file('sha256',
                     $path)
-                ]);
+                ] + ($kind === ReturnAct::KIND ? ['return_act_pending'=>true] : []));
                 $state['stage']='transaction_commit';
             });
         }
@@ -239,6 +254,7 @@ final class Documents {
             throw $e;
         }
         $state['stage']='redirect';
+        if ($kind === ReturnAct::KIND) Http::redirect('/rental/action-form?id='.$id.'&action=contract.return-act');
         Http::redirect('/rental/'
         . ($type === 'contract'?'contract':'document')
         . '?id='
@@ -491,7 +507,7 @@ final class Documents {
         $path = self::directory()
         . '/'
         . basename($r['path']);
-        if (!is_file($path) || hash_file('sha256', $path) !== $r['sha256'])throw new RuntimeException('Проверка целостности файла не пройдена.');
+        if (!is_file($path) || hash_file('sha256', $path) !== $r['sha256'])throw new RuntimeException('Проверка целостности файла не пройдена.', $r['kind'] === ReturnAct::KIND?409:0);
         header('Content-Type: '
         . $r['mime']);
         header('Content-Disposition: attachment; filename="document.'

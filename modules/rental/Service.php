@@ -423,6 +423,7 @@ final class Service {
             $next = $status;
             $return = null;
             $reason = null;
+            $returnAct = null;
             if ($action === 'contract.send') {
                 $intent = Delivery::prepare($p, $u, $c);
                 self::event($p, $u, $action, 'Подготовлена отправка пакета; подтверждение транспорта ещё не получено.', $id);
@@ -578,11 +579,18 @@ final class Service {
                 case 'contract.return-act':self::roles([
                     'manager'
                 ]);
-                if ($status !== 'reconciling')throw new RuntimeException('Договор не на сверке.');
-                if (empty($in['both_signed']))throw new RuntimeException('Подтвердите подписи обеих сторон.');
-                $file = Evidence::latest($p, 'contract', $id, 'signed-return-act');
-                if ($file['baseline_hash'] !== Evidence::signature($p, $id))throw new RuntimeException('Акт возврата относится к прежним данным сверки.');
+                Access::contract($id, 2);
+                if ($status !== 'reconciling')throw new RuntimeException('Договор не на сверке.', 409);
+                if (empty($in['both_signed']))throw new RuntimeException('Подтвердите подписи обеих сторон.', 422);
+                $actState = ReturnAct::state($p, $c);
+                if ($actState['confirmed'])throw new RuntimeException('Акт возврата уже подтверждён.', 409);
+                $file = $actState['file'] ?? throw new RuntimeException($actState['message'], 409);
+                if (($in['file_id'] ?? null) !== $file['id']) {
+                    throw new RuntimeException('Выбранный акт не относится к этому договору или был заменён. Откройте актуальную форму.', 409);
+                }
                 $returnDate = self::date($in['return_date'] ?? '');
+                $returnAct = ['file_id'=>$file['id'], 'version'=>(int)$file['version'], 'sha256'=>$file['sha256'],
+                    'baseline_hash'=>$file['baseline_hash'], 'return_date'=>$returnDate];
                 $p->prepare('UPDATE contracts SET return_confirmed=? WHERE id=?')->execute([
                     $returnDate,
                     $id
@@ -596,7 +604,7 @@ final class Service {
                     $file['id'],
                     $id
                 ]);
-                $next = Evidence::complete($p, $id)?'closed':'reconciling';
+                $next = Evidence::complete($p, $id, $file)?'closed':'reconciling';
                 break;
                 default:throw new RuntimeException('Неизвестная команда договора.');
             }
@@ -618,11 +626,11 @@ final class Service {
             . $reason:''), $id);
             Audit::record($action, 'contract', $id, $c, [
                 'status' => $next
-            ]);
+            ] + ($returnAct === null ? [] : ['return_act'=>$returnAct]));
             return [
                 'id' => $id,
                 'status' => $next,
-                'message' => 'Изменение сохранено.'
+                'message' => $returnAct === null ? 'Изменение сохранено.' : 'Акт возврата подтверждён.'
             ];
         }
         if ($action === 'payment.allocate') {

@@ -60,6 +60,7 @@ Word-пакеты: GET `/rental/word-form` → `WordPack::plan` / `WordGeneratio
 | /rental/addendum-form и /rental/addendum-action | AddendumController::editor / action | Создание/команды ДС |
 | /rental/approvals | ApprovalRegistry::page | Реестр согласований |
 | /rental/action-form?action=contract.legal | SourceCards::action → LegalReview | Проверка условий/актуального файла; POST /rental/action → Service::command; повторное согласование после возврата B→L |
+| /rental/action-form?action=contract.return-act | SourceCards::action → ReturnAct | Загрузка через Documents::upload. Подтверждение через Service::command сверяет ID показанного файла, версию договора и данные сверки. Квитанция в audit_log связывает акт с закрытием и ссылкой в карточке |
 | /rental/contracts-active и /rental/contracts-completed | LeaseRegistry::page | Действующие/завершённые договоры |
 | /rental/operations и /rental/operation-action | OperationsRegistry::page / OperationActionController::action | Операции и их обработка |
 | /rental/generate, /rental/download, /rental/upload | Documents::generate / download / upload | Генерация и файлы |

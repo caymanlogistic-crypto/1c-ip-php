@@ -143,9 +143,11 @@ final class Evidence {
         $query->execute($parameters);
         $files = $query->fetchAll(PDO::FETCH_ASSOC);
         if (!$files) {
+            if ($kind === ReturnAct::KIND) throw new RuntimeException('Сначала загрузите подписанный акт возврата.', 404);
             throw new RuntimeException('Нужен проверенный актуальный файл: '.$kind);
         }
         if (count($files) > 1 && array_filter($files, fn(array $file) => $file['upload_order'] === null)) {
+            if ($kind === ReturnAct::KIND) throw new RuntimeException('Не подтверждён порядок сохранённых актов возврата.', 409);
             throw new RuntimeException('Не подтверждён логический порядок исторических файлов.');
         }
         self::integrity($files[0]);
@@ -173,7 +175,7 @@ final class Evidence {
     public static function initialInvoices(PDO $p, array $c):array {
         return InitialBilling::issue($p, $c);
     }
-    private static function closure(PDO $p, int $id):array {
+    private static function closure(PDO $p, int $id, ?array $newReturnAct = null):array {
         FileOrder::lock($p);
         $c = Service::get($p, 'contracts', $id);
         if (!in_array($c['status'], [
@@ -193,7 +195,8 @@ final class Evidence {
                 throw new RuntimeException('Нужна актуальная проверка: '.$kind);
             }
         }
-        $file = self::latest($p, 'contract', $id, 'signed-return-act');
+        $file = $newReturnAct ?? ReturnAct::confirmed($p, $c);
+        if ($file === null) throw new RuntimeException('Менеджер должен подтвердить подписанный акт возврата.', 409);
         if ($file['baseline_hash'] !== $sig) {
             throw new RuntimeException('Акт возврата относится к прежним данным сверки.');
         }
@@ -226,9 +229,9 @@ final class Evidence {
     public static function finish(PDO $p, int $id):void {
         self::close($p, self::closure($p, $id));
     }
-    public static function complete(PDO $p, int $id):bool {
+    public static function complete(PDO $p, int $id, ?array $newReturnAct = null):bool {
         try {
-            $c = self::closure($p, $id);
+            $c = self::closure($p, $id, $newReturnAct);
         }
         catch (RuntimeException $e) {
             if ($e instanceof \PDOException)throw $e;
