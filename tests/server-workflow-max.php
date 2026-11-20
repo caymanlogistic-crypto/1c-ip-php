@@ -7,6 +7,14 @@ if(Modules\Integrations\CurrentContractMaxProof::select($event)!=='legalApprove'
 $denied=false;try{Modules\Integrations\WorkflowMaxEvent::select($event);}catch(RuntimeException){$denied=true;}if(!$denied)throw new RuntimeException('Legacy rollout guard changed');
 $m=['schema'=>1,'enabled'=>true,'project_id'=>Modules\Rental\WorkflowEvents::PROJECT,'scope'=>'contract-workflow','stand'=>'ui','database'=>'ipphp_ui','revision'=>6,'group_id'=>'d426f2fc-0acb-537b-9139-331fc45a76ce','group_name'=>'ТЕСТОВАЯ','chat_id'=>'-123','vault_sha256'=>str_repeat('a',64),'event_floor'=>1092,'catalog_versions'=>array_fill_keys(['submit','resubmit','legalApprove','lawyerReturn','accountantReturn','package','signed','cancelled'],1)];
 ServerWorkflowMax::validate($m);
+$question = $m + ['handover_question'=>['event_floor'=>1096,'catalog_version'=>1]];
+ServerWorkflowMax::validate($question);
+foreach ([['event_floor'=>1091,'catalog_version'=>1], ['event_floor'=>1096,'catalog_version'=>0]] as $badQuestion) {
+    $denied=false;
+    try { ServerWorkflowMax::validate(array_replace($question,['handover_question'=>$badQuestion])); }
+    catch (RuntimeException) { $denied=true; }
+    if (!$denied) throw new RuntimeException('Invalid question admission accepted');
+}
 foreach([['scope'=>'object-activity'],['database'=>'other'],['stand'=>'other'],['group_name'=>'other'],['enabled'=>false],['catalog_versions'=>['submit'=>1]]] as $bad){
  $denied=false;try{ServerWorkflowMax::validate(array_replace($m,$bad));}catch(RuntimeException){$denied=true;}if(!$denied)throw new RuntimeException('Invalid scope accepted');}
 $raw=Support::json(['text'=>'fixture']);ServerWorkflowMax::assertPath(0,'POST','https://platform-api2.max.ru/messages?chat_id=-123',$raw,'-123','fixture');

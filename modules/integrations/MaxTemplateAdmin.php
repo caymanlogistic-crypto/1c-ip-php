@@ -57,6 +57,9 @@ final class MaxTemplateAdmin
     public static function usage(array $entry): array
     {
         $key=(string)($entry['source_key']??'');
+        if ($key===\Modules\Rental\HandoverQuestion::EVENT) {
+            return ['active'=>true,'text'=>'Вопрос по дате передачи объекта. Отправка зависит от отдельного допуска события и версии шаблона.'];
+        }
         // ServerWorkflowMax::KINDS is the exact list admitted by the current server path.
         if(in_array($key,['submit','resubmit','legalApprove','lawyerReturn','accountantReturn','package','signed','cancelled'],true)) {
             return ['active'=>true,'text'=>'Подключён к событиям договора. Отправка зависит от действующего допуска MAX и версии шаблона.'];

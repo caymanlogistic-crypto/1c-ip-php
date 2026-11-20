@@ -419,6 +419,9 @@ final class Service {
             if(ContractDraft::deleted($c))throw new RuntimeException('Договор не найден.',404);
             self::version($c, $in);
             if($action==='contract.delete'){self::roles(['manager']);return ContractDraft::delete($p,$c,$u,(string)$in['command_key']);}
+            if (in_array($action, HandoverQuestion::ACTIONS, true)) {
+                return HandoverQuestion::execute($p, $u, $action, $c, $in);
+            }
             $status = $c['status'];
             $next = $status;
             $return = null;
