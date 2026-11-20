@@ -9,7 +9,8 @@ final class ApprovalRegistry
     public static function page(): string
     {
         Access::pages(['approvals']);
-        $role=Auth::user()['role'];
+        $actor=Auth::user();
+        $role=$actor['role'];
         $query=isset($_GET['reset'])?'':trim((string)($_GET['q'] ?? ''));
         $filter=isset($_GET['reset'])?'all':(string)($_GET['filter'] ?? 'all');
         $flag=(string)($_GET['flag'] ?? 'all');
@@ -22,11 +23,23 @@ final class ApprovalRegistry
             $contract=Controller::query('SELECT c.*,COALESCE(p.name,\'—\') party_name,p.inn party_inn FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.id=?',[$document['contract_id']])[0] ?? null;
             if ($contract) $entries[]=self::entry('document',$document,$contract,$role,$tasks);
         }
+        foreach (PartyLegalReview::work($actor) as $party) {
+            $entries[]=['kind'=>'party','record'=>$party,'filter'=>'party:'.$party['status'],'view'=>[
+                'stage'=>$party['stage'],'comment'=>$party['comment'],'responsible'=>$party['owner'],
+                'actionNeeded'=>$party['mine'],'cancelled'=>false,'severity'=>$party['mine']?'yellow':'',
+            ]];
+        }
         foreach ($entries as $entry) $stages[$entry['filter']]=$entry['view']['stage'];
         $searched=[];
         foreach ($entries as $entry) {
             if ($filter!=='all' && $filter!==$entry['filter']) continue;
-            $record=$entry['record'];$contract=$entry['contract'];$view=$entry['view'];
+            $record=$entry['record'];$view=$entry['view'];
+            if ($entry['kind']==='party') {
+                if (WorkRegistry::matches($query,['Карточка клиента',$record['name'],$record['inn'],$view['stage'],$view['comment'],\App\People::workflowName($view['responsible'])]))
+                    $searched[]=$entry;
+                continue;
+            }
+            $contract=$entry['contract'];
             if (!WorkRegistry::matches($query,[$entry['kind']==='document'?'ДС':'Договор',$record['number'],$record['document_date'],RegistryState::date($record['document_date']),
                 $contract['number'],$contract['party_name'],$contract['party_inn'],$record['start_date'],$record['end_date'],RegistryState::date($record['start_date']),RegistryState::date($record['end_date']),
                 $entry['objects'],$view['stage'],$view['comment'],$record['amount'],$view['responsible']?\App\People::workflowName($view['responsible']):''])) continue;
@@ -37,8 +50,15 @@ final class ApprovalRegistry
             'cancelled'=>['Аннулированные',count(array_filter($searched,fn($entry)=>$entry['view']['cancelled']))]];
         $rows=[];
         foreach ($searched as $entry) {
-            $record=$entry['record'];$contract=$entry['contract'];$view=$entry['view'];$kind=$entry['kind'];
+            $record=$entry['record'];$view=$entry['view'];$kind=$entry['kind'];
             if ($flag==='mine' && !$view['actionNeeded'] || $flag==='returned' && $record['status']!=='returned' || $flag==='cancelled' && !$view['cancelled']) continue;
+            if ($kind==='party') {
+                $rows[]=['_attrs'=>'class="'.RegistryState::rowClass($view['severity']).'" data-rental-url="/rental/party?id='.(int)$record['id'].'" tabindex="0"',
+                    'Карточка клиента',View::e($record['name']).($record['inn']?'<div class="doc-meta">ИНН '.View::e($record['inn']).'</div>':''),
+                    '—','—','—',View::e($view['stage']),View::e($view['comment']),'—',View::e(\App\People::workflowName($view['responsible']))];
+                continue;
+            }
+            $contract=$entry['contract'];
             $title=$kind==='document'?($record['number']?'ДС №'.$record['number']:'ДС'):$record['number'];
             $comment=($kind==='document'?'<div>К договору №'.View::e($contract['number']).($contract['document_date']?' от '.RegistryState::date($contract['document_date']):'').'</div>':'').View::e($view['comment'] ?: '—');
             $rows[]=['_attrs'=>'class="'.($view['cancelled']?'registry-ui-soft-error':RegistryState::rowClass($view['severity'])).'" data-rental-url="/rental/'.$kind.'?id='.(int)$record['id'].'" tabindex="0"',

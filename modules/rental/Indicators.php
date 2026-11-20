@@ -80,7 +80,10 @@ final class Indicators {
                 catch(\RuntimeException $error){if($error instanceof \PDOException)throw $error;}
                 $legalCalendarRead=true;
             }
-            return LegalSla::evaluate($record,WorkflowEvents::latest(DB::pdo(),$kind,(int)$record['id'],true),$today.' '.$time.(strlen($time)===5?':00':''),$legalCalendar);
+            $db=DB::pdo();$id=(int)$record['id'];
+            $handoff=WorkflowEvents::latest($db,$kind,$id,true);
+            if ($kind==='contract') $handoff=ContractRevision::legalHandoff($db,$id,$handoff);
+            return LegalSla::evaluate($record,$handoff,$today.' '.$time.(strlen($time)===5?':00':''),$legalCalendar);
         };
         $add = function(string $entity, int $id, string $role, string $severity, string $page, string $text, ?int $contract = null, array $metadata=[])use(&$tasks) {
             $tasks[] = [
@@ -99,7 +102,7 @@ final class Indicators {
                 'text' => $text,
                 'contract_id' => $contract,
                 'url' => '/rental/'
-                . match($entity){'invoice'=>'invoice','document'=>'document','object'=>'object','reservation'=>'booking',default=>'contract'}
+                . match($entity){'invoice'=>'invoice','document'=>'document','object'=>'object','reservation'=>'booking','party'=>'party',default=>'contract'}
                 . '?id='
                 . $id
             ]+$metadata;
@@ -223,6 +226,9 @@ final class Indicators {
                 }
                 $add('document',(int)$d['id'],$task['role'],$task['severity'],'approvals',$task['text'],(int)$d['contract_id'],['version'=>(int)$d['version'],'legal_sla'=>$sla]);
             }
+        }
+        if ($allow('approvals') && ($actor=\App\Auth::user())) foreach (PartyLegalReview::work($actor) as $party) {
+            if ($party['mine']) $add('party',(int)$party['id'],$party['owner'],'yellow','approvals',$party['comment']);
         }
         if ($allow('objects')) foreach (ObjectFacts::idleSignals($today,$objects) as $signal) {
             $add('object',$signal['id'],$signal['role'],$signal['severity'],'objects',$signal['text']);

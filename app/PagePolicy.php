@@ -243,6 +243,7 @@ final class PagePolicy {
             }
             $fixed = [
                 'party' => 'parties',
+                'party-review' => 'parties',
                 'edit-party' => 'parties',
                 'edit-cadastre' => 'cadastre',
                 'cadastre-card' => 'cadastre',

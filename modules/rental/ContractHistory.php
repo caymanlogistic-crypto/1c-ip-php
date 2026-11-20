@@ -9,7 +9,7 @@ use RuntimeException;
 
 final class ContractHistory
 {
-    public static function remember(PDO $db, array $contract, array $actor, string $commandKey): void
+    public static function remember(PDO $db, array $contract, array $actor, string $commandKey, array $revision=[]): void
     {
         $objects = $db->prepare(
             'SELECT co.object_id,o.id,o.name,o.type,o.area,o.floor,o.cadastre_id,o.active,o.version,o.source_json,'
@@ -28,6 +28,20 @@ final class ContractHistory
         ];
         $partTerms=\App\BillingPartHistory::snapshot($db,'contract',(int)$contract['id'],(int)$contract['version']);
         if($partTerms!==null)$snapshotData['part_terms']=$partTerms;
+        $legal=$db->prepare("SELECT role,baseline_hash,file_id,actor_id,confirmed_at FROM rental_approvals WHERE entity_type='contract' AND entity_id=?");
+        $legal->execute([$contract['id']]);
+        $decisions=$legal->fetchAll();
+        $accounting=$db->prepare("SELECT b.id,b.record_version,b.actor_id,b.legal_file_id,b.confirmed_at "
+            ."FROM rental_packet_confirmations b JOIN rental_approvals a "
+            ."ON a.entity_type='contract' AND a.entity_id=b.record_id AND a.role='lawyer' "
+            ."AND a.file_id=b.legal_file_id AND a.baseline_hash=b.legal_baseline "
+            ."JOIN rental_files f ON f.id=a.file_id AND f.version=b.file_revision AND f.sha256=b.legal_file_sha256 "
+            ."WHERE b.record_kind='contract' AND b.record_id=? AND b.record_version<=? "
+            ."ORDER BY b.workflow_revision DESC LIMIT 1");
+        $accounting->execute([$contract['id'],$contract['version']]);
+        $confirmation=$accounting->fetch()?:null;
+        if ($decisions || $confirmation || $revision)
+            $snapshotData['review']=['legal'=>$decisions,'accounting'=>$confirmation,'revision'=>$revision];
         $snapshot = Importer::canonicalJson($snapshotData);
         $db->prepare(
             'INSERT INTO rental_contract_versions '
@@ -91,6 +105,18 @@ final class ContractHistory
             ['Дата договора', Documents::dateText($contract['document_date'])],
             ['Месячная аренда с НДС', Controller::money($contract['amount'])],
         ]).Controller::table(['Помещение', 'Начало', 'Окончание', 'Аренда с НДС'], $rows);
+        if (!empty($snapshot['review'])) {
+            $review=$snapshot['review'];
+            $body.='<span class="registry-ui-modal-summary">Решения по прежней редакции</span>';
+            foreach ($review['legal'] as $decision) {
+                $body.=RentalUI::pairs([['Юридическое решение','Согласовано '.$decision['confirmed_at']]])
+                    .'<a class="btn btn-secondary" href="/rental/download?id='.View::e($decision['file_id']).'">Одобренный файл</a>';
+            }
+            if ($review['accounting']) $body.=RentalUI::pairs([
+                ['Проверка бухгалтером','Подтверждено '.$review['accounting']['confirmed_at']],
+                ['Версия пакета',(string)$review['accounting']['record_version']]
+            ]);
+        }
         return RentalUI::modal(
             'Условия договора '.$current['number'].' · версия '.$version,
             $body,

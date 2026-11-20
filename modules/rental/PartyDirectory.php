@@ -89,7 +89,8 @@ final class PartyDirectory
                     .($party['search_name']&&$party['search_name']!==$party['name']?'<span class="registry-ui-secondary">'.View::e($party['name']).'</span>':'')
                     .'<span class="registry-ui-secondary">ИНН: '.View::e($party['inn'] ?: '—').'</span><span class="registry-ui-secondary">'.View::e($party['_origin']['label']).($party['_origin']['code']?' · '.View::e($party['_origin']['code']):'').'</span>'
                     .($party['description']?'<span class="registry-ui-secondary">'.View::e($party['description']).'</span>':'')
-                    .($query!==''?self::contracts((int)$party['id']):''),
+                    .($query!==''?self::contracts((int)$party['id']):'')
+                    .'<div>'.RentalUI::button('Карточка и проверка','/rental/party?id='.(int)$party['id']).'</div>',
                 self::contact($party['contact'],$party['phone'],$party['email'],self::selected($party['document_recipient'])),
                 self::contact($party['additional_contact'],$party['additional_phone'],$party['account_email'],self::selected($party['additional_document_recipient'])),
                 $bank,View::e($party['edo_id'] ?: '—').($party['edo']?'<span class="registry-ui-secondary">'.View::e($party['edo']).'</span>':''),
@@ -148,8 +149,9 @@ final class PartyDirectory
         $body.=Controller::table(['Основной','Банк','Расч. счёт','БИК','Корр. счёт'],$bank?[
             ['Основной',View::e(DirectoryUi::bankName($bank)),View::e($bank['account']),View::e($bank['bik']),View::e($bank['correspondent_account'])],
         ]:[],['short','text','code','code','code']);
-        $body.=self::contracts((int)$party['id']);
+        $body.=PartyLegalReview::presentation($party).self::contracts((int)$party['id']);
         $actions=self::editable($party)?RentalUI::button('Редактировать','/rental/edit-party?id='.$party['id'],true):'';
+        $actions.=PartyLegalReview::actions($party);
         return RentalUI::modal('Контрагент: '.$party['name'],$body,$actions,'parties',false,self::statusButton($party));
     }
 

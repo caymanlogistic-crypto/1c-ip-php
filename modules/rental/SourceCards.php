@@ -78,7 +78,7 @@ final class SourceCards {
             ]
 
         ];
-        $body = '';
+        $body = ContractRevision::presentation($c);
         foreach ($rows as $object) {
             if (empty($object['plan_id'])) continue;
             $body.='<p><a class="btn btn-secondary" href="/rental/object-plan?id='.(int)$object['id'].'&amp;contract_id='.$id
@@ -156,6 +156,7 @@ final class SourceCards {
             'admin',
             'manager'
         ], true)) {
+            if (ContractRevision::available($c)) $add('Пересогласовать договор',ContractRevision::ACTION);
             if(ContractDraft::deletable(\App\DB::pdo(),$c))$add('Удалить черновик','contract.delete');
             if ($managed && in_array($c['status'], [
                 'draft',
@@ -299,6 +300,7 @@ final class SourceCards {
         $c = self::contract($id);
         $action = (string)($_GET['action'] ?? '');
         \App\PagePolicy::requireCommand($action);
+        if ($action===ContractRevision::ACTION) return ContractRevision::form($c);
         if ($action==='contract.send' && $c['status']==='approved' && PacketForm::requiresConfirmation('contract',$id)) $action='contract.packet';
         $allowed = [
             'contract.submit' => 'Отправить на согласование',

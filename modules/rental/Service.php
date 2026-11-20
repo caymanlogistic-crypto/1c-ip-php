@@ -419,6 +419,7 @@ final class Service {
             $c = self::get($p, 'contracts', $id);
             if(ContractDraft::deleted($c))throw new RuntimeException('Договор не найден.',404);
             self::version($c, $in);
+            if ($action===ContractRevision::ACTION) return ContractRevision::submit($p,$u,$c,$in);
             if($action==='contract.delete'){self::roles(['manager']);return ContractDraft::delete($p,$c,$u,(string)$in['command_key']);}
             if (in_array($action, HandoverQuestion::ACTIONS, true)) {
                 return HandoverQuestion::execute($p, $u, $action, $c, $in);
@@ -428,6 +429,7 @@ final class Service {
             $return = null;
             $reason = null;
             $returnAct = null;
+            $legalDecision = null;
             if ($action === 'contract.send') {
                 $intent = Delivery::prepare($p, $u, $c);
                 self::event($p, $u, $action, 'Подготовлена отправка пакета; подтверждение транспорта ещё не получено.', $id);
@@ -460,18 +462,20 @@ final class Service {
                     'lawyer'
                 ]);
                 if (!LegalReview::assigned($c))throw new RuntimeException('Договор не у юриста.');
+                PartyLegalReview::assertCurrent($p,(int)$c['party_id']);
                 if (empty($in['counterparty_confirmed']) || empty($in['financial_confirmed']))throw new RuntimeException('Подтвердите контрагента и финансовые условия.');
                 $legalFile = Evidence::latest($p, 'contract', $id, 'lawyer-file', (int)$c['version']);
                 if (empty($in['document_confirmed']))throw new RuntimeException('Подтвердите проверку актуального файла договора.');
                 if (($in['legal_file_id'] ?? '') !== $legalFile['id'])throw new RuntimeException('Файл договора изменился. Откройте проверку повторно и проверьте актуальный файл.',409);
                 $fileId = $legalFile['id'];
                 $signature = Evidence::approvalSignature($p, $id, $fileId);
-                $p->prepare("INSERT INTO rental_approvals(entity_type,entity_id,role,baseline_hash,file_id,actor_id) VALUES('contract',?,'lawyer',?,?,?) ON DUPLICATE KEY UPDATE baseline_hash=VALUES(baseline_hash),file_id=VALUES(file_id),actor_id=VALUES(actor_id)")->execute([
+                $p->prepare("INSERT INTO rental_approvals(entity_type,entity_id,role,baseline_hash,file_id,actor_id) VALUES('contract',?,'lawyer',?,?,?) ON DUPLICATE KEY UPDATE baseline_hash=VALUES(baseline_hash),file_id=VALUES(file_id),actor_id=VALUES(actor_id),confirmed_at=CURRENT_TIMESTAMP")->execute([
                     $id,
                     $signature,
                     $fileId,
                     $u['id']
                 ]);
+                $legalDecision=['version'=>(int)$c['version'],'file_id'=>$fileId,'file_sha256'=>$legalFile['sha256'],'baseline_hash'=>$signature];
                 $next = 'accounting';
                 break;
                 case 'contract.return':self::roles($status === 'accounting'?[
@@ -501,6 +505,9 @@ final class Service {
                     'accountant'
                 ]);
                 if (!in_array($status,['accounting','approved'],true))throw new RuntimeException('Договор не у бухгалтера.');
+                PartyLegalReview::assertCurrent($p,(int)$c['party_id']);
+                if (empty($in['packet_confirmed']) && ContractRevision::state($p,$id))
+                    throw new RuntimeException('Откройте и проверьте пакет новой редакции договора.',409);
                 foreach ([
                     'counterparty_confirmed',
                     'financial_confirmed',
@@ -630,7 +637,8 @@ final class Service {
             . $reason:''), $id);
             Audit::record($action, 'contract', $id, $c, [
                 'status' => $next
-            ] + ($returnAct === null ? [] : ['return_act'=>$returnAct]));
+            ] + ($returnAct === null ? [] : ['return_act'=>$returnAct])
+              + ($legalDecision === null ? [] : ['legal_decision'=>$legalDecision]));
             return [
                 'id' => $id,
                 'status' => $next,
@@ -701,6 +709,8 @@ final class Service {
                 'message' => 'Приход зарегистрирован, распределение выполняется отдельно.'
             ];
         }
+        if (in_array($action,[PartyLegalReview::SUBMIT,PartyLegalReview::ACCEPT,PartyLegalReview::RETURN],true))
+            return PartyLegalReview::decision($p,$u,$action,$in);
         if ($action === 'party.block' || $action === 'party.unblock') {
             self::roles($action === 'party.unblock'?[
                 'director'

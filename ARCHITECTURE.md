@@ -55,6 +55,8 @@ Word-пакеты: GET `/rental/word-form` → `WordPack::plan` / `WordGeneratio
 | /rental/action | Controller::action | Service::command; затем событие/уведомление |
 | /rental/parties и /rental/party | PartyDirectory::page / card | Контрагенты |
 | /rental/party-reference | PartyReference::lookup | Только чтение учебного справочника в изолированном локальном запуске. Реквизиты вступают в силу после команды party.save |
+| /rental/party-review | PartyLegalReview::form | Исходная карточка в общем хранилище документов, решение юриста через команды party.review.*. Проверка привязана к фактическим реквизитам |
+| /rental/action-form?action=contract.revise | SourceCards::action → ContractRevision | Входящие материалы через /rental/upload, решение о новой редакции через Service::command, прежние согласования доступны в /rental/history |
 | /rental/objects и /rental/object | ObjectDirectory::page / card | Сдаваемые единицы |
 | /rental/object-plan | ObjectDirectory::plan | План объекта после проверки доступа к его карточке или связанному договору |
 | /rental/reservations и /rental/booking-action | BookingController::create / action | Бронь |
