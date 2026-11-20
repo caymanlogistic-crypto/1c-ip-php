@@ -111,7 +111,7 @@ final class InvoiceDelivery
             if (file_put_contents($path,$bytes,LOCK_EX)!==strlen($bytes)) throw new RuntimeException('Не удалось сохранить файл счёта.');
             $db->prepare(
                 "INSERT INTO rental_files(id,entity_type,entity_id,version,kind,filename,path,sha256,mime) VALUES(?,'invoice',?,?,'pdf',?,?,?,'application/pdf')"
-            )->execute([$id,$invoice['id'],$invoice['version'],'Счёт '.$invoice['number'].'.pdf',basename($path),hash('sha256',$bytes)]);
+            )->execute([$id,$invoice['id'],$invoice['version'],InvoiceDocument::filename($invoice),basename($path),hash('sha256',$bytes)]);
             FileOrder::assign($db,$id);
         } catch (\Throwable $error) {
             if (is_file($path)) unlink($path);

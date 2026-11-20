@@ -3,7 +3,6 @@ declare(strict_types=1);
 namespace Modules\Rental;
 
 use App\{DB,View};
-use RuntimeException;
 
 final class ReconciliationRegistry
 {
@@ -76,13 +75,10 @@ final class ReconciliationRegistry
             foreach (Controller::query('SELECT r.*,u.name actor_name FROM rental_reviews r LEFT JOIN users u ON u.id=r.actor_id WHERE r.contract_id=?',[$contract['id']]) as $review) $reviews[$review['kind']]=$review;
             $finance=isset($reviews['finance']) && hash_equals($baseline,$reviews['finance']['baseline_hash']);
             $legal=isset($reviews['legal']) && hash_equals($baseline,$reviews['legal']['baseline_hash']);
-            $act=null;$file=null;
-            try {
-                $file=Evidence::latest(DB::pdo(),'contract',(int)$contract['id'],'signed-return-act');
-                if ($contract['return_confirmed'] && $file['baseline_hash']!==null && hash_equals($baseline,$file['baseline_hash'])) $act=$file;
-            } catch (RuntimeException $error) {
-                if ($error instanceof \PDOException) throw $error;
-            }
+            $actState=ReturnAct::state(DB::pdo(),$contract,$baseline);
+            $file=$actState['file'];
+            $act=$actState['confirmed'] && hash_equals($baseline,(string)$file['baseline_hash'])?$file:null;
+            $pendingAct=$contract['status']==='reconciling' && !$actState['confirmed']?$file:null;
             $proof=Controller::query("SELECT after_json FROM audit_log WHERE action='contract.completed' AND entity_type='contract' AND entity_id=? ORDER BY id DESC LIMIT 1",[(string)$contract['id']])[0]['after_json'] ?? null;
             $proof=$proof?json_decode($proof,true):null;
             $closed=self::closedProof($contract,$reviews,$file,$proof['closure_proof'] ?? null,$baseline);
@@ -90,14 +86,14 @@ final class ReconciliationRegistry
                 $finance=true;$legal=true;$act=$file;
             }
             $view=self::state($contract,$closed,$finance,$legal,$act!==null);
-            $views[]=compact('contract','reviews','finance','legal','act','view');
+            $views[]=compact('contract','reviews','finance','legal','act','pendingAct','view');
         }
         $tabs=['all'=>['Все',count($views)],
             'open'=>['Требуют завершения',count(array_filter($views,fn($row)=>!$row['view']['closed'] || $row['view']['open']))],
             'closed'=>['Расчёты закрыты',count(array_filter($views,fn($row)=>$row['view']['closed'] && !$row['view']['open']))]];
         $rows=[];
         foreach ($views as $row) {
-            ['contract'=>$contract,'reviews'=>$reviews,'finance'=>$finance,'legal'=>$legal,'act'=>$act,'view'=>$view]=$row;
+            ['contract'=>$contract,'reviews'=>$reviews,'finance'=>$finance,'legal'=>$legal,'act'=>$act,'pendingAct'=>$pendingAct,'view'=>$view]=$row;
             if ($flag==='open' && $view['closed'] && !$view['open'] || $flag==='closed' && (!$view['closed'] || $view['open'])) continue;
             if (!WorkRegistry::matches($query,[$contract['number'],$contract['party_name'],$view['comment'],$contract['finish_reason']])) continue;
             $status=$view['closed'] && !$view['open']?'<strong class="registry-ui-success">Расчёты закрыты</strong>':View::e(Controller::status($contract['status']));
@@ -106,7 +102,9 @@ final class ReconciliationRegistry
                 View::e($contract['party_name']),RegistryState::date($contract['finish_date'] ?: $contract['end_date']),
                 self::review($reviews['finance'] ?? [],$finance,'Подтверждено',$view['known']),
                 self::review($reviews['legal'] ?? [],$legal,'Претензий нет',$view['known']),
-                ($act?'Файл сохранён<div class="doc-meta">'.View::e($act['filename']).'</div>':($view['known']?'Ожидается':'Нет сведений')),
+                ($act?'Акт подтверждён<div class="doc-meta">'.View::e($act['filename']).'</div>':
+                    ($pendingAct?'Файл загружен, ожидается подтверждение<div class="doc-meta">'.View::e($pendingAct['filename']).'</div>':
+                        ($view['known']?'Ожидается':'Нет сведений'))),
                 $status.'<div class="doc-meta">'.View::e($view['comment']).'</div>'];
         }
         $options='<option value="all">Все контрагенты</option>';

@@ -11,6 +11,8 @@ use RuntimeException;
 /** Normal accountant confirmation. Reading this class never creates approval. */
 final class NativePacket
 {
+    public const PREVIEW_CHANGED = 'NATIVE_PACKET_PREVIEW_CHANGED';
+
     private static function row(PDO $p, string $sql, array $args = []): array
     {
         $q = $p->prepare($sql);
@@ -250,13 +252,13 @@ final class NativePacket
         $kind = $action === 'contract.packet' ? 'contract' : 'document';
         $preview = self::preview($p, $kind, (int)($input['id'] ?? 0), $actor);
         if (!is_string($input['expected_packet_hash'] ?? null) || !hash_equals($preview['expected_packet_hash'], $input['expected_packet_hash'])) {
-            throw new RuntimeException('NATIVE_PACKET_PREVIEW_CHANGED', 409);
+            throw new RuntimeException(self::PREVIEW_CHANGED, 409);
         }
         return $preview;
     }
 
     /** Every successful new command advances the revision; replays never call this. */
-    public static function captureAfterB(PDO $p, array $actor, string $action, array $input, array $result, string $commandKey, ?array $validated = null): ?array
+    public static function captureAfterB(PDO $p, array $actor, string $action, array $input, array $result, string $commandKey, string $fingerprint, ?array $validated = null): ?array
     {
         if (!$p->inTransaction()) throw new RuntimeException('NATIVE_PACKET_TRANSACTION_REQUIRED');
         $runtime = self::row($p, 'SELECT * FROM rental_runtime_context WHERE id=1 FOR UPDATE');
@@ -281,7 +283,7 @@ final class NativePacket
             $checks[$check] = true;
         }
         $command = self::row($p, 'SELECT * FROM rental_commands WHERE command_key=?', [$commandKey]);
-        if ($command['action'] !== $action || !hash_equals($command['fingerprint'], hash('sha256', Importer::json([$actor['id'], $action, $input])))) {
+        if ($command['action'] !== $action || !hash_equals($command['fingerprint'], $fingerprint)) {
             throw new RuntimeException('NATIVE_PACKET_COMMAND_RECEIPT_CHANGED');
         }
         $context = self::context($p, $kind, $id);

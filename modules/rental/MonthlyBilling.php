@@ -89,6 +89,7 @@ final class MonthlyBilling {
         return $result;
     }
     public static function plan(PDO $p, array $c, string $period):array {
+        HandoverQuestion::assertBillingReady($p, (int)$c['id'], $period);
         self::assertCoverageReady($p,(int)$c['id']);
         if (\App\BillingPartAdmission::selected()!==null && \App\BillingParts::terms($p,'contract',(int)$c['id'])) {
             return self::billablePlan($p,$c,$period);
@@ -186,6 +187,7 @@ final class MonthlyBilling {
     public static function issue(PDO $p, array $c, array $plan, string $date):?int {
         if (isset($plan['invoice_targets']) && !$p->inTransaction())throw new RuntimeException('Явный план счёта требует общей транзакции.',409);
         if (!self::hasTargets($plan))return null;
+        HandoverQuestion::assertBillingReady($p, (int)$c['id'], $plan['period']);
         if (isset($plan['invoice_targets']) && bccomp($plan['amount'],'0',2)<=0)throw new RuntimeException('Сумма ежемесячного счёта должна быть положительной.',409);
         $q = $p->prepare("SELECT id FROM invoices WHERE contract_id=? AND coverage_key=? AND status<>'revoked' LIMIT 1 FOR UPDATE");
         $q->execute([

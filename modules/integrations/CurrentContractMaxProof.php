@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Modules\Integrations;
 use App\PagePolicy;
-use Modules\Rental\{Service,WorkflowEvents};
+use Modules\Rental\{HandoverQuestion,Service,WorkflowEvents};
 use PDO;
 use RuntimeException;
 
@@ -16,6 +16,15 @@ final class CurrentContractMaxProof
             ||!is_int($event['event_id']??null)||$event['event_id']<1)
             throw new RuntimeException('CURRENT_CONTRACT_MAX_EVENT_INVALID');
         $kind=$event['event_kind']??null;
+        if ($kind === HandoverQuestion::EVENT) {
+            if (!in_array($event['action'] ?? null, [HandoverQuestion::OPEN, HandoverQuestion::RETRY], true)
+                || ($event['contract_id'] ?? null) !== ($event['entity_id'] ?? null)
+                || ($event['target_role'] ?? null) !== 'accountant'
+                || ($event['from_status'] ?? null) !== ($event['to_status'] ?? null)) {
+                throw new RuntimeException('RENTAL_MAX_TRANSITION_PROOF_INVALID');
+            }
+            return $kind;
+        }
         if(!in_array($kind,['submit','resubmit','legalApprove','lawyerReturn','accountantReturn','package','signed','activated','block','unblock','cancelled'],true))
             throw new RuntimeException('RENTAL_MAX_EVENT_NOT_PLANNED');
         if(!in_array($event['entity_kind']??null,['contract','document','party'],true)
@@ -60,6 +69,12 @@ final class CurrentContractMaxProof
         $q=$this->db->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$event['entity_id']]);$owner=$q->fetch(PDO::FETCH_ASSOC);
         if(!$owner||(int)$owner['version']!==(int)$event['entity_version']||($party?(!empty($owner['blocked'])?'blocked':'unblocked'):$owner['status'])!==$event['to_status'])
             throw new RuntimeException('RENTAL_MAX_EVENT_OWNER_CHANGED');
+        if ($key === HandoverQuestion::EVENT) {
+            $question = HandoverQuestion::read($this->db, $event['entity_id']);
+            if (!$question || !empty($question['resolution']) || $question['notification_command'] !== $event['command_key']) {
+                throw new RuntimeException('RENTAL_MAX_EVENT_OWNER_CHANGED');
+            }
+        }
         $q=$this->db->prepare("SELECT u.id,u.active,u.role role_id,u.auth_version,r.grants_configured,CASE WHEN u.role='admin' THEN 'admin' ELSE rp.kind END role FROM users u JOIN roles r ON r.id=u.role LEFT JOIN role_profiles rp ON rp.role_id=u.role WHERE u.id=?");
         $q->execute([$event['actor_id']]);$actor=$q->fetch(PDO::FETCH_ASSOC)?:throw new RuntimeException('RENTAL_MAX_ACTOR_MISSING');
         $permission=function(string $grant)use($actor):bool{
@@ -86,6 +101,9 @@ final class CurrentContractMaxProof
             'actor'=>$event['actor_name'],'version'=>(string)$event['entity_version'],'reason'=>$event['reason'],
             'documentNumber'=>$event['record_number'],'documentLabel'=>$party?'Контрагент '.$event['party_name']:($event['entity_kind']==='document'?'Документ':'Договор').' №'.$event['record_number'],
             'context'=>$party?'Контрагент '.$event['party_name']:'Договор №'.$event['contract_number'].' · '.$event['party_name'],'recipientNames'=>$event['target_role']===null?'':$people[$event['target_role']]]);
+        if ($key === HandoverQuestion::EVENT) {
+            $values['recordUrl']='https://ui.89.208.213.14.sslip.io/rental/contract?id='.$event['entity_id'];
+        }
         $render=TemplateCatalog::renderEvent($this->db,'max',$key,$values);
         if($render['binding']['version']!==$catalogVersion)throw new RuntimeException('RENTAL_MAX_CATALOG_REVISION_CHANGED');
         // Word/manual mode cannot silently tell a user to run the deferred automatic PDF step.
