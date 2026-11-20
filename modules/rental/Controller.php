@@ -1142,6 +1142,8 @@ final class Controller {
         unset($in['_csrf']);
         $action = (string)($in['action'] ?? '');
         $target = match (true) {
+            in_array($action,[PremisesInventory::SAVE,PremisesInventory::MOVE],true) => '/rental/object-inventory?id='.(int)($in['id']??0),
+            in_array($action,[PremisesActs::COUNT,PremisesActs::CONFIRM],true) => '/rental/acts?id='.(int)($in['id']??0),
             str_starts_with($action, 'contract.'), str_starts_with($action, 'reconcile.') => '/rental/contract?id='
             . (int)($in['id'] ?? 0), str_starts_with($action, 'document.') => '/rental/document?id='
             . (int)($in['id'] ?? 0), str_starts_with($action, 'party.') => '/rental/parties', str_starts_with($action, 'object.') => '/rental/objects', str_starts_with($action, 'cadastre.') => '/rental/cadastre', str_starts_with($action, 'organization.') => '/rental/organization', str_starts_with($action, 'reservation.') => '/rental/reservations', str_starts_with($action, 'template.') => '/rental/templates', default => '/rental/invoices'
@@ -1154,6 +1156,7 @@ final class Controller {
             }
             $freshCommittedEventId=null;
             $result = Service::command($action, $in, $freshCommittedEventId);
+            if ($action===PremisesInventory::MOVE) $target='/rental/object-inventory?id='.(int)$result['id'];
             $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''));
             if ($action === 'party.save' && empty($in['id']) && ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'ERP-Fetch') {
                 $party = self::query('SELECT id,name,inn FROM parties WHERE id=?', [

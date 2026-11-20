@@ -144,6 +144,7 @@ final class SourceCards {
             ], $check).ReturnAct::summary($actState);
         }
         $body.=RentalUI::pairs($pairs);
+        $body.=PremisesActsCard::summary($c);
         $body.=HandoverQuestionCard::section($c);
         $add = function(string $label, string $action, bool $primary = false)use(&$actions, $id) {
             $user=Auth::user();

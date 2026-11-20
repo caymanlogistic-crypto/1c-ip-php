@@ -130,15 +130,19 @@ final class Documents {
         $type = (string)($_POST['entity_type'] ?? 'contract');
         $id = (int)($_POST['id'] ?? 0);
         $version = (int)($_POST['version'] ?? 0);
-        $state['entity_category']=in_array($type,['contract','document','party'],true)?$type:'other';
+        $actKind=array_search($kind,PremisesActs::FILE_KINDS,true);
+        $photo=$kind===PremisesInventory::PHOTO;
+        $state['entity_category']=in_array($type,['contract','document','party','object'],true)?$type:'other';
         $state['entity_id']=$id;
         $state['kind_category']=in_array($kind,['signed-contract','signed-return-act','lawyer-file','signed-addendum','removed-return-act'],true)?$kind:'other';
         if ($type === 'contract')Access::contract($id, 2);
         elseif($type === 'document')Access::document($id, 2);
         elseif($type === 'party')Access::pages(['parties'],2);
+        elseif($type==='object' && $photo) PremisesInventory::object($id,2);
         else throw new RuntimeException('Неизвестный контекст документа.', 403);
         if (($type==='party')!==($kind===PartyLegalReview::FILE) ||
-            (isset(ContractRevision::KINDS[$kind]) && $type!=='contract'))
+            (isset(ContractRevision::KINDS[$kind]) && $type!=='contract') ||
+            ($actKind!==false && $type!=='contract') || ($photo && $type!=='object'))
             throw new RuntimeException('Вид файла не соответствует карточке.',422);
         if (!in_array($kind, [
             'signed-contract',
@@ -147,6 +151,8 @@ final class Documents {
             'signed-addendum',
             'removed-return-act',
             PartyLegalReview::FILE,
+            ...array_values(PremisesActs::FILE_KINDS),
+            PremisesInventory::PHOTO,
             ...array_keys(ContractRevision::KINDS),
         ], true))throw new RuntimeException('Неизвестный вид документа.');
         Auth::requirePermission($kind === 'lawyer-file'?'rental.approve.legal':'rental.write');
@@ -164,23 +170,33 @@ final class Documents {
         $state['mime_category']=match($mime){'application/pdf'=>'pdf',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document'=>'docx',
             'application/msword'=>'doc',default=>'other'};
-        if (!$f || $f['error'] !== UPLOAD_ERR_OK || $f['size'] <= 0 || $f['size']>20*1024*1024 || !is_uploaded_file($f['tmp_name']))throw new RuntimeException('Выберите Word или PDF размером до 20 МБ.', 422);
+        if (!$f || $f['error'] !== UPLOAD_ERR_OK || $f['size'] <= 0 || $f['size']>($photo?5:20)*1024*1024 || !is_uploaded_file($f['tmp_name'])) {
+            throw new RuntimeException($photo?'Выберите фото в PNG или JPEG размером до 5 МБ.':'Выберите Word или PDF размером до 20 МБ.',422);
+        }
         $isReturnAct = $kind === ReturnAct::KIND;
         $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
-        if (!in_array($ext, [
-            'doc',
-            'docx',
-            'pdf'
-        ], true))throw new RuntimeException($isReturnAct?'Поддерживаются файлы PDF, DOC и DOCX.':'Поддерживаются Word и PDF.', $isReturnAct?422:0);
-        $head = file_get_contents($f['tmp_name'], false, null, 0, 8);
-        if (($ext === 'pdf' && !str_starts_with($head, '%PDF-')) || ($ext === 'docx' && !str_starts_with($head, 'PK')) || ($ext === 'doc' && !str_starts_with($head, "\xD0\xCF\x11\xE0")))throw new RuntimeException('Формат файла не соответствует расширению.', $isReturnAct?422:0);
-        $state['extension_category']=in_array($ext,['pdf','docx','doc'],true)?$ext:'other';
-        $state['stage']='file_validation';
-        try {
-            self::validateFile($f['tmp_name'], $ext);
-        } catch (RuntimeException $e) {
-            if (!$isReturnAct) throw $e;
-            throw new RuntimeException($e->getMessage(), 422, $e);
+        if ($photo) {
+            $image=@getimagesize($f['tmp_name']);
+            $mime=$image['mime']??'';
+            $ext=match($mime){'image/png'=>'png','image/jpeg'=>'jpg',default=>throw new RuntimeException('Фото должно быть в PNG или JPEG.',422)};
+        } else {
+            if (!in_array($ext,['doc','docx','pdf'],true)) {
+                throw new RuntimeException($isReturnAct?'Поддерживаются файлы PDF, DOC и DOCX.':'Поддерживаются Word и PDF.', $isReturnAct?422:0);
+            }
+            $head=file_get_contents($f['tmp_name'],false,null,0,8);
+            if (($ext==='pdf' && !str_starts_with($head,'%PDF-')) || ($ext==='docx' && !str_starts_with($head,'PK'))
+                || ($ext==='doc' && !str_starts_with($head,"\xD0\xCF\x11\xE0"))) {
+                throw new RuntimeException('Формат файла не соответствует расширению.', $isReturnAct?422:0);
+            }
+            $state['extension_category']=$ext;
+            $state['stage']='file_validation';
+            try {
+                self::validateFile($f['tmp_name'],$ext);
+            } catch (RuntimeException $e) {
+                if (!$isReturnAct) throw $e;
+                throw new RuntimeException($e->getMessage(),422,$e);
+            }
+            $mime=match($ext){'pdf'=>'application/pdf','docx'=>'application/vnd.openxmlformats-officedocument.wordprocessingml.document',default=>'application/msword'};
         }
         $fid = bin2hex(random_bytes(16));
         $state['stage']='target_directory';
@@ -190,13 +206,14 @@ final class Documents {
         . '.'
         . $ext;
         try {
-            DB::transaction(function($p)use($f, $path, $fid, $ext, $kind, $type, $id, $version, $u, &$state) {
+            DB::transaction(function($p)use($f, $path, $fid, $ext, $mime, $kind, $type, $id, $version, $actKind, $photo, &$state) {
                 $state['stage']='row_lock';
+                if ($actKind!==false || $photo) $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
                 FileOrder::lock($p);
-                $table=match($type){'contract'=>'contracts','party'=>'parties',default=>'rental_documents'};
+                $table=match($type){'contract'=>'contracts','party'=>'parties','object'=>'rental_objects',default=>'rental_documents'};
                 $r = Service::get($p,$table,$id);
                 $state['current_version']=(int)$r['version'];
-                $state['current_status']=in_array($r['status'],['draft','legal','accounting','returned','approved','sent','active','signed','reconciling','closed','cancelled'],true)?$r['status']:'other';
+                $state['current_status']=in_array($r['status']??'', ['draft','legal','accounting','returned','approved','sent','active','signed','reconciling','closed','cancelled'],true)?$r['status']:'other';
                 $state['stage']='row_version';
                 if ((int)$r['version'] !== $version) {
                     if ($kind === ReturnAct::KIND) throw new RuntimeException('Версия документа изменилась. Откройте карточку и повторите загрузку.', 409);
@@ -214,11 +231,22 @@ final class Documents {
                 $state['stage']='baseline';
                 $baseline = $type === 'contract'?Evidence::signature($p, $id):null;
                 $filename = mb_substr(basename($f['name']), 0, 250);
+                if ($photo) $filename=mb_substr(pathinfo($filename,PATHINFO_FILENAME),0,240).'.'.$ext;
+                $sha=hash_file('sha256',$f['tmp_name']);
+                $objectId=(int)($_POST['object_id']??0);
+                if ($actKind!==false) {
+                    $previous=PremisesActs::checkUpload($p,$r,$objectId,$actKind);
+                    if ($previous && hash_equals($previous['sha256'],$sha) && hash_equals((string)$previous['baseline_hash'],$baseline)) return;
+                }
+                if ($photo) {
+                    $item=PremisesInventory::editableItem($p,$id,$_POST);
+                    if (in_array($sha,array_column($item['photos'],'sha256'),true)) return;
+                }
                 if ($kind === ReturnAct::KIND) {
                     $act = ReturnAct::state($p, $r, $baseline);
                     if ($act['confirmed']) throw new RuntimeException('Акт возврата уже подтверждён.', 409);
                     if ($act['file'] && $act['file']['filename'] === $filename
-                        && hash_equals($act['file']['sha256'], hash_file('sha256', $f['tmp_name']))) return;
+                        && hash_equals($act['file']['sha256'],$sha)) return;
                 }
                 $state['stage']='file_move';
                 $state['move_succeeded']=move_uploaded_file($f['tmp_name'], $path);
@@ -232,9 +260,8 @@ final class Documents {
                     $kind,
                     $filename,
                     basename($path),
-                    hash_file('sha256',
-                    $path),
-                    $ext === 'pdf'?'application/pdf':($ext === 'docx'?'application/vnd.openxmlformats-officedocument.wordprocessingml.document':'application/msword'),
+                    $sha,
+                    $mime,
                     $baseline
                 ]);
                 if ($type === 'document' && $kind === 'signed-addendum'
@@ -252,6 +279,8 @@ final class Documents {
                 ]);
                 $state['stage']='file_order';
                 FileOrder::assign($p, $fid);
+                if ($actKind!==false) PremisesActs::pinUpload($p,$fid,$objectId);
+                if ($photo) PremisesInventory::addPhoto($p,(string)$_POST['item_id'],$item,$fid,$sha);
                 if($kind==='lawyer-file') {
                     $q=$p->prepare('SELECT * FROM rental_files WHERE id=?');$q->execute([$fid]);WordPack::inherit($p,$q->fetch());
                 }
@@ -270,6 +299,8 @@ final class Documents {
             throw $e;
         }
         $state['stage']='redirect';
+        if ($actKind!==false) Http::redirect('/rental/acts?id='.$id.'&object_id='.(int)($_POST['object_id']??0).'&kind='.$actKind);
+        if ($photo) Http::redirect('/rental/object-inventory?id='.$id);
         if ($kind===PartyLegalReview::FILE) Http::redirect('/rental/party-review?id='.$id.'&action='.PartyLegalReview::SUBMIT);
         if (isset(ContractRevision::KINDS[$kind])) Http::redirect('/rental/action-form?id='.$id.'&action='.ContractRevision::ACTION);
         if ($kind === ReturnAct::KIND) Http::redirect('/rental/action-form?id='.$id.'&action=contract.return-act');
@@ -546,7 +577,7 @@ final class Documents {
         $r = Controller::query('SELECT * FROM rental_files WHERE id=?', [
             $id
         ])[0] ?? throw new RuntimeException('Файл не найден.');
-        Access::file($r);
+        Access::file($r,(int)($_GET['contract_id']??0));
         $path = self::directory()
         . '/'
         . basename($r['path']);

@@ -259,6 +259,9 @@ final class Service {
         foreach(['document.'=>'rental_documents','booking.'=>'reservations','reservation.'=>'reservations','object.'=>'rental_objects'] as $prefix=>$table) {
             if($id>0 && str_starts_with($action,$prefix) && WorkspaceReset::hidden(self::get($p,$table,$id)))throw new RuntimeException('Запись убрана из текущей работы.',404);
         }
+        if (in_array($action,[PremisesInventory::SAVE,PremisesInventory::MOVE],true)) {
+            return PremisesInventory::execute($p,$action,$in);
+        }
         if ($action === 'contract.create' || $action === 'contract.edit') {
             self::roles([
                 'manager'
@@ -424,6 +427,9 @@ final class Service {
             if($action==='contract.delete'){self::roles(['manager']);return ContractDraft::delete($p,$c,$u,(string)$in['command_key']);}
             if (in_array($action, HandoverQuestion::ACTIONS, true)) {
                 return HandoverQuestion::execute($p, $u, $action, $c, $in);
+            }
+            if (in_array($action,[PremisesActs::COUNT,PremisesActs::CONFIRM],true)) {
+                return PremisesActs::execute($p,$action,$c,$in);
             }
             $status = $c['status'];
             $next = $status;
@@ -601,6 +607,7 @@ final class Service {
                     throw new RuntimeException('Выбранный акт не относится к этому договору или был заменён. Откройте актуальную форму.', 409);
                 }
                 $returnDate = self::date($in['return_date'] ?? '');
+                PremisesActs::recordReturn($p,$c,$file,$returnDate,$in);
                 $returnAct = ['file_id'=>$file['id'], 'version'=>(int)$file['version'], 'sha256'=>$file['sha256'],
                     'baseline_hash'=>$file['baseline_hash'], 'return_date'=>$returnDate];
                 $p->prepare('UPDATE contracts SET return_confirmed=? WHERE id=?')->execute([

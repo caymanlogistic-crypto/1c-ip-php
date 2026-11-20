@@ -130,6 +130,7 @@ final class ReturnAct
                 .'<input type="hidden" name="command_key" value="'.bin2hex(random_bytes(16)).'">'
                 .'<input type="hidden" name="file_id" value="'.View::e($state['file']['id']).'">'
                 .Controller::input('return_date', 'Дата фактического возврата', $contract['finish_date'] ?? date('Y-m-d'), 'date', true)
+                .PremisesActsCard::returnFields(DB::pdo(),$contract)
                 .'<label class="registry-ui-checkbox"><input type="checkbox" name="both_signed" value="1" required>'
                 .'<span>Акт подписан обеими сторонами</span></label></form>';
             $actions .= '<button class="btn btn-primary" type="submit" form="return-act-confirm">Подтвердить акт</button>';
