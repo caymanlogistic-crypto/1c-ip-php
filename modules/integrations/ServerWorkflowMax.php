@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Modules\Integrations;
 
 use App\Auth;
+use Modules\Rental\HandoverQuestion;
 use PDO;
 use RuntimeException;
 
@@ -29,13 +30,24 @@ final class ServerWorkflowMax
         if(!is_array($m)||($m['scope']??null)!=='contract-workflow'||!is_array($m['catalog_versions']??null)
             ||array_diff(array_keys($m['catalog_versions']),self::KINDS))throw new RuntimeException('WORKFLOW_MAX_ADMISSION_INVALID');
         foreach(self::KINDS as $key)if(!is_int($m['catalog_versions'][$key]??null)||$m['catalog_versions'][$key]<1)throw new RuntimeException('WORKFLOW_MAX_ADMISSION_INVALID');
-        $base=$m;unset($base['catalog_versions']);$base['scope']='object-activity';ServerObjectMax::validate($base);
+        if (array_key_exists('handover_question', $m)) {
+            $question = $m['handover_question'];
+            if (!is_array($question) || count($question)!==2
+                || !is_int($question['event_floor'] ?? null) || $question['event_floor'] < ($m['event_floor'] ?? PHP_INT_MAX)
+                || !is_int($question['catalog_version'] ?? null) || $question['catalog_version'] < 1) {
+                throw new RuntimeException('WORKFLOW_MAX_ADMISSION_INVALID');
+            }
+        }
+        $base=$m;unset($base['catalog_versions'],$base['handover_question']);$base['scope']='object-activity';ServerObjectMax::validate($base);
     }
 
     private const KINDS=['submit','resubmit','legalApprove','lawyerReturn','accountantReturn','package','signed','cancelled'];
 
     public static function requestKey(array $event):string
     {
+        if (($event['event_kind'] ?? null) === HandoverQuestion::EVENT) {
+            return 'handover-question-'.hash('sha256',$event['epoch'].':'.$event['command_key'].':'.$event['event_id']);
+        }
         return 'contract-workflow-'.hash('sha256',$event['command_key'].':'.$event['event_id']);
     }
 
@@ -45,13 +57,21 @@ final class ServerWorkflowMax
         if(($_SERVER['REQUEST_METHOD']??'')!=='POST')throw new RuntimeException('WORKFLOW_MAX_POST_REQUIRED');
         $q=$this->db->prepare('SELECT id,source_json,created_at FROM rental_events WHERE id=?');$q->execute([$eventId]);$row=$q->fetch();
         $event=$row?\Modules\Rental\WorkflowEvents::decode($row):null;
-        if(!$event||$event['entity_kind']!=='contract'||$eventId<=$scope['event_floor']||!in_array($event['event_kind'],self::KINDS,true))return null;
+        if(!$event||$event['entity_kind']!=='contract'||$eventId<=$scope['event_floor'])return null;
+        if ($event['event_kind'] === HandoverQuestion::EVENT) {
+            $question = $scope['handover_question'] ?? null;
+            if ($question === null || $eventId <= $question['event_floor']) return null;
+            $version = $question['catalog_version'];
+        } else {
+            $version = $scope['catalog_versions'][$event['event_kind']] ?? null;
+            if ($version === null) return null;
+        }
         $current=Auth::user();
         if(!$current||(int)$current['id']!==(int)($actor['id']??0)||$event['actor_id']!==(int)$current['id']
             ||$event['auth_version']!==(int)$current['auth_version']||$event['command_key']!==$commandKey)throw new RuntimeException('WORKFLOW_MAX_ACTOR_CHANGED');
-        $key=CurrentContractMaxProof::select($event);
-        $proof=(new CurrentContractMaxProof($this->db))->plan($eventId,$scope['group_id'],$scope['revision'],$scope['catalog_versions'][$key]);
-        return ['event_id'=>$eventId,'command_key'=>$commandKey,'actor_id'=>$event['actor_id'],'text'=>$proof['catalog']['body'],'proof_sha256'=>$proof['sha256']];
+        $proof=(new CurrentContractMaxProof($this->db))->plan($eventId,$scope['group_id'],$scope['revision'],$version);
+        return ['event_id'=>$eventId,'command_key'=>$commandKey,'actor_id'=>$event['actor_id'],'text'=>$proof['catalog']['body'],
+            'proof_sha256'=>$proof['sha256'],'request_key'=>$proof['request_key']];
     }
 
     public function afterCommittedCommand(int $eventId,string $commandKey,array $actor):array
@@ -92,7 +112,7 @@ final class ServerWorkflowMax
         if ($proof!==$event||$event['event_id']<=$scope['event_floor']) throw new RuntimeException('WORKFLOW_MAX_EVENT_REJECTED');
         if ((int)$this->db->query("SELECT GET_LOCK('ipphp-provider:max',0)")->fetchColumn()!==1) throw new RuntimeException('WORKFLOW_MAX_BUSY');
         try {
-            $key=self::requestKey($event);
+            $key=$event['request_key'];
             // Never replay legacy claims. Their unknown outcome cannot duplicate a distinct,
             // freshly committed contract event; unresolved deliveries of this capability do block it.
             $q=$this->db->prepare("SELECT COUNT(*) FROM messaging_attempts WHERE provider='max' AND (status='pending' OR (status='uncertain' AND request_key LIKE 'contract-workflow-%')) AND NOT(actor_id=? AND request_key=?)");$q->execute([$event['actor_id'],$key]);
@@ -110,7 +130,7 @@ final class ServerWorkflowMax
         $proof=$this->plan($this->event['event_id'],$this->event['command_key'],Auth::user() ?? []);
         if ($proof!==$this->event) throw new RuntimeException('WORKFLOW_MAX_EVENT_REJECTED');
         $q=$this->db->prepare("SELECT COUNT(*) FROM messaging_attempts WHERE provider='max' AND actor_id=? AND request_key=? AND target=? AND revision=? AND status='pending' AND body_text=?");
-        $q->execute([$this->event['actor_id'],self::requestKey($this->event),$target,$this->scope['revision'],$this->event['text']]);
+        $q->execute([$this->event['actor_id'],$this->event['request_key'],$target,$this->scope['revision'],$this->event['text']]);
         if ((int)$q->fetchColumn()!==1) throw new RuntimeException('WORKFLOW_MAX_CLAIM_REQUIRED');
     }
 

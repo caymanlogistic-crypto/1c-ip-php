@@ -136,6 +136,7 @@ final class PagePolicy {
         if (str_starts_with($action, 'object.'))return 'rental.objects';
         if (str_starts_with($action, 'cadastre.'))return 'rental.cadastre';
         if (str_starts_with($action, 'template.'))return 'rental.templates';
+        if (in_array($action, \Modules\Rental\HandoverQuestion::ACTIONS, true))return 'rental.contracts-active';
         if ((str_starts_with($action, 'closing.') || str_starts_with($action, 'reconcile.')) || in_array($action, [
             'contract.reconcile',
             'contract.close',

@@ -16,7 +16,8 @@ final class WorkflowEvents
         $parts=explode('.',$action);
         $party=count($parts)===2&&$parts[0]==='party'&&in_array($parts[1],['block','unblock'],true);
         $cancel=$action==='contract.cancel';
-        if(!$party&&!$cancel&&(count($parts)!==2||!in_array($parts[0],['contract','document'],true)||!in_array($parts[1],self::ACTIONS,true)))return null;
+        $question=in_array($action,[HandoverQuestion::OPEN,HandoverQuestion::RETRY],true);
+        if(!$party&&!$cancel&&!$question&&(count($parts)!==2||!in_array($parts[0],['contract','document'],true)||!in_array($parts[1],self::ACTIONS,true)))return null;
         $row=null;
         if($parts[1]!=='create')$row=Service::get($db,$party?'parties':($parts[0]==='contract'?'contracts':'rental_documents'),(int)($input['id']??0));
         return ['kind'=>$parts[0],'before'=>$row,'event_floor'=>(int)$db->query('SELECT COALESCE(MAX(id),0) FROM rental_events')->fetchColumn()];
@@ -49,7 +50,11 @@ final class WorkflowEvents
         if(!$db->inTransaction())throw new RuntimeException('Workflow event must share its command transaction.');
         $kind=$context['kind'];$party=$kind==='party';$id=(int)($result['id']??$context['before']['id']??0);
         $after=Service::get($db,$party?'parties':($kind==='contract'?'contracts':'rental_documents'),$id);
-        $transition=self::transition($action,$input,$context['before'],$after);if($transition===null)return null;
+        $transition=self::transition($action,$input,$context['before'],$after);
+        if (!empty($result['question_notification'])) {
+            $transition=['event_kind'=>HandoverQuestion::EVENT,'target_role'=>'accountant','resubmitted'=>false];
+        }
+        if($transition===null)return null;
         $contractId=$party?null:($kind==='contract'?$id:(int)$after['contract_id']);
         $q=$db->prepare($party?'SELECT id,description,source_json FROM rental_events WHERE id>? AND actor_id=? AND action=? AND contract_id IS NULL ORDER BY id':'SELECT id,description FROM rental_events WHERE id>? AND actor_id=? AND action=? AND contract_id=? ORDER BY id');
         $q->execute($party?[$context['event_floor'],$actor['id'],$action]:[$context['event_floor'],$actor['id'],$action,$contractId]);$events=$q->fetchAll(PDO::FETCH_ASSOC);
@@ -96,6 +101,7 @@ final class WorkflowEvents
         if(!in_array($kind,['contract','document'],true))throw new RuntimeException('Invalid workflow entity.');
         $sql="SELECT id,source_json,created_at FROM rental_events WHERE JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.kind'))='committed-rental-workflow-event' AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.epoch'))=(SELECT epoch FROM rental_runtime_context WHERE id=1) AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.entity_kind'))=? AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.entity_id'))=?";
         if($handoffOnly)$sql.=" AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.event_kind')) IN ('submit','resubmit')";
+        else $sql.=" AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.event_kind'))<>'handoverQuestion'";
         $q=$db->prepare($sql.' ORDER BY id DESC LIMIT 1');$q->execute([$kind,(string)$id]);$row=$q->fetch(PDO::FETCH_ASSOC);
         return $row?self::decode($row):null;
     }

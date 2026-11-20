@@ -135,6 +135,7 @@ final class SourceCards {
             ], $check).ReturnAct::summary($actState);
         }
         $body.=RentalUI::pairs($pairs);
+        $body.=HandoverQuestionCard::section($c);
         $add = function(string $label, string $action, bool $primary = false)use(&$actions, $id) {
             $user=Auth::user();
             $grant=match($user['role']) {'lawyer'=>'rental.approve.legal','accountant'=>'finance.write','director'=>'rental.approve.executive',default=>'rental.write'};
@@ -307,7 +308,8 @@ final class SourceCards {
             'contract.handed' => 'Документы переданы клиенту',
             'contract.close' => 'Завершить финальную сверку',
             'reconcile.finance' => 'Взаиморасчёты согласованы',
-            'reconcile.legal' => 'Претензий нет'
+            'reconcile.legal' => 'Претензий нет',
+            ...HandoverQuestionCard::TITLES
         ];
         $title = $allowed[$action] ?? throw new RuntimeException('Действие не найдено.', 404);
         if ($action === 'contract.return-act') return ReturnAct::form($c);
@@ -328,6 +330,7 @@ final class SourceCards {
                 $c['party_name']
             ]
         ]);
+        if (isset(HandoverQuestionCard::TITLES[$action])) $fields.=HandoverQuestionCard::fields($action, $c);
         if($action==='contract.delete'){
             Service::roles(['manager']);
             if(!ContractDraft::deletable(\App\DB::pdo(),$c))throw new RuntimeException('Этот договор нельзя удалить как черновик.',409);
