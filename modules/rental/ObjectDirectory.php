@@ -165,7 +165,7 @@ final class ObjectDirectory
         if ($plan) $body.='<p><a class="btn btn-secondary" href="/rental/object-plan?id='.(int)$object['id'].'" target="_blank" rel="noopener">Открыть план помещения</a></p>';
         $activity=Controller::query("SELECT e.id,e.actor_id,e.action,e.contract_id,e.source_json,u.name actor "
             ."FROM rental_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.action='object.save' "
-            ."AND JSON_EXTRACT(e.source_json,'$.object_id')=? ORDER BY e.id DESC",[(int)$object['id']]);
+            ."AND CAST(JSON_UNQUOTE(JSON_EXTRACT(e.source_json,'$.object_id')) AS UNSIGNED)=? ORDER BY e.id DESC",[(int)$object['id']]);
         if ($activity) {
             $history=[];
             foreach ($activity as $row) {
