@@ -333,6 +333,13 @@ final class Service {
                     $ids = $q->fetchAll(PDO::FETCH_COLUMN);
                 }
                 if (!$ids && bccomp($partTotal, '0', 2) <= 0)throw new RuntimeException('Выберите объекты.');
+                $types=[];
+                foreach ($ids as $oid)$types[]=self::get($p,'rental_objects',(int)$oid)['type'];
+                $parkingTypes=['Машиноместо','Машино-место'];
+                if (array_intersect($types,$parkingTypes) && array_diff($types,$parkingTypes)
+                    && ($old['template_type']??'')!=='mixed') {
+                    throw new RuntimeException('Оформите помещения и машино-места отдельными договорами.',422);
+                }
                 $partEdit = $partRows !== null && $old
                     ? \App\BillingPartTerms::beginEdit($p, 'contract', $id, (int)$old['version']) : null;
                 $priorRelations=$old?Occupancy::relations($p,$id):[];
@@ -386,13 +393,7 @@ final class Service {
                     \App\BillingPartTerms::finish($p, $partEdit);
                 }
                 $date = !empty($in['document_date'])?self::date($in['document_date']):($old['document_date'] ?? null);
-                $types = [
-                ];
-                foreach ($ids as $oid)$types[] = self::get($p, 'rental_objects', (int)$oid)['type'];
-                $template = count(array_unique($types))>1?'mixed':(in_array($types[0] ?? '', [
-                    'Машиноместо',
-                    'Машино-место'
-                ], true)?'parking':'office');
+                $template = count(array_unique($types))>1?'mixed':(in_array($types[0] ?? '',$parkingTypes,true)?'parking':'office');
                 $p->prepare('UPDATE contracts SET document_date=?,template_type=? WHERE id=?')->execute([
                     $date,
                     $template,

@@ -83,17 +83,20 @@ final class DocxTemplate
                 $texts[]=$node;
                 $text.=$node->textContent;
             }
-            yield [$texts,$text];
+            yield [$texts,$text,$paragraph];
         }
     }
 
-    public static function fields(string $path): array
+    public static function fields(string $path,bool $withoutPlan=false): array
     {
         self::validate($path);$zip=new ZipArchive();$zip->open($path);$fields=[];
         try {
             for($i=0;$i<$zip->numFiles;$i++) {
                 $name=$zip->getNameIndex($i);if(!str_starts_with($name,'word/')||!str_ends_with($name,'.xml'))continue;
                 foreach(self::paragraphs(self::xml($zip->getFromIndex($i))) as [$nodes,$text]) {
+                    if ($withoutPlan && preg_match('/\{\{office_plan\}\}|поэтажн|план\p{L}*\s+(?:здания|помещения|помещений|апартаментов)|на\s+плане/iu',$text)) {
+                        throw new RuntimeException('В шаблоне для физлица удалите план и ссылки на него.',422);
+                    }
                     preg_match_all('/\{\{([^{}]+)\}\}/u',$text,$matches);
                     foreach($matches[1] as $field) {
                         if(!preg_match('/^[a-z][a-z0-9_]{0,63}$/D',$field))throw new RuntimeException('Имя поля Word: латинские буквы, цифры и подчёркивание, до 64 знаков.',422);
@@ -144,7 +147,7 @@ final class DocxTemplate
         return true;
     }
 
-    public static function build(string $source,array $values,string $kind,string $target,?array $requiredFields=null): void
+    public static function build(string $source,array $values,string $kind,string $target,?array $requiredFields=null,array $plans=[]): void
     {
         self::validate($source);
         foreach ($values as $value) {
@@ -152,13 +155,21 @@ final class DocxTemplate
         }
         $zip=new ZipArchive();
         if ($zip->open($source)!==true) throw new RuntimeException('Не удалось открыть шаблон Word.');
-        $tokens=[]; $documents=[];
+        $tokens=[]; $documents=[];$planSlot=null;
         try {
             for ($index=0;$index<$zip->numFiles;$index++) {
                 $name=$zip->getNameIndex($index);
                 if (!str_starts_with($name,'word/') || !str_ends_with($name,'.xml')) continue;
                 $document=self::xml($zip->getFromIndex($index));
-                foreach (self::paragraphs($document) as [$texts,$text]) {
+                foreach (self::paragraphs($document) as [$texts,$text,$paragraph]) {
+                    if (str_contains($text,'{{office_plan}}')) {
+                        if ($planSlot!==null || $name!=='word/document.xml' || trim($text)!=='{{office_plan}}'
+                            || $paragraph->parentNode->localName!=='body') {
+                            throw new RuntimeException('Поместите {{office_plan}} в один отдельный абзац приложения № 1.',422);
+                        }
+                        $planSlot=$paragraph;
+                        continue;
+                    }
                     preg_match_all('/\{\{([^{}]+)\}\}/u',$text,$matches);
                     foreach ($matches[1] as $token) $tokens[$token]=true;
                 }
@@ -166,6 +177,9 @@ final class DocxTemplate
             }
         } finally {
             $zip->close();
+        }
+        if (($planSlot!==null)!==($plans!==[])) {
+            throw new RuntimeException('Для приложения № 1 Word нужны поле {{office_plan}} и план помещения.',422);
         }
         $required=['number','date','party','organization','terms','total','vat'];
         if ($kind==='addendum') $required=array_merge($required,['base','effective']);
@@ -177,7 +191,8 @@ final class DocxTemplate
         $changed=[];
         foreach ($documents as $name=>$document) {
             $modified=false;
-            foreach (self::paragraphs($document) as [$texts,$text]) {
+            foreach (self::paragraphs($document) as [$texts,$text,$paragraph]) {
+                if ($planSlot!==null && $paragraph->isSameNode($planSlot)) continue;
                 $modified=self::fillParagraph($document,$texts,$text,$values)||$modified;
             }
             if ($modified) $changed[$name]=$document->saveXML();
@@ -188,6 +203,11 @@ final class DocxTemplate
             $out=new ZipArchive();
             if ($out->open($temporary)!==true) throw new RuntimeException('Не удалось открыть Word.');
             try {
+                if ($planSlot!==null) {
+                    $document=$documents['word/document.xml'];
+                    WordAppendixPlan::append($document,$planSlot,$out,$plans);
+                    $changed['word/document.xml']=$document->saveXML();
+                }
                 foreach ($changed as $name=>$bytes) if (!$out->addFromString($name,$bytes)) throw new RuntimeException('Не удалось сохранить поля Word.');
             } finally {
                 $out->close();

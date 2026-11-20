@@ -58,6 +58,7 @@ final class WordGenerationData
             ? (string)$ordinal->format((int)$floor) : '',$floors);
         $values=['number'=>(string)$contract['number'],'date'=>$contract['document_date']?Documents::dateText($contract['document_date']):'',
             'date_words'=>$contract['document_date']?self::dateWords($contract['document_date']):'',
+            'start_date_words'=>$record['start_date']?self::dateWords($record['start_date']):'',
             'end_date_words'=>$record['end_date']?self::dateWords($record['end_date']):'',
             'party_full_name'=>$party['name'],'party_short_name'=>$party['name'],'party_address'=>$party['address']??'',
             'party_postal_address'=>$party['postal_address']??'', 'party_email'=>$party['email']??'',
@@ -67,6 +68,8 @@ final class WordGenerationData
             },
             'party_signer_title'=>$partyDetails['signer_position'] ?? '',
             'party_authority'=>$partyDetails['signer_basis'] ?? '',
+            'party_signer_name'=>$partyDetails['signer'] ?? '',
+            'party_passport'=>$partyDetails['passport'] ?? '',
             'party_bank_line'=>!empty($bank['account'])&&!empty($bank['bank'])?$bank['account'].' в '.$bank['bank']:'',
             'party_correspondent'=>$bank['correspondent_account']??'','party_bik'=>$bank['bik']??'',
             'area'=>$areaKnown?rtrim(rtrim($area,'0'),'.'):'','room_numbers'=>implode(', ',array_unique($numbers)),
@@ -98,7 +101,7 @@ final class WordGenerationData
             'base'=>'К договору №'.$contract['number'].' от '.Documents::dateText($contract['document_date']),
             'effective'=>$entity==='document'?Documents::dateText($record['effective_date']):Documents::dateText($record['start_date']),
             'title'=>$entity==='document'?'Дополнительное соглашение':'Договор аренды'];
-        return compact('entity','record','contract','party','org','terms','values');
+        return compact('entity','record','contract','party','partyType','org','terms','values');
     }
 
     public static function moneyFields(string $gross,string $vat,string $prefix): array
@@ -111,11 +114,12 @@ final class WordGenerationData
         return [$prefix.'_net'=>$rub,$prefix.'_net_kopecks'=>$kop,$prefix.'_net_words'=>$words,$prefix.'_vat'=>Documents::amountText($tax)];
     }
 
-    public static function complete(array $values,array $input,array $fields=[]): array
+    public static function complete(array $values,array $input,array $fields=[],string $partyType=''): array
     {
         $allowed=[];foreach(OriginalDocuments::catalog() as $definition)foreach($definition['fields'] as $field)$allowed[$field]=true;
         foreach(['act_date','handover_deadline','ownership_date','service_date','service_gross'] as $field)$allowed[$field]=true;
         foreach($fields as $field)$allowed[$field]=true;
+        foreach(['party_signer_name','party_kpp','party_ogrn'] as $field)$allowed[$field]=true;
         $allowed['contract_document_date']=true;
         foreach ($input as $key=>$value) {
             if (!isset($allowed[$key])||!is_string($value)||mb_strlen($value)>4000||str_contains($value,"\0"))throw new RuntimeException('Некорректные данные генерации.',422);
@@ -134,19 +138,47 @@ final class WordGenerationData
         }
         if (empty($values['party_requisites'])) {
             $parts=[];
-            foreach(['party_address'=>'Юридический адрес','party_postal_address'=>'Почтовый адрес','party_inn'=>'ИНН','party_kpp'=>'КПП','party_ogrn'=>'ОГРН / ОГРНИП','party_bank_line'=>'Р/с','party_correspondent'=>'К/с','party_bik'=>'БИК'] as $key=>$label)
+            $registration=$partyType==='entrepreneur'?'ОГРНИП':'ОГРН';
+            foreach(['party_address'=>'Юридический адрес','party_postal_address'=>'Почтовый адрес','party_inn'=>'ИНН','party_kpp'=>'КПП','party_ogrn'=>$registration,'party_bank_line'=>'Р/с','party_correspondent'=>'К/с','party_bik'=>'БИК'] as $key=>$label)
                 if(!empty($values[$key]))$parts[]=$label.': '.$values[$key];
             if(!empty($values['party_inn'])&&!empty($values['party_bank_line'])&&!empty($values['party_bik']))$values['party_requisites']=implode("\n",$parts);
         }
+        if (in_array('party_intro',$fields,true)) {
+            if ($partyType==='entrepreneur' && !empty($values['party_ogrn'])) {
+                $fullName=preg_replace('/^ИП\s+/u','Индивидуальный предприниматель ',$values['party_full_name']);
+                $values['party_intro']=$fullName.', ОГРНИП '.$values['party_ogrn'].', именуемый далее по тексту «Арендатор»';
+            } elseif ($partyType==='company' && !empty($values['party_signer_title_genitive']) &&
+                !empty($values['party_signer_genitive']) && !empty($values['party_authority'])) {
+                $values['party_intro']=$values['party_full_name'].', именуемое далее по тексту «Арендатор», в лице '.
+                    $values['party_signer_title_genitive'].' '.$values['party_signer_genitive'].', действующего на основании '.$values['party_authority'];
+            }
+        }
+        if (in_array('party_signature_name',$fields,true)) {
+            $values['party_signature_name']=$partyType==='entrepreneur'
+                ? preg_replace('/^(?:ИП|Индивидуальный предприниматель)\s+/ui','',$values['party_full_name'])
+                : ($partyType==='person'?$values['party_full_name']:($values['party_signer_name']??''));
+        }
+        $values['party_signature_title']=$partyType==='company'?($values['party_signer_title']??''):'';
+        $values['party_kpp_line']=empty($values['party_kpp'])?'':'КПП '.$values['party_kpp'];
+        $values['party_registration_line']=empty($values['party_ogrn'])?'':($partyType==='entrepreneur'?'ОГРНИП ':'ОГРН ').$values['party_ogrn'];
         return $values;
     }
 
-    public static function inputs(array $fields,array $values): array
+    public static function inputs(array $fields,array $values,string $partyType=''): array
     {
-        $result=[];$values=self::complete($values,[], $fields);
+        $result=[];$values=self::complete($values,[], $fields,$partyType);
         foreach($fields as $field) {
+            if ($field==='office_plan' || in_array($field,OriginalDocuments::optionalFields($partyType),true)) continue;
             if(isset($values[$field])&&trim($values[$field])!=='')continue;
-            $keys=$field==='party_requisites'?['party_address','party_inn','party_kpp','party_ogrn','party_bank_line','party_correspondent','party_bik']:[$field];
+            $keys=match($field) {
+                'party_requisites'=>['party_address','party_inn','party_bank_line','party_correspondent','party_bik'],
+                'party_intro'=>$partyType==='entrepreneur'?['party_ogrn']:['party_signer_title_genitive','party_signer_genitive','party_authority'],
+                'party_signature_name'=>['party_signer_name'],
+                'party_signature_title'=>['party_signer_title'],
+                'party_kpp_line'=>['party_kpp'],
+                'party_registration_line'=>['party_ogrn'],
+                default=>[$field],
+            };
             foreach($keys as $key) {
                 if(isset($values[$key])&&trim($values[$key])!=='')continue;
                 $input=match($key){'date','date_words'=>'contract_document_date','act_date_words'=>'act_date','handover_deadline_words'=>'handover_deadline',

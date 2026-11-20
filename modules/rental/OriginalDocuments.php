@@ -13,7 +13,16 @@ final class OriginalDocuments
         'services'=>'Договор оказания услуг', 'handover'=>'Акт приёма-передачи помещений',
         'room-change'=>'Допсоглашение о смене номера помещения',
         'parking-handover'=>'Акт приёма-передачи машино-места',
+        'apartment-person'=>'Договор аренды апартаментов · физическое лицо',
+        'office-person'=>'Договор аренды помещений · физическое лицо',
+        'parking-person'=>'Договор аренды машино-места · физическое лицо',
     ];
+    public const OPTIONAL_FIELDS=['custom_clauses','party_kpp_line','party_signature_title','party_registration_line'];
+
+    public static function optionalFields(string $partyType): array
+    {
+        return $partyType==='company'?['custom_clauses']:self::OPTIONAL_FIELDS;
+    }
 
     public static function catalog(): array
     {
@@ -30,12 +39,14 @@ final class OriginalDocuments
 
     public static function choices(PDO $db,string $kind): array
     {
-        self::source($kind);$result=[];
+        if(!isset(self::TITLES[$kind]))throw new RuntimeException('Неизвестный исходный шаблон.',422);
+        $result=[];
         foreach($db->query('SELECT * FROM rental_templates WHERE version>0 AND word_file_id IS NOT NULL ORDER BY approved_at DESC,id DESC') as $row) {
             $meta=json_decode($row['source_json'],true)?:[];
             if(($meta['generation_kind']??null)===$kind)$result[(int)$row['id']]=$row['name'].' · версия '.$row['version'];
         }
-        $result[0]='Исходник владельца · '.self::TITLES[$kind];return $result;
+        if(isset(self::catalog()[$kind]))$result[0]='Исходник владельца · '.self::TITLES[$kind];
+        return $result;
     }
 
     public static function resolve(PDO $db,string $kind,int $templateId): array
@@ -43,33 +54,39 @@ final class OriginalDocuments
         if(!$templateId)return self::source($kind)+['template_id'=>0,'template_version'=>1,'kind'=>$kind];
         $q=$db->prepare('SELECT * FROM rental_templates WHERE id=?');$q->execute([$templateId]);$row=$q->fetch();
         if(!$row||!$row['word_file_id']||(int)$row['version']<1||(json_decode($row['source_json'],true)['generation_kind']??null)!==$kind)throw new RuntimeException('Утверждённый шаблон этого вида не найден.',422);
-        $asset=TemplateAssets::file($db,$templateId,$row['word_file_id']);$fields=DocxTemplate::fields($asset['path']);
+        $asset=TemplateAssets::file($db,$templateId,$row['word_file_id']);$fields=self::fieldsForKind($asset['path'],$kind);
         if(!$fields)throw new RuntimeException('В шаблоне нет полей для подстановки.',422);
         return $asset+['fields'=>$fields,'template_id'=>$templateId,'template_version'=>(int)$row['version'],'kind'=>$kind,
             'template_values'=>['custom_clauses'=>(string)$row['body'],'template_version'=>(string)$row['version']]];
     }
 
-    public static function buildSource(array $source,array $values,string $target): void
+    public static function fieldsForKind(string $path,string $kind): array
+    {
+        return DocxTemplate::fields($path,str_ends_with($kind,'-person'));
+    }
+
+    public static function buildSource(array $source,array $values,string $target,array $plans=[]): void
     {
         $values=array_replace($values,$source['template_values']??[]);
-        $required=array_values(array_diff($source['fields'],['custom_clauses']));
+        $values+=array_fill_keys(self::OPTIONAL_FIELDS,'');
+        $required=array_values(array_diff($source['fields'],self::OPTIONAL_FIELDS,['office_plan']));
         foreach($required as $key)if(!is_string($values[$key]??null)||trim($values[$key])==='')throw new RuntimeException('Заполните: '.self::label($key),422);
-        DocxTemplate::build($source['path'],array_intersect_key($values,array_flip($source['fields'])),$source['kind'],$target,$required);
+        DocxTemplate::build($source['path'],array_intersect_key($values,array_flip($source['fields'])),$source['kind'],$target,$required,$plans);
     }
 
     public static function missing(array $kinds,array $values): array
     {
         $required=[];
-        foreach ($kinds as $kind)foreach(self::source($kind)['fields'] as $field)$required[$field]=true;
+        foreach ($kinds as $kind)foreach(array_diff(self::source($kind)['fields'],self::OPTIONAL_FIELDS,['office_plan']) as $field)$required[$field]=true;
         return array_values(array_filter(array_keys($required),static fn($field)=>!is_string($values[$field] ?? null)||trim($values[$field])===''));
     }
 
-    public static function build(string $kind,array $values,string $target): void
+    public static function build(string $kind,array $values,string $target,array $plans=[]): void
     {
-        $source=self::source($kind);
+        $source=self::source($kind)+['kind'=>$kind];
         $missing=self::missing([$kind],$values);
         if ($missing)throw new RuntimeException('Заполните данные для документа: '.implode(', ',array_map(self::label(...),$missing)),422);
-        DocxTemplate::build($source['path'],array_intersect_key($values,array_flip($source['fields'])),$kind,$target,$source['fields']);
+        self::buildSource($source,$values,$target,$plans);
     }
 
     public static function label(string $field): string
@@ -88,6 +105,10 @@ final class OriginalDocuments
             'organization_correspondent'=>'Корреспондентский счёт Арендодателя','organization_bik'=>'БИК банка Арендодателя','organization_registration_date'=>'Дата свидетельства ОГРНИП (дд.мм.гггг)',
             'party_full_name'=>'Полное наименование арендатора', 'party_short_name'=>'Краткое наименование арендатора',
             'party_signer_title'=>'Должность подписанта', 'party_signer_title_genitive'=>'Должность в обороте «в лице кого»',
+            'party_signature_name'=>'Полные ФИО для подписи','party_passport'=>'Паспортные сведения',
+            'party_intro'=>'Преамбула арендатора','party_signer_name'=>'Полные ФИО подписанта',
+            'party_signature_title'=>'Должность подписанта','premises_address'=>'Адрес объекта',
+            'lease_duration'=>'Срок аренды прописью',
             'party_signer_genitive'=>'ФИО подписанта в обороте «в лице кого»', 'party_signer_short'=>'Фамилия и инициалы в подписи',
             'party_authority'=>'Основание полномочий подписанта', 'party_email'=>'Email арендатора',
             'party_address'=>'Юридический адрес арендатора', 'party_postal_address'=>'Почтовый адрес арендатора',

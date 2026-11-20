@@ -18,18 +18,36 @@ final class WordPack
         $primary=TemplateAssets::contractKind($db,$data['contract']);
         if($auxiliary&&$primary!=='office')throw new RuntimeException('Образец смены номера помещения предназначен для договора помещений. Для парковки или смешанного договора нужен соответствующий образец ДС.',422);
         if(!$auxiliary&&!in_array($primary,['office','parking'],true))throw new RuntimeException('Для смешанного договора выберите отдельные документы по предмету аренды.',422);
-        $kinds=$auxiliary?['room-change']:[$primary,'services',$primary==='parking'?'parking-handover':'handover'];
-        $sources=[];$fields=[];
-        foreach($kinds as $kind) {
-            $choices=OriginalDocuments::choices($db,$kind);
-            $chosen=$selection[$kind]??array_key_first($choices);
-            if(!is_scalar($chosen)||!ctype_digit((string)$chosen)||!array_key_exists((int)$chosen,$choices))throw new RuntimeException('Выберите действующий шаблон.',422);
-            $sources[$kind]=OriginalDocuments::resolve($db,$kind,(int)$chosen);
-            $fields=array_merge($fields,array_diff($sources[$kind]['fields'],array_keys($sources[$kind]['template_values']??[])));
+        if (!$auxiliary && $data['partyType']==='person') {
+            $types=array_unique(array_column($data['terms'],'type'));
+            $apartment=count($types)===1 && preg_match('/^апартамент/iu',reset($types));
+            $primary=$apartment?'apartment-person':$primary.'-person';
         }
-        $fields=array_values(array_unique($fields));
-        $values=WordGenerationData::complete($data['values'],[],$fields);
-        return array_replace($data,compact('sources','fields','values'));
+        $kind=$auxiliary?'room-change':$primary;
+        $choices=OriginalDocuments::choices($db,$kind);
+        if (!$choices) throw new RuntimeException('Для этого предмета аренды нужен утверждённый Word-шаблон для физлица без плана и ссылок на него. Согласованный файл можно приложить вручную.',422);
+        $chosen=$selection[$kind]??array_key_first($choices);
+        if(!is_scalar($chosen)||!ctype_digit((string)$chosen)||!array_key_exists((int)$chosen,$choices))throw new RuntimeException('Выберите действующий шаблон.',422);
+        $source=OriginalDocuments::resolve($db,$kind,(int)$chosen);
+        if (!isset($selection[$kind]) && $kind==='office' && !in_array('office_plan',$source['fields'],true)) {
+            $source=OriginalDocuments::resolve($db,$kind,0);
+        }
+        $fields=array_values(array_diff($source['fields'],array_keys($source['template_values']??[])));
+        if (in_array('party_intro',$fields,true) && !in_array($data['partyType'],['company','entrepreneur'],true)) {
+            throw new RuntimeException('Проверьте тип контрагента в карточке клиента перед формированием Word.',422);
+        }
+        if (!$auxiliary && $data['partyType']==='entrepreneur' && !in_array('party_intro',$fields,true)) {
+            throw new RuntimeException('Выберите утверждённую редакцию Word с преамбулой для ИП.',422);
+        }
+        $plans=[];
+        if ($kind==='office') {
+            if (!in_array('office_plan',$fields,true)) throw new RuntimeException('В выбранном Word-шаблоне нет поля {{office_plan}} для приложения № 1. Выберите актуальную редакцию.',422);
+            $plans=WordAppendixPlan::load($db,$data['terms']);
+        }
+        $planProof=array_map(static fn($plan)=>$plan['sha256'],$plans);
+        $sources=[$kind=>$source];
+        $values=WordGenerationData::complete($data['values'],[],$fields,$data['partyType']);
+        return array_replace($data,compact('sources','fields','values','plans','planProof'));
     }
 
     private static function hidden(string $name,mixed $value): string
@@ -63,9 +81,10 @@ final class WordPack
             .self::hidden('original_pack',1).self::hidden('request_key',bin2hex(random_bytes(16)));
         foreach($plan['sources'] as $kind=>$source)$body.=self::hidden('template['.$kind.']',$source['template_id'])
             .self::hidden('source_hash['.$kind.']',$source['sha256']);
+        if($plan['plans'])$body.=self::hidden('source_hash[office_plan]',hash('sha256',Importer::canonicalJson($plan['planProof'])));
         if(isset($selection['mode']))$body.=self::hidden('template[mode]',$selection['mode']);
-        $inputs=WordGenerationData::inputs($plan['fields'],$plan['values']);
-        if($inputs)$body.=RentalUI::alert('Нужны дополнительные данные','Заполните отсутствующие сведения. Данные договора и расчётные суммы подставляются автоматически. Если счётчиков или пропусков нет, укажите это явно.');
+        $inputs=WordGenerationData::inputs($plan['fields'],$plan['values'],$plan['partyType']);
+        if($inputs)$body.=RentalUI::alert('Нужны дополнительные данные','Заполните отсутствующие сведения. Данные договора и расчётные суммы подставляются автоматически.');
         foreach($inputs as $key=>$field)$body.=Controller::input('data['.$key.']',$field['label'],'',$field['type'],true);
         $body.='</form>';
         return RentalUI::modal(isset($selection['mode'])?'Смена номера помещения · Word':'Сформировать пакет Word',$body,
@@ -80,33 +99,54 @@ final class WordPack
         $fingerprint=hash('sha256',Importer::canonicalJson([$entity,$id,$version,$selection,$input,$hashes]));
         $q=$db->prepare("SELECT fact_json FROM rental_facts WHERE namespace='word_request' AND source_key=?");$q->execute([$requestKey]);$previous=$q->fetchColumn();
         if($previous){$previous=json_decode($previous,true,512,JSON_THROW_ON_ERROR);if($previous['fingerprint']!==$fingerprint)throw new RuntimeException('Ключ формы уже использован.',409);return self::evidence($db,$previous['primary']);}
-        $inputs=WordGenerationData::inputs($plan['fields'],$plan['values']);
+        $inputs=WordGenerationData::inputs($plan['fields'],$plan['values'],$plan['partyType']);
         if(array_diff_key($input,$inputs))throw new RuntimeException('Нельзя подменять данные договора или расчётные суммы.',422);
-        $values=WordGenerationData::complete($plan['values'],$input,$plan['fields']);
+        $values=WordGenerationData::complete($plan['values'],$input,$plan['fields'],$plan['partyType']);
+        if ($plan['plans'] && (!is_string($hashes['office_plan']??null) ||
+            !hash_equals(hash('sha256',Importer::canonicalJson($plan['planProof'])),$hashes['office_plan']))) {
+            throw new RuntimeException('План изменился. Откройте форму заново.',409);
+        }
         foreach($plan['sources'] as $kind=>$source) {
             if(!is_string($hashes[$kind]??null)||!hash_equals($source['sha256'],$hashes[$kind]))throw new RuntimeException('Шаблон изменился. Откройте форму заново.',409);
-            foreach(array_diff($source['fields'],array_keys($source['template_values']??[])) as $field)if(trim((string)($values[$field]??''))==='')throw new RuntimeException('Заполните: '.OriginalDocuments::label($field),422);
+            $optional=OriginalDocuments::optionalFields($plan['partyType']);
+            foreach(array_diff($source['fields'],array_keys($source['template_values']??[]),$optional,['office_plan']) as $field)if(trim((string)($values[$field]??''))==='')throw new RuntimeException('Заполните: '.OriginalDocuments::label($field),422);
         }
         $dir=APP_ROOT.'/.local/documents';if(!is_dir($dir)&&!mkdir($dir,0700,true)&&!is_dir($dir))throw new RuntimeException('Хранилище документов недоступно.');
         $files=[];$proof=[];$auxiliary=isset($selection['mode']);
         foreach($plan['sources'] as $kind=>$source) {
             $fid=bin2hex(random_bytes(16));$path=$dir.'/'.$fid.'.docx';$created[]=$path;
-            OriginalDocuments::buildSource($source,$values,$path);Documents::validateFile($path,'docx');
+            OriginalDocuments::buildSource($source,$values,$path,$plan['plans']);Documents::validateFile($path,'docx');
             $filename=mb_substr(OriginalDocuments::TITLES[$kind].' №'.$plan['contract']['number'],0,220).'.docx';
             $fileKind=(!$files&&!$auxiliary)?'lawyer-file':'word-'.$kind;
             $hash=hash_file('sha256',$path);
-            $db->prepare('INSERT INTO rental_files(id,entity_type,entity_id,version,kind,filename,path,sha256,mime) VALUES(?,?,?,?,?,?,?,?,?)')->execute([
-                $fid,$entity,$id,$version,$fileKind,$filename,basename($path),$hash,'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);
-            FileOrder::assign($db,$fid);
+            self::attach($db,$fid,$entity,$id,$version,$fileKind,$filename,$path,$hash,'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
             $files[]=['id'=>$fid,'sha256'=>$hash,'filename'=>$filename,'kind'=>$kind];
             $proof[$kind]=array_intersect_key($source,array_flip(['template_id','template_version','sha256']));
         }
+        foreach ($plan['plans'] as $image) {
+            if ($image['mime']!=='application/pdf') continue;
+            $fid=bin2hex(random_bytes(16));$path=$dir.'/'.$fid.'.pdf';$created[]=$path;
+            if (file_put_contents($path,$image['bytes'])!==strlen($image['bytes'])) throw new RuntimeException('Не удалось сохранить PDF приложения № 1.');
+            Documents::validateFile($path,'pdf');
+            $filename=mb_substr('Приложение № 1 · план '.$image['name'].' к договору №'.$plan['contract']['number'],0,220).'.pdf';
+            self::attach($db,$fid,$entity,$id,$version,'word-office-plan',$filename,$path,$image['sha256'],'application/pdf');
+            $files[]=['id'=>$fid,'sha256'=>$image['sha256'],'filename'=>$filename,'kind'=>'office-plan'];
+        }
+        unset($values['party_passport']);
         $pack=['primary'=>$files[0]['id'],'entity'=>$entity,'entity_id'=>$id,'version'=>$version,'files'=>$files,'sources'=>$proof,'values'=>$values];
+        if ($plan['planProof']) $pack['plan_sources']=$plan['planProof'];
         $db->prepare("INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES('word_pack',?,?,0)")->execute([$pack['primary'],Importer::json($pack)]);
         $db->prepare("INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES('word_request',?,?,0)")->execute([$requestKey,Importer::json(['fingerprint'=>$fingerprint,'primary'=>$pack['primary']])]);
         if(!$auxiliary)$db->prepare('DELETE FROM rental_approvals WHERE entity_type=? AND entity_id=?')->execute([$entity,$id]);
         Audit::record('document.generate-package',$entity,$id,null,['files'=>$files,'sources'=>$proof]);
         return $pack;
+    }
+
+    private static function attach(PDO $db,string $fileId,string $entity,int $id,int $version,string $kind,string $filename,string $path,string $hash,string $mime): void
+    {
+        $db->prepare('INSERT INTO rental_files(id,entity_type,entity_id,version,kind,filename,path,sha256,mime) VALUES(?,?,?,?,?,?,?,?,?)')
+            ->execute([$fileId,$entity,$id,$version,$kind,$filename,basename($path),$hash,$mime]);
+        FileOrder::assign($db,$fileId);
     }
 
     public static function generate(): never

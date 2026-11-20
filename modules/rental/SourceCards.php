@@ -79,6 +79,8 @@ final class SourceCards {
 
         ];
         $body = ContractRevision::presentation($c);
+        $signedLinks=Documents::signedContractLinks($id);
+        if ($signedLinks) $body.='<div class="demo-row">'.implode(' ',$signedLinks).'</div>';
         foreach ($rows as $object) {
             if (empty($object['plan_id'])) continue;
             $body.='<p><a class="btn btn-secondary" href="/rental/object-plan?id='.(int)$object['id'].'&amp;contract_id='.$id
