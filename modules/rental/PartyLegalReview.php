@@ -19,6 +19,27 @@ final class PartyLegalReview
         return DirectoryDetails::read($db,'party_legal_review',$id);
     }
 
+    public static function work(array $actor): array
+    {
+        if (!in_array($actor['role'],['lawyer','manager','admin'],true) || PagePolicy::level('rental.parties',$actor)<1) return [];
+        $editable=PagePolicy::level('rental.parties',$actor)>=2 && Auth::can(Service::commandGrant(self::SUBMIT,$actor));
+        $rows=[];
+        foreach (Controller::query("SELECT p.id,p.name,p.inn,JSON_UNQUOTE(JSON_EXTRACT(d.fact_json,'$.status')) status,"
+            ."JSON_UNQUOTE(JSON_EXTRACT(d.fact_json,'$.reason')) reason FROM rental_facts d "
+            ."JOIN parties p ON d.source_key=CAST(p.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci "
+            ."WHERE d.namespace='directory_party_legal_review' AND d.operative=1 AND p.blocked=0 "
+            ."AND JSON_UNQUOTE(JSON_EXTRACT(d.fact_json,'$.status')) IN ('pending','returned') ORDER BY p.name,p.id") as $party) {
+            $pending=$party['status']==='pending';
+            $owner=$pending?'lawyer':'manager';
+            $rows[]=$party+[
+                'owner'=>$owner,'mine'=>$editable && in_array($actor['role'],[$owner,'admin'],true),
+                'stage'=>$pending?'Карточка у юриста':'Карточка на исправлении',
+                'comment'=>$pending?'Сверить с исходной карточкой':$party['reason'],
+            ];
+        }
+        return $rows;
+    }
+
     public static function requireOnNewParty(PDO $db,int $id): void
     {
         DirectoryDetails::store($db,'party_legal_review',$id,['status'=>'draft']);

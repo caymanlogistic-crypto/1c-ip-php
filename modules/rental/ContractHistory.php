@@ -30,10 +30,15 @@ final class ContractHistory
         if($partTerms!==null)$snapshotData['part_terms']=$partTerms;
         $legal=$db->prepare("SELECT role,baseline_hash,file_id,actor_id,confirmed_at FROM rental_approvals WHERE entity_type='contract' AND entity_id=?");
         $legal->execute([$contract['id']]);
-        $accounting=$db->prepare("SELECT id,record_version,actor_id,legal_file_id,confirmed_at FROM rental_packet_confirmations "
-            ."WHERE record_kind='contract' AND record_id=? AND record_version<=? ORDER BY workflow_revision DESC LIMIT 1");
-        $accounting->execute([$contract['id'],$contract['version']]);
         $decisions=$legal->fetchAll();
+        $accounting=$db->prepare("SELECT b.id,b.record_version,b.actor_id,b.legal_file_id,b.confirmed_at "
+            ."FROM rental_packet_confirmations b JOIN rental_approvals a "
+            ."ON a.entity_type='contract' AND a.entity_id=b.record_id AND a.role='lawyer' "
+            ."AND a.file_id=b.legal_file_id AND a.baseline_hash=b.legal_baseline "
+            ."JOIN rental_files f ON f.id=a.file_id AND f.version=b.file_revision AND f.sha256=b.legal_file_sha256 "
+            ."WHERE b.record_kind='contract' AND b.record_id=? AND b.record_version<=? "
+            ."ORDER BY b.workflow_revision DESC LIMIT 1");
+        $accounting->execute([$contract['id'],$contract['version']]);
         $confirmation=$accounting->fetch()?:null;
         if ($decisions || $confirmation || $revision)
             $snapshotData['review']=['legal'=>$decisions,'accounting'=>$confirmation,'revision'=>$revision];

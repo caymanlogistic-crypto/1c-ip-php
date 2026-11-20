@@ -102,7 +102,7 @@ final class Indicators {
                 'text' => $text,
                 'contract_id' => $contract,
                 'url' => '/rental/'
-                . match($entity){'invoice'=>'invoice','document'=>'document','object'=>'object','reservation'=>'booking',default=>'contract'}
+                . match($entity){'invoice'=>'invoice','document'=>'document','object'=>'object','reservation'=>'booking','party'=>'party',default=>'contract'}
                 . '?id='
                 . $id
             ]+$metadata;
@@ -226,6 +226,9 @@ final class Indicators {
                 }
                 $add('document',(int)$d['id'],$task['role'],$task['severity'],'approvals',$task['text'],(int)$d['contract_id'],['version'=>(int)$d['version'],'legal_sla'=>$sla]);
             }
+        }
+        if ($allow('approvals') && ($actor=\App\Auth::user())) foreach (PartyLegalReview::work($actor) as $party) {
+            if ($party['mine']) $add('party',(int)$party['id'],$party['owner'],'yellow','approvals',$party['comment']);
         }
         if ($allow('objects')) foreach (ObjectFacts::idleSignals($today,$objects) as $signal) {
             $add('object',$signal['id'],$signal['role'],$signal['severity'],'objects',$signal['text']);
