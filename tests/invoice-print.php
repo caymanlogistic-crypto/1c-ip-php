@@ -41,6 +41,17 @@ foreach (['№ 1014', 'Банк из счёта', '06984', 'Договор № 1
 $check(!str_contains($html, $invoice['number']) && !str_contains($html, 'Текущее назначение'), 'Historical presentation changed');
 $check(InvoiceDocument::filename($invoice)==='Счёт № 1014 от 09.09.2026 — ООО «Покупатель».pdf', 'PDF filename');
 
+$storedFile = ['version'=>1, 'filename'=>'original-scan.pdf'];
+$originalInvoice = $invoice + ['id'=>0, 'version'=>1];
+$check(InvoiceDocument::originalFilename($db, $originalInvoice, $storedFile)
+    === 'Счёт № 1014 от 09.09.2026 — ООО «Покупатель».pdf', 'Original uses the confirmed invoice buyer');
+$unknownBuyer = array_replace($originalInvoice, ['source_json'=>'{}', 'party_name'=>'Текущий покупатель']);
+$check(InvoiceDocument::originalFilename($db, $unknownBuyer, $storedFile)
+    === 'Счёт № 1014 от 09.09.2026.pdf', 'Original with unknown buyer uses number and date');
+$unknownVersion = array_replace($originalInvoice, ['version'=>2, 'number'=>'АЯИП-001015']);
+$check(InvoiceDocument::originalFilename($db, $unknownVersion, $storedFile)
+    === $storedFile['filename'], 'Missing historical version keeps the stored filename');
+
 $incomplete = array_replace($invoice, ['payee_snapshot'=>Importer::json(['name'=>'ИП Поставщик']), 'vat'=>null,
     'source_json'=>Importer::json(['id'=>1014, 'payerSnapshot'=>$payer])]);
 $data = InvoiceDocument::data($db, $incomplete);
@@ -61,4 +72,4 @@ $native = array_replace($invoice, [
     'source_json'=>'{}', 'amount'=>'269558.10',
 ]);
 $check(str_contains(InvoiceDocument::html($db, $native), 'Счёт на оплату № Д-100014'), 'Native invoice keeps own numbering');
-echo "PASS captured lines, exact money, native numbering, and incomplete historical print guard\n";
+echo "PASS captured lines, exact money, original filename, native numbering, incomplete historical print guard\n";

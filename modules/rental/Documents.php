@@ -491,7 +491,7 @@ final class Documents {
             if ($bytes === false || !hash_equals($original['sha256'], hash('sha256', $bytes))) {
                 throw new RuntimeException('Проверка целостности оригинала не пройдена.', 409);
             }
-            $filename = $original['filename'];
+            $filename = InvoiceDocument::originalFilename(DB::pdo(), $invoice, $original);
         } else {
             $bytes = self::renderPdf(InvoiceDocument::html(DB::pdo(), $invoice));
             $filename = InvoiceDocument::filename($invoice, $invoice['party_name']);

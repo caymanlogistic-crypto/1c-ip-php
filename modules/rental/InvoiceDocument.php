@@ -39,6 +39,18 @@ final class InvoiceDocument
         return $file['mime'] === 'application/pdf' ? $file : null;
     }
 
+    public static function originalFilename(PDO $db, array $invoice, array $file): string
+    {
+        if ((int)$invoice['version'] !== (int)$file['version']) {
+            $query = $db->prepare('SELECT snapshot_json FROM rental_invoice_versions WHERE invoice_id=? AND version=?');
+            $query->execute([$invoice['id'], $file['version']]);
+            $snapshot = $query->fetchColumn();
+            $invoice = self::json($snapshot === false ? null : $snapshot);
+        }
+        if (empty($invoice['number']) || empty($invoice['issued'])) return $file['filename'];
+        return self::filename($invoice);
+    }
+
     private static function json(?string $json): array
     {
         $value = $json === null ? [] : Importer::decodeExact($json);
