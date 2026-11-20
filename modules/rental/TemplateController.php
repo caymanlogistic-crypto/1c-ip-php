@@ -11,7 +11,7 @@ final class TemplateController
     public static function listing(): string
     {
         Access::pages(['templates']);Service::roles(['lawyer','director']);$query=trim((string)($_GET['q']??''));$rows=[];
-        foreach(OriginalDocuments::TITLES as $kind=>$title)if(WorkRegistry::matches($query,[$title,'исходник владельца']))$rows[]=[
+        foreach(array_intersect_key(OriginalDocuments::TITLES,OriginalDocuments::catalog()) as $kind=>$title)if(WorkRegistry::matches($query,[$title,'исходник владельца']))$rows[]=[
             '_attrs'=>'data-rental-url="/rental/template?kind='.$kind.'" tabindex="0"',View::e($title),'Исходник владельца','—','Доступен для формирования'];
         foreach(Controller::query('SELECT * FROM rental_templates ORDER BY id DESC') as $row) {
             if(!WorkRegistry::matches($query,[$row['name'],$row['status']]))continue;
@@ -105,7 +105,7 @@ final class TemplateController
             .'<label class="field"><span class="field-label">Файл шаблона Word .docx</span>'
             .'<input class="field-input" type="file" name="template_file" accept=".docx"'.(!$hasSource?' required':'').'></label>'
             .'<p class="registry-ui-modal-help">Загрузите DOCX до 5 МБ. Используйте поля в двойных фигурных скобках: {{number}}, {{date}}, {{party_full_name}}, {{room_numbers}}. Известные данные подставятся из договора, остальные система запросит. Допустимы собственные имена полей латиницей, например {{purpose}}. Оформление Word сохраняется. Новая редакция станет доступна после утверждения руководителем.</p><div class="demo-row">';
-        foreach(OriginalDocuments::TITLES as $sourceKind=>$label)$body.='<a class="btn btn-secondary" href="/rental/template-base?original='.$sourceKind.'" download>Основа: '.View::e($label).'</a>';
+        foreach(array_intersect_key(OriginalDocuments::TITLES,OriginalDocuments::catalog()) as $sourceKind=>$label)$body.='<a class="btn btn-secondary" href="/rental/template-base?original='.$sourceKind.'" download>Основа: '.View::e($label).'</a>';
         foreach (['office'=>'офис','parking'=>'машиноместо','mixed'=>'смешанный','addendum'=>'ДС'] as $kind=>$label) {
             $body.='<a class="btn btn-secondary" href="/rental/template-base?kind='.$kind.'" download>Word: '.$label.'</a>';
         }

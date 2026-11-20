@@ -4,6 +4,16 @@ namespace Modules\Rental;
 use App\{Auth, DB, Http, Audit};
 use RuntimeException;
 final class Documents {
+    public static function signedContractLinks(int $contractId,string $label=''): array
+    {
+        $files=Controller::query("SELECT id,version FROM rental_files WHERE entity_type='contract' AND entity_id=? AND kind='signed-contract' ORDER BY upload_order DESC,id DESC",[$contractId]);
+        $links=[];
+        foreach ($files as $file) {
+            $links[]='<a class="btn btn-secondary" href="/rental/download?id='.self::e($file['id']).'">'
+                .self::e('Подписанный договор'.$label.' · версия '.$file['version']).'</a>';
+        }
+        return $links;
+    }
     private static function e(mixed $v):string {
         return htmlspecialchars((string)($v ?? ''), ENT_QUOTES|ENT_XML1, 'UTF-8');
     }
