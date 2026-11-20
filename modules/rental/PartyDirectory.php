@@ -164,6 +164,8 @@ final class PartyDirectory
             .'<div class="registry-ui-form-row registry-ui-form-row--wide-code">'
             .DirectoryUi::input('name','Название в документах / ФИО',$party['name'] ?? '','text',true)
             .DirectoryUi::input('inn','ИНН',$party['inn'] ?? '').'</div>'
+            .'<button class="btn btn-secondary" type="button" data-party-reference="inn">'.($id?'Обновить реквизиты':'Заполнить по ИНН').'</button>'
+            .'<div class="registry-ui-modal-grid" data-party-reference-result="inn" aria-live="polite" hidden></div>'
             .'<div data-party-type-fields="company" class="registry-ui-form-row">'
             .DirectoryUi::input('kpp','КПП',$party['kpp'] ?? '')
             .DirectoryUi::input('ogrn','ОГРН',$details['ogrn'] ?? '').'</div>'
@@ -199,6 +201,8 @@ final class PartyDirectory
             .'<div class="registry-ui-form-row registry-ui-form-row--wide-code">'
             .DirectoryUi::input('bank','Наименование банка',$bankValue('bank'),'text',true)
             .DirectoryUi::input('bik','БИК',$bankValue('bik'),'text',true).'</div>'
+            .'<button class="btn btn-secondary" type="button" data-party-reference="bik">Найти банк по БИК</button>'
+            .'<div class="registry-ui-modal-grid" data-party-reference-result="bik" aria-live="polite" hidden></div>'
             .'<div class="registry-ui-form-row">'
             .DirectoryUi::input('account','Расчётный счёт',$bankValue('account'),'text',true)
             .DirectoryUi::input('correspondent_account','Корреспондентский счёт',$bankValue('correspondent_account'),'text',true).'</div></section>'
