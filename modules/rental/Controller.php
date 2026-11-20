@@ -1211,12 +1211,34 @@ final class Controller {
                 401,
                 403
             ], true))throw $e;
+            $previewChanged = $e->getCode() === 409 && $e->getMessage() === NativePacket::PREVIEW_CHANGED;
+            $message = match ($e->getMessage()) {
+                NativePacket::PREVIEW_CHANGED => PacketForm::CHANGED_MESSAGE,
+                'NATIVE_PACKET_LEGAL_FILE_SUPERSEDED', 'NATIVE_PACKET_LEGAL_BASELINE_CHANGED',
+                'NATIVE_PACKET_DOCUMENT_BASE_CHANGED' => 'Документ или условия изменились. Попросите юриста проверить актуальный комплект.',
+                'NATIVE_PACKET_NOT_AT_ACCOUNTANT' => 'Этап согласования изменился. Откройте карточку заново.',
+                default => $e->getMessage(),
+            };
             if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'ERP-Fetch') {
                 http_response_code($e->getCode() === 409?409:422);
-                echo RentalUI::alert($e instanceof \PDOException?'Не удалось сохранить: проверьте связанные записи и уникальность номера.':$e->getMessage(), '', 'error');
+                if ($previewChanged) {
+                    $previousGet = $_GET;
+                    $_GET = ['id' => (int)$in['id'], 'action' => $action];
+                    try {
+                        $body = $action === 'contract.packet' ? SourceCards::action($in) : AddendumController::action($in);
+                        header('X-Rental-Form-Refreshed: 1');
+                        echo $body;
+                    } catch (\RuntimeException) {
+                        echo RentalUI::alert('Пакет изменился. Закройте окно и откройте карточку заново.', '', 'error');
+                    } finally {
+                        $_GET = $previousGet;
+                    }
+                    exit;
+                }
+                echo RentalUI::alert($e instanceof \PDOException?'Не удалось сохранить: проверьте связанные записи и уникальность номера.':$message, '', 'error');
                 exit;
             }
-            $_SESSION['rental_notice'] = $e instanceof \PDOException?'Не удалось сохранить: проверьте уникальность номера и связанные записи.':$e->getMessage();
+            $_SESSION['rental_notice'] = $e instanceof \PDOException?'Не удалось сохранить: проверьте уникальность номера и связанные записи.':$message;
             if (empty($in['id']) && $action === 'contract.create')$target = '/rental/new-contract';
         }
         Http::redirect($target);

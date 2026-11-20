@@ -145,7 +145,7 @@ final class Service {
                 $fp,
                 Importer::json($r)
             ]);
-            NativePacket::captureAfterB($p, $u, $action, $in, $r, $key, $validatedPacket);
+            NativePacket::captureAfterB($p, $u, $action, $in, $r, $key, $fp, $validatedPacket);
             $pendingEventId=WorkflowEvents::record($p, $u, $action, $in, $r, $key, $eventContext);
             if ($objectContext!==null) $pendingEventId=ObjectActivity::record($p,$u,$in,$r,$key,$objectContext);
             return $r;
