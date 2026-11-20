@@ -294,8 +294,13 @@
         throw new Error(result.message||'Не удалось сохранить форму.');
       }
       const doc=parse(await response.text());
-      if(!response.ok)throw new Error(doc.querySelector('[role="alert"]')?.textContent.trim()||'Не удалось сохранить. Проверьте доступ и повторите попытку.');
       const replacement=doc.querySelector('dialog[data-rental-dialog]');
+      if(response.status===409&&replacement&&response.headers.get('X-Rental-Form-Refreshed')==='1'){
+        if(dialog.hasAttribute('data-rental-autopen'))replacement.setAttribute('data-rental-autopen','');
+        mountRental(replacement,lastFocus);
+        return;
+      }
+      if(!response.ok)throw new Error(doc.querySelector('[role="alert"]')?.textContent.trim()||'Не удалось сохранить. Проверьте доступ и повторите попытку.');
       if(replacement){
         if(refresh) await window.RentalRegistry.load(refresh,{completion:true,preserve:true,savedInvoice});
         // A committed command replaces its obsolete navigation context.

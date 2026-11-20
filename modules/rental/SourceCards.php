@@ -283,7 +283,7 @@ final class SourceCards {
         return $event['description'];
     }
 
-    public static function action(): string {
+    public static function action(?array $previousPacket = null): string {
         Auth::requirePermission('rental.read');
         $id = (int)($_GET['id'] ?? 0);
         $c = self::contract($id);
@@ -315,7 +315,7 @@ final class SourceCards {
             if (!LegalReview::assigned($c))throw new RuntimeException('Договор не у юриста.',409);
             $legalFile=LegalReview::file($c);
         }
-        $fields = RentalUI::pairs([
+        $fields = $action === 'contract.packet' ? PacketForm::preview('contract', $id, $previousPacket) : RentalUI::pairs([
             [
                 'Договор',
                 $c['number']
@@ -332,9 +332,6 @@ final class SourceCards {
         }
         $extra = '';
         if ($action==='contract.legal')$fields.=LegalReview::context($c).LegalReview::fileFields($legalFile);
-        if ($action === 'contract.packet') {
-            $fields .= PacketForm::preview('contract', $id);
-        }
         $formId = 'rental-action-'
         . bin2hex(random_bytes(6));
         if (in_array($action, [
@@ -388,7 +385,7 @@ final class SourceCards {
         . '&action=contract.handed');
         $body = '<form id="'
         . $formId
-        . '"'.($action==='contract.legal'?' class="registry-ui-modal-grid"':'').' method="post" action="/rental/action"><input type="hidden" name="_csrf" value="'
+        . '"'.(in_array($action,['contract.legal','contract.packet'],true)?' class="registry-ui-modal-grid"':'').' method="post" action="/rental/action"><input type="hidden" name="_csrf" value="'
         . View::e(Http::csrf())
         . '"><input type="hidden" name="id" value="'
         . $id
