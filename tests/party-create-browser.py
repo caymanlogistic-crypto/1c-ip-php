@@ -1,7 +1,8 @@
 """Run with Python Playwright against the isolated local app.
 
 Pass a private JSON file with username, password and viewer (same password).
-The test creates two synthetic counterparties and one draft.
+Add accountant to check the same password for that role and test its create-only access.
+The test creates synthetic counterparties and one draft.
 """
 
 import json
@@ -128,6 +129,31 @@ with sync_playwright() as driver:
         expect(contract.locator(f'[name="{field}"]')).to_have_value(iso)
     page.goto("/rental/parties?q=" + quote(contract_name))
     expect(page.locator("tr").filter(has_text=contract_name)).to_have_count(1)
+
+    if "accountant" in accounts:
+        accountant = browser.new_page(base_url=base_url)
+        login(accountant, accounts["accountant"], accounts["password"])
+        accountant.goto(directory_url)
+        accountant.get_by_role("button", name="Создать контрагента").click()
+        accountant_form = accountant.locator("dialog[open]")
+        accountant_name = f"Учебный контрагент бухгалтера {token}"
+        fill_party(accountant_form, accountant_name, "")
+        with accountant.expect_response(action_response) as saved:
+            accountant_form.get_by_role("button", name="Сохранить", exact=True).click()
+        assert saved.value.status == 200
+        created_party = saved.value.json()["createdParty"]
+        expect(accountant_form).to_have_count(0)
+        expect(accountant.locator("tr").filter(has_text=accountant_name)).to_have_count(1)
+        csrf = accountant.locator('form[action="/logout"] [name="_csrf"]').input_value()
+        assert accountant.goto(f'/rental/edit-party?id={created_party["id"]}').status == 403
+        denied = accountant.request.post("/rental/action", form={
+            "_csrf": csrf, "action": "party.save", "id": str(created_party["id"]), "version": "1",
+            "name": "Запрещённое изменение", "command_key": secrets.token_hex(16),
+        }, headers={"X-Requested-With": "ERP-Fetch"})
+        assert denied.status == 403
+        accountant.goto(directory_url)
+        expect(accountant.locator("tr").filter(has_text=accountant_name)).to_have_count(1)
+        print("PASS: accountant creates from the directory and cannot edit through UI or POST.")
 
     viewer = browser.new_page(base_url=base_url)
     login(viewer, accounts["viewer"], accounts["password"])
