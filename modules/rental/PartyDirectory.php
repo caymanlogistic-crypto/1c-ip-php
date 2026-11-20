@@ -51,7 +51,7 @@ final class PartyDirectory
             try {Access::contract((int)$contract['id']);}
             catch (RuntimeException $error) {if ($error->getCode()===403) continue; throw $error;}
             $label='№ '.$contract['number'].($contract['document_date']?' от '.Documents::dateText($contract['document_date']):'');
-            $links[]=Controller::link('/rental/contract?id='.(int)$contract['id'],$label);
+            $links[]=RentalUI::button($label,'/rental/contract?id='.(int)$contract['id']);
         }
         return $links?'<div class="registry-ui-secondary">Договоры · '.implode(' · ',$links).'</div>':'';
     }
