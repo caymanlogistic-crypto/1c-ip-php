@@ -32,7 +32,7 @@ final class SourceCards {
         if(in_array($role,['admin','manager'],true) && Auth::can('rental.write') && \App\PagePolicy::level('rental.contracts',Auth::user())>=2 && empty(json_decode($c['source_json'],true)['imported']) && in_array($c['status'],['draft','returned'],true) && $c['return_to']!=='lawyer')return ContractForm::render();
         $managed = empty(json_decode($c['source_json'], true)['imported']);
         $rows = Controller::query("SELECT o.*,p.id plan_id FROM rental_objects o JOIN contract_objects co ON co.object_id=o.id "
-            ."LEFT JOIN rental_facts p ON p.namespace='directory_object_plan' AND p.source_key=CAST(o.id AS CHAR) AND p.operative=1 "
+            ."LEFT JOIN rental_facts p ON p.namespace='directory_object_plan' AND p.source_key=CAST(o.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AND p.operative=1 "
             ."WHERE co.contract_id=? ORDER BY o.id", [
             $id
         ]);
