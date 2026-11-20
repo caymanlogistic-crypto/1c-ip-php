@@ -66,7 +66,7 @@ final class WordGenerationData
                 'company'=>$partyDetails['ogrn']??'', 'entrepreneur'=>$partyDetails['ogrnip']??'', default=>'',
             },
             'party_signer_title'=>$partyDetails['signer_position'] ?? '',
-            'party_signer_basis'=>$partyDetails['signer_basis'] ?? '',
+            'party_authority'=>$partyDetails['signer_basis'] ?? '',
             'party_bank_line'=>!empty($bank['account'])&&!empty($bank['bank'])?$bank['account'].' в '.$bank['bank']:'',
             'party_correspondent'=>$bank['correspondent_account']??'','party_bik'=>$bank['bik']??'',
             'area'=>$areaKnown?rtrim(rtrim($area,'0'),'.'):'','room_numbers'=>implode(', ',array_unique($numbers)),
