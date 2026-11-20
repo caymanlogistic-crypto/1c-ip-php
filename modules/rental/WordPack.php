@@ -2,14 +2,14 @@
 declare(strict_types=1);
 namespace Modules\Rental;
 
-use App\{DB,Http,View,Audit};
+use App\{Auth,DB,Http,View,Audit,PagePolicy};
 use PDO;
 use RuntimeException;
 
 /** Immutable Word package; no changes to contractual terms or external dispatch. */
 final class WordPack
 {
-    public static function plan(PDO $db,string $entity,int $id,int $version,array $selection=[]): array
+    public static function plan(PDO $db,string $entity,int $id,int $version,array $selection=[],bool $forForm=false): array
     {
         $auxiliary=($selection['mode']??'')==='room-change';
         if(isset($selection['mode'])&&!$auxiliary)throw new RuntimeException('Неизвестный состав пакета.',422);
@@ -26,28 +26,43 @@ final class WordPack
         $kind=$auxiliary?'room-change':$primary;
         $choices=OriginalDocuments::choices($db,$kind);
         if (!$choices) throw new RuntimeException('Для этого предмета аренды нужен утверждённый Word-шаблон для физлица без плана и ссылок на него. Согласованный файл можно приложить вручную.',422);
-        $chosen=$selection[$kind]??array_key_first($choices);
-        if(!is_scalar($chosen)||!ctype_digit((string)$chosen)||!array_key_exists((int)$chosen,$choices))throw new RuntimeException('Выберите действующий шаблон.',422);
-        $source=OriginalDocuments::resolve($db,$kind,(int)$chosen);
-        if (!isset($selection[$kind]) && $kind==='office' && !in_array('office_plan',$source['fields'],true)) {
-            $source=OriginalDocuments::resolve($db,$kind,0);
+        $required=[];
+        if ($kind==='office') $required[]='office_plan';
+        if (!$auxiliary && $data['partyType']==='entrepreneur') $required[]='party_intro';
+        $resolved=[];$excluded=[];
+        if ($required) {
+            foreach ($choices as $candidate=>$title) {
+                $layout=OriginalDocuments::resolve($db,$kind,$candidate);
+                if (array_diff($required,$layout['fields'])) $excluded[$candidate]=$title;
+                else $resolved[$candidate]=$layout;
+            }
+            $choices=array_diff_key($choices,$excluded);
         }
+        $requested=$selection[$kind]??null;
+        if ($requested!==null && (!is_scalar($requested) || !ctype_digit((string)$requested))) {
+            throw new RuntimeException('Выберите действующий шаблон.',422);
+        }
+        $chosen=$requested===null?array_key_first($choices):(int)$requested;
+        if ($forForm && isset($excluded[$chosen])) $chosen=array_key_first($choices);
+        if (!isset($choices[$chosen])) {
+            throw new RuntimeException('Выберите совместимый утверждённый шаблон и откройте форму заново.',422);
+        }
+        $source=$resolved[$chosen]??OriginalDocuments::resolve($db,$kind,$chosen);
         $fields=array_values(array_diff($source['fields'],array_keys($source['template_values']??[])));
         if (in_array('party_intro',$fields,true) && !in_array($data['partyType'],['company','entrepreneur'],true)) {
             throw new RuntimeException('Проверьте тип контрагента в карточке клиента перед формированием Word.',422);
         }
-        if (!$auxiliary && $data['partyType']==='entrepreneur' && !in_array('party_intro',$fields,true)) {
-            throw new RuntimeException('Выберите утверждённую редакцию Word с преамбулой для ИП.',422);
-        }
-        $plans=[];
+        $plans=[];$missingPlans=[];
         if ($kind==='office') {
-            if (!in_array('office_plan',$fields,true)) throw new RuntimeException('В выбранном Word-шаблоне нет поля {{office_plan}} для приложения № 1. Выберите актуальную редакцию.',422);
-            $plans=WordAppendixPlan::load($db,$data['terms']);
+            $plans=WordAppendixPlan::load($db,$data['terms'],$missingPlans);
+            if ($missingPlans && !$forForm) {
+                throw new RuntimeException('Добавьте план в карточку объекта «'.reset($missingPlans).'» для приложения № 1.',422);
+            }
         }
         $planProof=array_map(static fn($plan)=>$plan['sha256'],$plans);
         $sources=[$kind=>$source];
         $values=WordGenerationData::complete($data['values'],[],$fields,$data['partyType']);
-        return array_replace($data,compact('sources','fields','values','plans','planProof'));
+        return array_replace($data,compact('sources','fields','values','plans','planProof','choices','excluded','missingPlans'));
     }
 
     private static function hidden(string $name,mixed $value): string
@@ -69,13 +84,29 @@ final class WordPack
         $entity=(string)($_GET['entity_type']??'contract');$id=(int)($_GET['id']??0);$version=(int)($_GET['version']??0);
         $selection=is_array($_GET['template']??null)?$_GET['template']:[];
         if(($_GET['mode']??'')==='room-change')$selection['mode']='room-change';
-        $db=DB::pdo();$plan=self::plan($db,$entity,$id,$version,$selection);$form='word-pack-'.bin2hex(random_bytes(6));
+        $db=DB::pdo();$plan=self::plan($db,$entity,$id,$version,$selection,true);$form='word-pack-'.bin2hex(random_bytes(6));
+        $kind=array_key_first($plan['sources']);
+        $source=$plan['sources'][$kind];
         $common=self::hidden('entity_type',$entity).self::hidden('id',$id).self::hidden('version',$version);
         $body=RentalUI::pairs([['Договор',$plan['contract']['number']],['Арендатор',$plan['party']['name']],
-            ['Помещения',$plan['values']['room_numbers']],['Аренда с НДС',Documents::amountText($plan['record']['amount']).' ₽']]);
+            ['Помещения',$plan['values']['room_numbers']],['Аренда с НДС',Documents::amountText($plan['record']['amount']).' ₽'],
+            ['Выбранный шаблон Word',$plan['choices'][$source['template_id']]]]);
+        if ($plan['missingPlans']) {
+            $body.=RentalUI::alert('Добавьте план для приложения № 1',
+                'Менеджер может загрузить PDF, PNG или JPEG в карточке объекта через «Редактировать». Если договор уже согласован в Word или PDF, загрузите готовый файл ниже.','warning');
+            foreach ($plan['missingPlans'] as $objectId=>$name) {
+                $body.=PagePolicy::level('rental.objects',Auth::user())>=1
+                    ? '<div class="demo-row">'.RentalUI::button('Карточка объекта «'.$name.'»','/rental/object?id='.$objectId).'</div>'
+                    : RentalUI::pairs([['Объект',$name]]);
+            }
+            return RentalUI::modal('Сформировать пакет Word',$body.LegalReview::upload($plan['contract']),
+                RentalUI::button('Перейти к проверке юристом','/rental/action-form?id='.$id.'&action=contract.legal'),'approvals');
+        }
+        if ($plan['excluded']) $body.=RentalUI::alert('Некоторые редакции пропущены',
+            'Для этого пакета в них не хватает поля плана или поля преамбулы ИП. Исходники доступны в разделе «Шаблоны документов».');
         $body.='<form class="registry-ui-modal-grid" method="get" action="/rental/word-form">'.$common;
         if(isset($selection['mode']))$body.=self::hidden('mode',$selection['mode']);
-        foreach($plan['sources'] as $kind=>$source)$body.=DirectoryUi::select('template['.$kind.']',OriginalDocuments::TITLES[$kind],OriginalDocuments::choices($db,$kind),$source['template_id']);
+        $body.=DirectoryUi::select('template['.$kind.']',OriginalDocuments::TITLES[$kind],$plan['choices'],$source['template_id']);
         $body.='<div class="demo-row"><button class="btn btn-secondary">Применить выбор шаблонов</button></div></form>';
         $body.='<form class="registry-ui-modal-grid" id="'.$form.'" method="post" action="/rental/generate">'.$common.self::hidden('_csrf',Http::csrf())
             .self::hidden('original_pack',1).self::hidden('request_key',bin2hex(random_bytes(16)));

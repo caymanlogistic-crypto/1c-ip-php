@@ -17,14 +17,17 @@ final class WordAppendixPlan
     private const CONTENT='http://schemas.openxmlformats.org/package/2006/content-types';
     private const REL_PATH='word/_rels/document.xml.rels';
 
-    public static function load(PDO $db,array $terms): array
+    public static function load(PDO $db,array $terms,array &$missing): array
     {
         $plans=[];
         foreach ($terms as $term) {
             $id=(int)$term['object_id'];
-            if (isset($plans[$id])) continue;
+            if (isset($plans[$id]) || isset($missing[$id])) continue;
             $plan=DirectoryDetails::read($db,'object_plan',$id);
-            if (!$plan) throw new RuntimeException('Добавьте план в карточку объекта «'.$term['name'].'» для приложения № 1.',422);
+            if (!$plan) {
+                $missing[$id]=$term['name'];
+                continue;
+            }
             $bytes=base64_decode($plan['content'],true);
             if ($bytes===false || !hash_equals($plan['sha256'],hash('sha256',$bytes))) {
                 throw new RuntimeException('Проверка целостности плана объекта «'.$term['name'].'» не пройдена.',409);

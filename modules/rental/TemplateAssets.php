@@ -9,6 +9,8 @@ use RuntimeException;
 /** Actual immutable Word sources; pending edits never replace the active source. */
 final class TemplateAssets
 {
+    public const PARKING_TYPES=['Машиноместо','Машино-место'];
+
     public const KINDS=[
         'office'=>['id'=>1,'name'=>'Договор аренды офиса','sha256'=>'17e0fd81583d20bce7923f567121794c95c5da401117aa0ffa88a3caa6d61a96'],
         'parking'=>['id'=>2,'name'=>'Договор аренды машиноместа','sha256'=>'ae726f6b0fb6e95d2bc384bc97caa9bc8297e86c57a06e63df77cc877eba8184'],
@@ -65,10 +67,15 @@ final class TemplateAssets
             if (!in_array($type,['office','parking','mixed'],true)) throw new RuntimeException('Неизвестный вид шаблона договора.',422);
             return $type;
         }
+        return self::objectKind($db,(int)$contract['id']);
+    }
+
+    public static function objectKind(PDO $db,int $contractId): string
+    {
         $query=$db->prepare('SELECT DISTINCT o.type FROM contract_objects co JOIN rental_objects o ON o.id=co.object_id WHERE co.contract_id=?');
-        $query->execute([$contract['id']]);
+        $query->execute([$contractId]);
         $types=$query->fetchAll(PDO::FETCH_COLUMN);
-        if (in_array('Машиноместо',$types,true)) return count($types)===1 ? 'parking' : 'mixed';
+        if (array_intersect($types,self::PARKING_TYPES)) return array_diff($types,self::PARKING_TYPES) ? 'mixed' : 'parking';
         return 'office';
     }
 

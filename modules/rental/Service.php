@@ -335,9 +335,9 @@ final class Service {
                 if (!$ids && bccomp($partTotal, '0', 2) <= 0)throw new RuntimeException('Выберите объекты.');
                 $types=[];
                 foreach ($ids as $oid)$types[]=self::get($p,'rental_objects',(int)$oid)['type'];
-                $parkingTypes=['Машиноместо','Машино-место'];
+                $parkingTypes=TemplateAssets::PARKING_TYPES;
                 if (array_intersect($types,$parkingTypes) && array_diff($types,$parkingTypes)
-                    && ($old['template_type']??'')!=='mixed') {
+                    && (!$old || TemplateAssets::objectKind($p,(int)$old['id'])!=='mixed')) {
                     throw new RuntimeException('Оформите помещения и машино-места отдельными договорами.',422);
                 }
                 $partEdit = $partRows !== null && $old
