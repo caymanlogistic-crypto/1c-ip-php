@@ -51,6 +51,7 @@ try {
     $invoiceDraft=InterfaceDesign::defaults($invoice);
     $invoiceDraft['columns'][0]['label']='Счёт клиента';
     $invoiceDraft['columns'][0]['width']=240;
+    $invoiceDraft['columns'][0]['align']='center';
     InterfaceDesignStore::change($invoice,0,'draft',$invoiceDraft);
     $published=InterfaceDesignStore::change($invoice,1,'apply');
     $package=InterfaceDesign::exportLayout($invoice,$published);
@@ -64,6 +65,12 @@ try {
     $broken=$package;
     $broken['layout']['columns'][0]['width']=5000;
     rejects(422,fn()=>InterfaceDesign::importLayout($invoice,$broken));
+    $broken=$package;
+    $broken['layout']['columns'][0]['align']='justify';
+    rejects(422,fn()=>InterfaceDesign::importLayout($invoice,$broken));
+    $legacy=$package;
+    unset($legacy['layout']['columns'][0]['align']);
+    verify(InterfaceDesign::importLayout($invoice,$legacy)===$legacy['layout'],'Missing alignment must keep the default');
     $draftState=InterfaceDesignStore::change($invoice,2,'draft',InterfaceDesign::defaults($invoice));
     rejects(409,fn()=>InterfaceDesignStore::change($invoice,2,'import-draft',$package,true));
     rejects(409,fn()=>InterfaceDesignStore::change($invoice,3,'import-draft',$package));

@@ -18,8 +18,8 @@
 }
 .interface-designer-controls > .interface-designer-controls { flex-basis: 100%; }
 .interface-designer input[aria-label="Заголовок колонки"] { width: min(220px, 100%); }
-.interface-designer-number { display: inline-flex; align-items: center; gap: 4px; }
-.interface-designer-number .field-input { width: 75px; }
+.interface-designer-field { display: inline-flex; align-items: center; gap: 4px; }
+.interface-designer-field input[type="number"] { width: 75px; }
 .interface-designer-status:not(:empty) { display: block; margin-top: 5px; }
 [data-design-table] th[data-design-key] {
   position: relative !important;
@@ -27,6 +27,9 @@
   white-space: normal !important;
 }
 [data-design-table][data-design-widths] { table-layout: fixed; }
+.registry-ui-table[data-design-table] [data-design-align="left"] { text-align: left; }
+.registry-ui-table[data-design-table] [data-design-align="center"] { text-align: center; }
+.registry-ui-table[data-design-table] [data-design-align="right"] { text-align: right; }
 .registry-ui-table[data-design-widths] td[data-design-key].registry-ui-number {
   overflow-wrap: anywhere;
   white-space: normal;
