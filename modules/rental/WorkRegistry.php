@@ -50,13 +50,10 @@ final class WorkRegistry {
         $documents = Controller::query("SELECT d.*,c.number base_number,c.document_date base_document_date,p.name party_name FROM rental_documents d JOIN contracts c ON c.id=d.contract_id JOIN parties p ON p.id=c.party_id WHERE d.status='draft' AND ".WorkspaceReset::visibleSql('d')." AND JSON_UNQUOTE(JSON_EXTRACT(d.source_json,'$.entryMode'))='current' ORDER BY d.id DESC");
         $bookings = [
         ];
-        foreach (Controller::query("SELECT r.*,o.name object_name,o.type object_type,o.active object_active,o.source_json object_source,c.number cadastre_number,c.type cadastre_type,c.rentable cadastre_rentable,c.source_json cadastre_source FROM reservations r JOIN rental_objects o ON o.id=r.object_id JOIN cadastre c ON c.id=o.cadastre_id WHERE r.status='active' AND r.document_id IS NULL AND r.contract_id IS NULL AND r.until_date>=CURRENT_DATE ORDER BY r.id DESC") as $r)if (DirectoryScope::signals([
-            'active' => $r['object_active'],
+        foreach (Controller::query("SELECT r.*,o.name object_name,o.type object_type,o.source_json object_source,c.number cadastre_number,c.source_json cadastre_source,u.name author FROM reservations r JOIN rental_objects o ON o.id=r.object_id JOIN cadastre c ON c.id=o.cadastre_id LEFT JOIN users u ON u.id=r.author_id WHERE r.status IN ('active','expired') AND r.document_id IS NULL AND r.contract_id IS NULL AND ".WorkspaceReset::visibleSql('r')." ORDER BY r.id DESC") as $r)if (DirectoryScope::realObject([
             'source_json' => $r['object_source']
         ], [
             'number' => $r['cadastre_number'],
-            'type' => $r['cadastre_type'],
-            'rentable' => $r['cadastre_rentable'],
             'source_json' => $r['cadastre_source']
         ]))$bookings[] = $r;
         $h = Controller::tabs([
@@ -69,7 +66,7 @@ final class WorkRegistry {
                 count($contracts)+count($documents)
             ],
             'booking' => [
-                'Брони',
+                'Резервирование',
                 count($bookings)
             ]
         ], $flag);
@@ -147,6 +144,9 @@ final class WorkRegistry {
             }
         }
         if ($flag !== 'draft')foreach ($bookings as $r) {
+            $expired=CustomerBookings::expired($r,date('Y-m-d'));
+            $status=$expired?'Срок истёк · требуется решение':'Резервирование';
+            $author=$r['author'] ?: $manager;
             if (!self::matches($query, [
                 $r['client_name'],
                 $r['object_name'],
@@ -154,11 +154,11 @@ final class WorkRegistry {
                 $r['comment'],
                 $r['until_date'],
                 Documents::dateText($r['until_date']),
-                'Бронь до',
-                $manager
+                $status,
+                $author
             ]))continue;
             $rows[] = [
-                '_attrs' => 'class="registry-ui-soft-info" data-record-key="reservation:'
+                '_attrs' => 'class="'.($expired?'registry-ui-warning':'registry-ui-soft-info').'" data-record-key="reservation:'
                 . $r['id']
                 . '" data-rental-url="/rental/booking?id='
                 . $r['id']
@@ -168,15 +168,15 @@ final class WorkRegistry {
                 '—',
                 '—',
                 View::e($r['object_name']),
-                'Бронь',
-                '<strong>Бронь до '
+                View::e($status),
+                '<strong>Срок до '
                 . View::e(Documents::dateText($r['until_date']))
                 . '</strong>'
                 . ($r['comment']?'<div>'
                 . View::e($r['comment'])
                 . '</div>':''),
                 '—',
-                View::e($manager)
+                View::e($author)
             ];
         }
         return $h

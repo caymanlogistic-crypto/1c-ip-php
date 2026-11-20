@@ -2,7 +2,7 @@
 declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 use App\DB;
-use Modules\Rental\{Service,Availability,CustomerBookings,Evidence,Occupancy,Importer};
+use Modules\Rental\{Service,Availability,CustomerBookings,Evidence,Occupancy,Importer,Scheduler};
 $p=DB::pdo();
 if(PHP_SAPI!=='cli'||getenv('APP_CONTRACT_DRAFT_TEST')!=='1'||!preg_match('/^ipphp_task_[a-z0-9_]+$/D',(string)$p->query('SELECT DATABASE()')->fetchColumn()))throw new RuntimeException('Explicit isolated task DB required');
 function expectBooking(bool $yes,string $why):void{if(!$yes)throw new RuntimeException($why);}
@@ -17,7 +17,20 @@ try{
  $firstInput=['object_id'=>$oid,'start_date'=>$start,'until_date'=>$end,'client_name'=>'Локальный клиент А','comment'=>'Первый запрос','command_key'=>commandKey()];
  $a=Service::command('reservation.create',$firstInput);$b=Service::command('reservation.create',array_replace($firstInput,['client_name'=>'Локальный клиент Б','comment'=>'Второй запрос','command_key'=>commandKey()]));
  expectBooking($a['id']!==$b['id'],'Bookings were not independent');expectBooking(Service::command('reservation.create',$firstInput)===$a,'Replay duplicated booking');
- $same=array_values(array_filter(Availability::items($start,$end,null,null,true),fn($r)=>$r['id']===$oid))[0];expectBooking(!$same['disabled']&&str_contains($same['description'],'броней: 2'),'Second booking unavailable or count missing');
+ $deadline=new DateTimeImmutable($end);
+ $notices=static function(DateTimeImmutable $date)use($a):array {
+    $plan=Scheduler::dated($date->format('Y-m-d'));
+    expectBooking($plan['externalSends']===0,'The dated plan must never send');
+    return array_values(array_filter($plan['reservationNotices'],static fn($entry)=>$entry['id']===$a['id']));
+ };
+ $dayBefore=$deadline->modify('-1 day');
+ $reminder=$notices($dayBefore);
+ expectBooking(count($reminder)===1&&$reminder[0]['action']==='reservation.reminder'&&$reminder===$notices($dayBefore),'One stable reminder on the previous day');
+ expectBooking($notices($deadline)===[],'The deadline is inclusive');
+ $review=$notices($deadline->modify('+1 day'));
+ expectBooking(count($review)===1&&$review[0]['action']==='reservation.review','Expiry must remain a manual decision');
+ expectBooking(Service::get($p,'reservations',$a['id'])['status']==='active','Preview must preserve the reservation state');
+ $same=array_values(array_filter(Availability::items($start,$end,null,null,true),fn($r)=>$r['id']===$oid))[0];expectBooking(!$same['disabled']&&str_contains($same['description'],'резервирований: 2'),'Second booking unavailable or count missing');
  $party=(int)$p->query('SELECT id FROM parties WHERE blocked=0 ORDER BY id LIMIT 1')->fetchColumn();
  $draft=Service::command('contract.create',['number'=>'LOCAL-BOOK-'.commandKey(),'party_id'=>$party,'start_date'=>$start,'end_date'=>$end,'amount'=>'123.45','objects'=>[$oid],'term_amount'=>[$oid=>'123.45'],'booking_id'=>$a['id'],'booking_version'=>1,'intent'=>'draft','command_key'=>commandKey()]);$cid=(int)$draft['id'];
  expectBooking(Service::get($p,'reservations',(int)$b['id'])['status']==='active','Draft cancelled competitor');
@@ -31,7 +44,7 @@ try{
  $p->exec('SAVEPOINT document_reservation_fixture');$did=(int)$p->query('SELECT COALESCE(MAX(id),900000)+1 FROM rental_documents')->fetchColumn();
  $p->prepare("INSERT INTO rental_documents(id,contract_id,number,kind,status,effective_date,start_date,end_date,amount,base_version,base_hash,source_json) VALUES(?,?,'LOCAL-DS','renewal','legal',?,?,?,'123.45',1,?,'{}')")->execute([$did,$other,$start,$start,$end,str_repeat('0',64)]);
  $rid=(int)$p->query('SELECT COALESCE(MAX(id),900000)+1 FROM reservations')->fetchColumn();$p->prepare("INSERT INTO reservations(id,object_id,party_id,document_id,start_date,end_date,until_date,status,source_json) VALUES(?,?,?,?,?,?,?,'active','{}')")->execute([$rid,$oid,$party,$did,$start,$end,$end]);
- denyBooking(fn()=>Service::command('reservation.create',array_replace($firstInput,['client_name'=>'Клиент В','command_key'=>commandKey()])),'забронирован');$p->exec('ROLLBACK TO SAVEPOINT document_reservation_fixture');
+ denyBooking(fn()=>Service::command('reservation.create',array_replace($firstInput,['client_name'=>'Клиент В','command_key'=>commandKey()])),'резервировании');$p->exec('ROLLBACK TO SAVEPOINT document_reservation_fixture');
  paidInitialInvoices($cid);expectBooking(Evidence::activation($p,$cid),'Paid contract did not activate');$cancelled=Service::get($p,'reservations',(int)$b['id']);
  expectBooking($cancelled['status']==='cancelled'&&(int)$cancelled['version']===2,'Competing booking was not cancelled with version');expectBooking((int)json_decode($cancelled['source_json'],true)['cancellation']['contract_id']===$cid,'Cancellation reason lost');
  expectBooking(!Evidence::activation($p,$cid),'Repeated activation was not a no-op');

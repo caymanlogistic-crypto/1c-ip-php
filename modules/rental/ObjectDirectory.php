@@ -119,7 +119,7 @@ final class ObjectDirectory
         if (isset($_SESSION['rental_notice'])) {
             $notice=RentalUI::alert((string)$_SESSION['rental_notice']);unset($_SESSION['rental_notice']);
         }
-        $body=Controller::heading('Объекты аренды','Помещения и машиноместа: занятость, бронирование и контроль простоя',self::editable()?RentalUI::button('Добавить объект','/rental/edit-object',true):'').$notice
+        $body=Controller::heading('Объекты аренды','Помещения и машиноместа: занятость, резервирование и контроль простоя',self::editable()?RentalUI::button('Добавить объект','/rental/edit-object',true):'').$notice
             .Controller::tabs($tabs,$flag,false,['floor'=>$floor,'type'=>$type,'inactive'=>(int)$show,'q'=>$query],'objects')
             .DirectoryUi::registry('rental-contracts',[],$rows,[],$controls,$summary,filterForm:true,
                 design:new DesignTable('rental.objects',[
@@ -139,7 +139,7 @@ final class ObjectDirectory
         if ($facts['recent']) $comment='<strong class="registry-ui-success">'.ObjectFacts::days($facts['recent']['days']).'</strong><span class="registry-ui-secondary">Новый с '.Documents::dateText($facts['recent']['date']).': '.View::e($facts['lease']['tenant']).'</span>';
         elseif ($facts['severity']==='blue') {
             $comments=[];foreach($facts['bookings'] as $booking)$comments[]=View::e(($booking['client_name'] ?: 'Клиент не указан').' до '.Documents::dateText($booking['until_date']).($booking['comment']?': '.$booking['comment']:''));
-            $comment=(count($comments)>1?'<strong>Брони: '.count($comments).'</strong><br>':'').implode('<br>',$comments);
+            $comment=(count($comments)>1?'<strong>Резервирования: '.count($comments).'</strong><br>':'').implode('<br>',$comments);
         }
         elseif ($facts['free']) $comment=($facts['idleUnknown']?'<span class="registry-ui-secondary">'.View::e($facts['idleUnknown']).'</span>':'<strong class="registry-ui-error">'.($facts['days']===null?'Указать дату':ObjectFacts::days($facts['days'])).'</strong>').'<span class="registry-ui-secondary">Последний арендатор: '.View::e($facts['previous'] ?: 'Не указан').'</span>';
         if ($facts['deadline']) $comment.='<div><strong class="registry-ui-error">'.View::e($facts['deadline']).'</strong></div><div class="doc-meta">Необходимо подписать допсоглашение о пролонгации или начать процедуру завершения договора</div>';
@@ -178,7 +178,7 @@ final class ObjectDirectory
                 .Controller::table(['Дата','Действие','Кто изменил'],array_map(static fn($row)=>array_map(View::e(...),$row),$history),['code','text','text']);
         }
         $actions=self::editable()?RentalUI::button('Редактировать','/rental/edit-object?id='.$object['id']):'';
-        if (self::editable() && $facts['eligible'] && PagePolicy::level('rental.contracts',Auth::user())>=2) $actions.=RentalUI::button('Забронировать','/rental/reservations?object_id='.$object['id'],true);
+        if (self::editable() && $facts['eligible'] && PagePolicy::level('rental.contracts',Auth::user())>=2) $actions.=RentalUI::button('Резервирование','/rental/reservations?object_id='.$object['id'],true);
         return RentalUI::modal('Объект аренды '.$object['name'],$body,$actions,'objects');
     }
 

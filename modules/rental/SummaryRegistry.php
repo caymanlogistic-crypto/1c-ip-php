@@ -21,12 +21,14 @@ final class SummaryRegistry
         $flag=(string)($_GET['flag'] ?? 'all');
         if (!in_array($flag,['all','draft','booking','approval'],true)) $flag='all';
         $contracts=Controller::query("SELECT c.*,p.name party_name FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status NOT IN ('closed','cancelled') AND ".ContractDraft::visibleSql()." ORDER BY c.id");
-        $bookings=Controller::query("SELECT r.*,o.name object_name,COALESCE(NULLIF(r.client_name,''),p.name) client FROM reservations r JOIN rental_objects o ON o.id=r.object_id LEFT JOIN parties p ON p.id=r.party_id WHERE r.status='active' ORDER BY r.id");
+        $bookings=Controller::query("SELECT r.*,o.name object_name,COALESCE(NULLIF(r.client_name,''),p.name) client FROM reservations r "
+            ."JOIN rental_objects o ON o.id=r.object_id LEFT JOIN parties p ON p.id=r.party_id "
+            ."WHERE (r.status='active' OR r.status='expired' AND r.document_id IS NULL) AND ".WorkspaceReset::visibleSql('r')." ORDER BY r.id");
         $pending=[];
         foreach (Controller::query("SELECT DISTINCT contract_id FROM rental_documents WHERE status IN ('legal','accounting','returned','approved','sent')") as $row) $pending[(int)$row['contract_id']]=true;
         $approval=static fn($contract)=>in_array($contract['status'],['legal','accounting','returned','approved','sent'],true) || isset($pending[(int)$contract['id']]);
         $tabs=['all'=>['Все документы',count($contracts)+count($bookings)],'draft'=>['Черновики',count(array_filter($contracts,fn($c)=>$c['status']==='draft'))],
-            'booking'=>['Брони',count($bookings)],'approval'=>['На согласовании',count(array_filter($contracts,$approval))]];
+            'booking'=>['Резервирование',count($bookings)],'approval'=>['На согласовании',count(array_filter($contracts,$approval))]];
         $tasks=Indicators::tasks(null,null,['contracts','approvals','contracts-active','reconciliation']);
         $rows=[];
         if ($flag!=='booking') foreach ($contracts as $contract) {
@@ -52,11 +54,13 @@ final class SummaryRegistry
         if (in_array($flag,['all','booking'],true)) foreach ($bookings as $booking) {
             if (!WorkRegistry::matches($query,[$booking['client'],$booking['comment'],$booking['object_name']])) continue;
             $url=$booking['document_id']?'/rental/document?id='.(int)$booking['document_id']:'/rental/booking?id='.(int)$booking['id'];
-            $rows[]=['_attrs'=>'class="registry-ui-soft-info" data-rental-url="'.$url.'" tabindex="0"','Бронь',View::e($booking['client'] ?: '—'),
-                'До '.RegistryState::date($booking['until_date']),View::e(\App\People::workflowName('manager')),View::e($booking['object_name'].' · '.$booking['comment'])];
+            $expired=CustomerBookings::expired($booking,date('Y-m-d'));
+            $rows[]=['_attrs'=>'class="'.($expired?'registry-ui-warning':'registry-ui-soft-info').'" data-rental-url="'.$url.'" tabindex="0"','Резервирование',View::e($booking['client'] ?: '—'),
+                $expired?'Срок истёк · требуется решение':'До '.RegistryState::date($booking['until_date']),
+                View::e(\App\People::workflowName('manager')),View::e($booking['object_name'].' · '.$booking['comment'])];
         }
         $controls='<form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'.View::e($flag).'">'.DirectoryUi::search($query).'</form>';
-        $body=Controller::heading('Обзор документов','Срез черновиков, броней, согласований и действующей аренды.')
+        $body=Controller::heading('Обзор документов','Срез черновиков, резервирований, согласований и действующей аренды.')
             .Controller::tabs($tabs,$flag)
             .DirectoryUi::registry('rental-summary',['Документ','Контрагент','Стадия','Ответственный','Пояснение'],$rows,['short','flex','text','text','flex'],$controls);
         return View::page('Обзор документов',$body,'summary');

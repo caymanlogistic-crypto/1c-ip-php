@@ -66,7 +66,7 @@ final class ErrorsRegistry
             $contract=$task['contract_id']?Controller::query('SELECT number FROM contracts WHERE id=?',[$task['contract_id']])[0] ?? null:null;
             $task['employee']=People::workflowName($task['role']);
             $task['contract_number']=$contract['number'] ?? null;
-            $task['label']=$task['contract_number'] ?: 'Бронь';
+            $task['label']=$task['contract_number'] ?: 'Резервирование';
             if ($task['entity']==='object') {
                 $object=Controller::query('SELECT o.*,c.number parent_number,c.rentable parent_rentable,c.type parent_type,c.source_json parent_source FROM rental_objects o JOIN cadastre c ON c.id=o.cadastre_id WHERE o.id=?',[$task['id']])[0] ?? null;
                 if (!$object || !DirectoryScope::signals($object,['number'=>$object['parent_number'],'rentable'=>$object['parent_rentable'],'type'=>$object['parent_type'],'source_json'=>$object['parent_source']])) continue;

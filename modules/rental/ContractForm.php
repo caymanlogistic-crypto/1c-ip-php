@@ -21,7 +21,7 @@ final class ContractForm {
         $draft = ContractDraft::input($c);
         if ($draft !== null) foreach (['party_id','document_date','start_date','end_date'] as $field) $c[$field]=$draft[$field] ?? '';
         $booking = !$c && !empty($_GET['booking_id'])?BookingController::record((int)$_GET['booking_id']):null;
-        if ($booking && ($booking['status'] !== 'active' || $booking['contract_id'] !== null || $booking['until_date']<date('Y-m-d')))throw new RuntimeException('Бронь уже изменена или истекла.', 409);
+        if ($booking && ($booking['status'] !== 'active' || $booking['contract_id'] !== null || $booking['until_date']<date('Y-m-d')))throw new RuntimeException('Резервирование уже изменено или истекло.', 409);
         $start = $c['start_date'] ?? $booking['start_date'] ?? '';
         $end = $c['end_date'] ?? '';
         // Undated drafts show today's availability only as a picker preview.
@@ -81,7 +81,7 @@ final class ContractForm {
         $section = static fn(string $key): string => $design!=='' ? ' data-design-key="'.$key.'"' : '';
         $field = static fn(string $key, string $html): string => $design!=='' ? '<div data-design-key="'.$key.'">'.$html.'</div>' : $html;
         $fields = $booking?'<span class="registry-ui-modal-help">'
-        . View::e(($booking['client_name']?'Бронь: '
+        . View::e(($booking['client_name']?'Резервирование: '
         . $booking['client_name']
         . '. ':'')
         . 'Выберите или создайте карточку клиента.')

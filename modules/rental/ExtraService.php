@@ -227,26 +227,27 @@ final class ExtraService {
             $old = $id?Service::get($p, 'reservations', $id):null;
             if ($old) {
                 Service::version($old, $in);
-                if ($old['document_id'] !== null)throw new RuntimeException('Бронь допсоглашения меняется через само ДС.');
+                if ($old['document_id'] !== null)throw new RuntimeException('Резервирование по допсоглашению меняется через само ДС.');
             }
             if ($action === 'reservation.cancel') {
-                if (!$old || $old['status'] !== 'active')throw new RuntimeException('Бронь неактивна.');
+                if (!$old || !CustomerBookings::openForDecision($old)) throw new RuntimeException('Резервирование уже завершено.');
                 $p->prepare("UPDATE reservations SET status='cancelled',version=version+1 WHERE id=?")->execute([
                     $id
                 ]);
             }
             elseif($action === 'reservation.extend') {
-                if (!$old || $old['status'] !== 'active')throw new RuntimeException('Бронь неактивна.');
+                if (!$old || !CustomerBookings::openForDecision($old)) throw new RuntimeException('Резервирование уже завершено.');
                 $until = Service::date($in['until_date'] ?? '');
-                if ($until<date('Y-m-d'))throw new RuntimeException('Укажите будущую дату.');
-                $p->prepare('UPDATE reservations SET until_date=?,version=version+1 WHERE id=?')->execute([
+                if ($until<date('Y-m-d') || $until<=$old['until_date'])throw new RuntimeException('Укажите новую дату окончания резервирования.');
+                $start=max(date('Y-m-d'),$old['start_date']);
+                Service::available($p,[(int)$old['object_id']],$start,$start,null,null,false,null,true);
+                $p->prepare("UPDATE reservations SET until_date=?,status='active',version=version+1 WHERE id=?")->execute([
                     $until,
                     $id
                 ]);
             }
             elseif($action === 'reservation.create') {
-                if (trim((string)($in['client_name'] ?? '')) === '' && empty($in['party_id']))throw new RuntimeException('Укажите клиента для брони.',422);
-                if (trim((string)($in['comment'] ?? '')) === '')throw new RuntimeException('Укажите описание брони.');
+                if (trim((string)($in['client_name'] ?? '')) === '' && empty($in['party_id']))throw new RuntimeException('Укажите предварительное имя клиента.',422);
                 $oid = (int)($in['object_id'] ?? 0);
                 $party = !empty($in['party_id'])?(int)$in['party_id']:null;
                 if ($party) {
@@ -255,7 +256,7 @@ final class ExtraService {
                 }
                 $start = Service::date($in['start_date'] ?? date('Y-m-d'));
                 $until = Service::date($in['until_date'] ?? '');
-                if ($until<date('Y-m-d'))throw new RuntimeException('Бронь уже истекла.');
+                if ($until<date('Y-m-d'))throw new RuntimeException('Срок резервирования уже истёк.');
                 Service::available($p, [
                     $oid
                 ], $start, $start, null, null, false, null, true);
@@ -271,12 +272,12 @@ final class ExtraService {
                     $in['comment'] ?? ''
                 ]);
             }
-            else throw new RuntimeException('Неизвестное действие брони.');
-            Service::event($p, $u, $action, 'Изменена бронь #'
+            else throw new RuntimeException('Неизвестное действие резервирования.');
+            Service::event($p, $u, $action, 'Изменено резервирование #'
             . $id);
             return [
                 'id' => $id,
-                'message' => $action === 'reservation.cancel'?'Бронь снята.':'Бронь сохранена.'
+                'message' => $action === 'reservation.cancel'?'Резервирование снято.':'Резервирование сохранено.'
             ];
         }
         if (str_starts_with($action, 'template.')) return TemplateService::execute($p,$u,$action,$in);

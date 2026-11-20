@@ -170,7 +170,7 @@ final class SourceCards {
                 'active'
             ], true) && !$c['signed'])$add('Загрузить подписанный договор', 'contract.sign', true);
             if ($c['status'] === 'active') {
-                $actions.=RentalUI::button($managed?'Пролонгация и бронь':'Создать допсоглашение', '/rental/addendum-form?contract_id='
+                $actions.=RentalUI::button($managed?'Продление и резервирование':'Создать допсоглашение', '/rental/addendum-form?contract_id='
                 . $id, true);
                 $add('Завершение договора', 'contract.reconcile');
             }

@@ -84,7 +84,7 @@ final class ObjectFacts
         $idleUnknown=self::reviewedUnknownHistory($object,$free,$days,$previous);
         $severity=''; $recent=null;
         if ($eligible) $severity=self::idleSeverity($days);
-        if ($eligible && !$free && $booking && str_contains($status,'бронир')) $severity='blue';
+        if ($eligible && !$free && $booking && $status==='Резервирование') $severity='blue';
         if ($eligible && !$free && $lease && $lease['status']==='active' && !$booking && ($lease['term_start'] ?? $today)<=$today) {
             $event=$read ? $read->event((int)$lease['id']) : (Controller::query("SELECT DATE(MIN(created_at)) at FROM rental_events WHERE contract_id=? AND id>? AND action IN ('contract.sign','contract.activated')",[$lease['id'],ZeroPoint::eventFloor(\App\DB::pdo())])[0]['at'] ?? null);
             foreach (($read ? $read->applied((int)$lease['id']) : Controller::query("SELECT DATE(a.created_at) at,a.after_json FROM audit_log a JOIN rental_documents d ON d.id=a.entity_id WHERE a.action='document.objects-applied' AND a.entity_type='document' AND d.contract_id=? AND d.applied=1 AND d.status='signed'",[$lease['id']])) as $applied) {
