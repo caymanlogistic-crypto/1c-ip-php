@@ -63,12 +63,15 @@ final class ObjectFacts
             .'FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN parties p ON p.id=c.party_id '
             .'LEFT JOIN contract_terms t ON t.id=(SELECT MAX(t2.id) FROM contract_terms t2 WHERE t2.contract_id=c.id AND t2.object_id=co.object_id AND (t2.effective_date IS NULL OR t2.effective_date<=?)) '
             .'WHERE '.ContractOccupancy::physicalPredicate('co')." AND co.object_id=? AND c.status IN ('active','reconciling') ORDER BY c.id DESC LIMIT 1",[$today,$object['id']])[0] ?? null);
-        if ($free) $lease=null;
+        if ($free || !$eligible) $lease=null;
         if ($lease && $lease['status']==='reconciling') $status='Финальная сверка договора '.$lease['number'].'; возврат ещё не завершён';
         $bookings=$read ? $read->bookings((int)$object['id']) : Controller::query('SELECT r.id,r.until_date,r.comment,COALESCE(NULLIF(r.client_name,\'\'),p.name) client_name '
             .'FROM reservations r LEFT JOIN parties p ON p.id=r.party_id WHERE '.Occupancy::reservationPredicate('r')
             ." AND r.object_id=? AND r.status='active' AND r.until_date>=? ORDER BY r.id DESC",[$object['id'],$today]);
+        if (!$eligible) $bookings=[];
         $booking=$bookings[0] ?? null;
+        $id=(int)$object['id'];
+        $work=$eligible?($read?$read->work($id):(ObjectReadModel::pendingWork($id)[$id] ?? [])):[];
         $days=self::idleDays($object,$free,$today);
         if ($read) $previous=$read->previous((int)$object['id']);
         else {
@@ -117,7 +120,7 @@ final class ObjectFacts
                 }
             }
         }
-        return compact('eligible','free','status','lease','document','booking','bookings','days','previous','severity','recent','deadline','idleUnknown');
+        return compact('eligible','free','status','lease','document','booking','bookings','days','previous','severity','recent','deadline','idleUnknown','work');
     }
 
     public static function reviewedUnknownHistory(array $object,bool $free,?int $days,?string $previous): ?string

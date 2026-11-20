@@ -62,7 +62,7 @@ final class ObjectDirectory
             $object=$item['object'];$facts=$item['facts'];
             return match($key) {
                 'free'=>$facts['eligible'] && $facts['free'],
-                'work'=>in_array($facts['severity'],['green','blue'],true),
+                'work'=>!empty($facts['work']) || in_array($facts['severity'],['green','blue'],true),
                 'inactive'=>!$object['active'],
                 default=>($show || $object['active']) && ($key==='all' || $key==='office' && $object['type']==='Офис' || $key==='parking' && $object['type']==='Машиноместо'),
             };
@@ -143,6 +143,8 @@ final class ObjectDirectory
         }
         elseif ($facts['free']) $comment=($facts['idleUnknown']?'<span class="registry-ui-secondary">'.View::e($facts['idleUnknown']).'</span>':'<strong class="registry-ui-error">'.($facts['days']===null?'Указать дату':ObjectFacts::days($facts['days'])).'</strong>').'<span class="registry-ui-secondary">Последний арендатор: '.View::e($facts['previous'] ?: 'Не указан').'</span>';
         if ($facts['deadline']) $comment.='<div><strong class="registry-ui-error">'.View::e($facts['deadline']).'</strong></div><div class="doc-meta">Необходимо подписать допсоглашение о пролонгации или начать процедуру завершения договора</div>';
+        if (!empty($facts['work']['contract'])) $comment.='<div class="doc-meta">Заключение договора</div>';
+        if (!empty($facts['work']['renewal'])) $comment.='<div class="doc-meta">Продление договора</div>';
         return $comment;
     }
 
@@ -161,6 +163,20 @@ final class ObjectDirectory
         ]);
         $plan=DirectoryDetails::read(DB::pdo(),'object_plan',(int)$object['id']);
         if ($plan) $body.='<p><a class="btn btn-secondary" href="/rental/object-plan?id='.(int)$object['id'].'" target="_blank" rel="noopener">Открыть план помещения</a></p>';
+        $activity=Controller::query("SELECT e.id,e.actor_id,e.action,e.contract_id,e.source_json,u.name actor "
+            ."FROM rental_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.action='object.save' "
+            ."AND JSON_EXTRACT(e.source_json,'$.object_id')=? ORDER BY e.id DESC",[(int)$object['id']]);
+        if ($activity) {
+            $history=[];
+            foreach ($activity as $row) {
+                $entry=ObjectActivity::decode($row);
+                if ($entry) $history[]=[
+                    Documents::dateText($entry['changed_on']),$entry['to_active']?'Возвращён в сдачу':'Снят со сдачи',$row['actor'] ?? '—',
+                ];
+            }
+            if ($history) $body.='<span class="registry-ui-modal-summary">История активности</span>'
+                .Controller::table(['Дата','Действие','Кто изменил'],array_map(static fn($row)=>array_map(View::e(...),$row),$history),['code','text','text']);
+        }
         $actions=self::editable()?RentalUI::button('Редактировать','/rental/edit-object?id='.$object['id']):'';
         if (self::editable() && $facts['eligible'] && PagePolicy::level('rental.contracts',Auth::user())>=2) $actions.=RentalUI::button('Забронировать','/rental/reservations?object_id='.$object['id'],true);
         return RentalUI::modal('Объект аренды '.$object['name'],$body,$actions,'objects');

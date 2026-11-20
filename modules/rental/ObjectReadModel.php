@@ -9,7 +9,7 @@ final class ObjectReadModel
 {
     public readonly array $objects;
     public readonly array $availability;
-    private array $leases=[],$bookings=[],$previous=[],$historical=[],$events=[],$applied=[],$documents=[];
+    private array $leases=[],$bookings=[],$previous=[],$historical=[],$events=[],$applied=[],$documents=[],$work=[];
 
     public function __construct(public readonly string $today)
     {
@@ -19,6 +19,7 @@ final class ObjectReadModel
         $availability=[];
         foreach (Availability::items($today,$today) as $item) $availability[$item['id']]=$item;
         $this->availability=$availability;
+        $this->work=self::pendingWork();
         foreach (Controller::query('SELECT co.object_id,c.id,c.number,c.document_date,c.status,p.name tenant,t.source_json term_source,COALESCE(t.start_date,c.start_date) term_start,COALESCE(t.end_date,c.end_date) end_date '
             .'FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN parties p ON p.id=c.party_id '
             .'LEFT JOIN contract_terms t ON t.id=(SELECT MAX(t2.id) FROM contract_terms t2 WHERE t2.contract_id=c.id AND t2.object_id=co.object_id AND (t2.effective_date IS NULL OR t2.effective_date<=?)) '
@@ -48,6 +49,22 @@ final class ObjectReadModel
     {
         return ['number'=>$object['cadastral'],'type'=>$object['parent_type'],'area'=>$object['parent_area'],'rentable'=>$object['parent_rentable'],'source_json'=>$object['parent_source']];
     }
+
+    public static function pendingWork(?int $id=null): array
+    {
+        $rows=Controller::query("SELECT co.object_id,'contract' kind FROM contract_objects co JOIN contracts c ON c.id=co.contract_id "
+            ."WHERE ".ContractOccupancy::physicalPredicate('co')." AND c.status IN ('legal','accounting','returned','approved','sent') "
+            ."AND ".ContractDraft::visibleSql('c')." AND (? IS NULL OR co.object_id=?) "
+            ."UNION SELECT t.object_id,'renewal' FROM document_terms t JOIN rental_documents d ON d.id=t.document_id "
+            ."WHERE ".ContractOccupancy::physicalPredicate('t')." AND d.kind='renewal' AND d.applied=0 "
+            ."AND d.status IN ('draft','legal','accounting','returned','approved','sent','signed') AND (? IS NULL OR t.object_id=?)",
+            [$id,$id,$id,$id]);
+        $work=[];
+        foreach ($rows as $row) $work[$row['object_id']][$row['kind']]=true;
+        return $work;
+    }
+
+    public function work(int $id): array {return $this->work[$id] ?? [];}
     public function lease(int $id): ?array {return $this->leases[$id] ?? null;}
     public function booking(int $id): ?array {return $this->bookings[$id][0] ?? null;}
     public function bookings(int $id): array {return $this->bookings[$id] ?? [];}
