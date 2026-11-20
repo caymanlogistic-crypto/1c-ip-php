@@ -75,13 +75,16 @@ final class ContractForm {
             if ($part['amount'] !== null) $sum = bcadd($sum, $part['amount'], 2);
         }
         $fid = 'rental-contract-draft';
+        $design = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH)==='/rental/new-contract' && !$c ? 'rental.new-contract' : '';
+        $section = static fn(string $key): string => $design!=='' ? ' data-design-key="'.$key.'"' : '';
+        $field = static fn(string $key, string $html): string => $design!=='' ? '<div data-design-key="'.$key.'">'.$html.'</div>' : $html;
         $fields = $booking?'<span class="registry-ui-modal-help">'
         . View::e(($booking['client_name']?'Бронь: '
         . $booking['client_name']
         . '. ':'')
         . 'Выберите или создайте карточку клиента.')
         . '</span>':'';
-        $fields.='<div class="field">'
+        $fields.='<div class="field"'.$section('party').'>'
         . '<label class="field-label" for="contract-party">Контрагент <span class="req">*</span>'
         . '</label>'
         . '<div class="registry-ui-modal-address-row">'
@@ -91,25 +94,27 @@ final class ContractForm {
         . '<button class="btn btn-secondary" type="button" data-rental-open="/rental/edit-party?context=contract-create" data-rental-create-party>Создать контрагента</button>'
         . '</div>'
         . '</div>'
-        . '<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
-        . '<label class="field">'
+        . '<div class="registry-ui-modal-grid registry-ui-modal-grid--reading"'.$section('dates').'>'
+        . $field('number','<label class="field">'
         . '<span class="field-label">Номер договора</span>'
         . '<input class="field-input" name="number" value="'
         . View::e($number)
-        . '"'.($c && $c['status']!=='draft'?' readonly aria-readonly="true"':'').'></label>'
-        . Controller::input('document_date', 'Дата договора', $c['document_date'] ?? date('Y-m-d'), 'date', true)
-        . Controller::input('start_date', 'Начало аренды', $start, 'date', true)
-        . Controller::input('end_date', 'Окончание аренды', $end, 'date', true)
+        . '"'.($c && $c['status']!=='draft'?' readonly aria-readonly="true"':'').'></label>')
+        . $field('document_date', Controller::input('document_date', 'Дата договора', $c['document_date'] ?? date('Y-m-d'), 'date', true))
+        . $field('start_date', Controller::input('start_date', 'Начало аренды', $start, 'date', true))
+        . $field('end_date', Controller::input('end_date', 'Окончание аренды', $end, 'date', true))
         . '</div>';
         $vat = Controller::query('SELECT vat FROM organization WHERE id=1')[0]['vat'] ?? null;
-        $fields.='<span class="registry-ui-modal-help">НДС нашей организации: '
+        $parts = PartTerms::render(\App\DB::pdo(), 'contract', $id, $start, $end, $draft);
+        $fields.=($design!==''?'<div'.$section('objects').'>':'').'<span class="registry-ui-modal-help">НДС нашей организации: '
         . View::e($vat === null?'не задан':rtrim(rtrim($vat, '0'), '.')
         . '%')
         . '. Суммы включают НДС.</span>'
         . ContractObjectEditor::render($selected,
             Availability::options(Availability::items($availabilityStart, $availabilityEnd, $c?(int)$c['id']:null, $booking?(int)$booking['id']:null, true), empty($draft['draft_object_id'])?null:(int)$draft['draft_object_id']),
             $sum, null, true)
-        . PartTerms::render(\App\DB::pdo(), 'contract', $id, $start, $end, $draft);
+        . ($design!==''?'</div>':'')
+        . ($parts!=='' && $design!==''?'<div'.$section('parts').'>'.$parts.'</div>':$parts);
         $availability = '/rental/availability?mode=contract'
         . ($c?'&contract_id='
         . $c['id']:($booking?'&booking_id='
@@ -133,7 +138,7 @@ final class ContractForm {
         if (!$booking && !empty($draft['booking_id'])) $hidden.='<input type="hidden" name="booking_id" value="'.(int)$draft['booking_id'].'"><input type="hidden" name="booking_version" value="'.(int)($draft['booking_version'] ?? 0).'">';
         $body = '<form id="'
         . $fid
-        . '" class="registry-ui-modal-grid" novalidate data-source-validation data-rental-contract-form data-rental-availability-url="'
+        . '" class="registry-ui-modal-grid" novalidate data-source-validation data-rental-contract-form'.($design!==''?' data-design-fields':'').' data-rental-availability-url="'
         . View::e($availability)
         . '" method="post" action="/rental/action">'
         . $hidden
@@ -141,12 +146,12 @@ final class ContractForm {
         . '</form>';
         $actions = '<button class="btn btn-secondary" type="submit" form="'
         . $fid
-        . '" name="intent" value="draft" formnovalidate>Сохранить в черновиках</button><button class="btn btn-primary" type="submit" form="'
+        . '" name="intent"'.$section('draft').' value="draft" formnovalidate>Сохранить в черновиках</button><button class="btn btn-primary" type="submit" form="'
         . $fid
-        . '" name="intent" value="submit">'
+        . '" name="intent"'.$section('submit').' value="submit">'
         . ($c && $c['status'] === 'returned'?'Повторно согласовать':'Отправить на согласование')
         . '</button>';
-        return RentalUI::modal($c?'Изменить проект договора':'Новый договор', $body, $actions, 'contracts', true, $c && ContractDraft::deletable(\App\DB::pdo(),$c)?RentalUI::button('Удалить черновик','/rental/action-form?id='.$id.'&action=contract.delete',false,true):'');
+        return RentalUI::modal($c?'Изменить проект договора':'Новый договор', $body, $actions, 'contracts', true, $c && ContractDraft::deletable(\App\DB::pdo(),$c)?RentalUI::button('Удалить черновик','/rental/action-form?id='.$id.'&action=contract.delete',false,true):'',design:$design);
     }
 
 }

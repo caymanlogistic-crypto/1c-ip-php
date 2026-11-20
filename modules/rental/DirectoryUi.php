@@ -72,12 +72,22 @@ final class DirectoryUi
         return [$body,'<button class="btn btn-primary" type="submit" form="'.$id.'">'.View::e($label).'</button>',$id];
     }
 
-    public static function registry(string $id,array $headers,array $rows,array $columns,string $controls='',string $summary='',string $after='',bool $filterForm=false): string
+    public static function registry(string $id,array $headers,array $rows,array $columns,string $controls='',string $summary='',string $after='',bool $filterForm=false, ?DesignTable $design=null): string
     {
         $toolbar=$filterForm?'form':'div';
-        return '<section class="table-card registry-ui-card registry-ui-sticky-table registry-ui-scroll" data-registry-id="'.$id.'" data-registry-managed-markup="true">'
+        $table = $design===null ? Controller::table($headers,$rows,$columns) : $design->start();
+        if ($design!==null) {
+            foreach ($rows as $row) {
+                $attributes=$row['_attrs'] ?? '';
+                unset($row['_attrs']);
+                $table.=$design->row(array_combine($design->keys(),$row),$attributes);
+            }
+            $table.='</tbody></table>';
+            $table='<div class="table-scroll">'.$table.'</div>';
+        }
+        return '<section class="table-card registry-ui-card registry-ui-sticky-table registry-ui-scroll" data-registry-id="'.$id.'" data-registry-managed-markup="true"'.($design?->attributes() ?? '').'>'
             .'<'.$toolbar.($filterForm?' method="get" data-rental-registry-filter':'').' class="table-toolbar registry-ui-toolbar"><div class="found-label">Найдено: <b>'.count($rows).'</b>'.$summary.'</div>'
-            .'<div class="toolbar-right">'.$controls.'</div></'.$toolbar.'>'.$after.Controller::table($headers,$rows,$columns).'</section>';
+            .'<div class="toolbar-right">'.$controls.'</div></'.$toolbar.'>'.$after.$table.'</section>';
     }
 
     public static function search(string $query,bool $grouped=false): string
