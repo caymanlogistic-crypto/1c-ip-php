@@ -267,7 +267,7 @@ final class AddendumController {
         . ' · '
         . $d['base_number'], $body, $actions, 'approvals');
     }
-    public static function action():string {
+    public static function action(?array $previousPacket = null):string {
         Auth::requirePermission('rental.read');
         $id = (int)($_GET['id'] ?? 0);
         $d = self::record($id);
@@ -287,7 +287,7 @@ final class AddendumController {
             'document.return-removed'
         ];
         if (!in_array($action, $allowed, true))throw new RuntimeException('Действие не найдено.', 404);
-        $fields = RentalUI::pairs([
+        $fields = $action === 'document.packet' ? PacketForm::preview('document', $id, $previousPacket) : RentalUI::pairs([
             [
                 'Документ',
                 'ДС №'
@@ -314,7 +314,6 @@ final class AddendumController {
             $extra = AuxController::uploadForm($d, $action === 'document.sign'?'signed-addendum':'removed-return-act', 'Подписанный файл', 'document');
             if ($action === 'document.return-removed')$fields.=Controller::input('return_date', 'Дата возврата', date('Y-m-d'), 'date', true);
         }
-        if ($action === 'document.packet')$fields.=PacketForm::preview('document', $id);
         if ($action === 'document.packet')foreach ([
             'counterparty_confirmed' => 'Контрагент проверен',
             'financial_confirmed' => 'Финансовые условия проверены',
@@ -329,7 +328,7 @@ final class AddendumController {
         $fid = 'rental-ds-action';
         $body = '<form id="'
         . $fid
-        . '" method="post" action="/rental/action"><input type="hidden" name="_csrf" value="'
+        . '"'.($action==='document.packet'?' class="registry-ui-modal-grid"':'').' method="post" action="/rental/action"><input type="hidden" name="_csrf" value="'
         . View::e(Http::csrf())
         . '"><input type="hidden" name="id" value="'
         . $id

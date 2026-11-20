@@ -60,6 +60,7 @@ Word-пакеты: GET `/rental/word-form` → `WordPack::plan` / `WordGeneratio
 | /rental/addendum-form и /rental/addendum-action | AddendumController::editor / action | Создание/команды ДС |
 | /rental/approvals | ApprovalRegistry::page | Реестр согласований |
 | /rental/action-form?action=contract.legal | SourceCards::action → LegalReview | Проверка условий/актуального файла; POST /rental/action → Service::command; повторное согласование после возврата B→L |
+| /rental/action-form?action=contract.return-act | SourceCards::action → ReturnAct | Загрузка через Documents::upload. Подтверждение через Service::command сверяет ID показанного файла, версию договора и данные сверки. Квитанция в audit_log связывает акт с закрытием и ссылкой в карточке |
 | /rental/contracts-active и /rental/contracts-completed | LeaseRegistry::page | Действующие/завершённые договоры |
 | /rental/operations и /rental/operation-action | OperationsRegistry::page / OperationActionController::action | Операции и их обработка |
 | /rental/generate, /rental/download, /rental/upload | Documents::generate / download / upload | Генерация и файлы |
@@ -287,6 +288,10 @@ $attempts = (new Messaging(DB::pdo(), Config::store()))->dispatchManualEmail(
 
 При добавлении потребителя проверить разрешённую и запрещённую роли, чужую/выключенную группу, повтор одного ключа без дубля, отказ при изменении допуска и отсутствие отправки при GET/ошибке бизнес-команды. Для событий также проверить, что уведомление возможно только после commit. Использовать [проверки границ чтения](tests/local-max-read-check.php) и [ручного MAX](tests/local-max-manual.php); живой тест требует конкретного разрешённого адресата/сообщения и отдельной сверки результата.
 
+Вопрос по сдвигу даты передачи открывается из карточки договора через `Service::command`. `HandoverQuestion` хранит текущий вопрос и решение в `rental_facts` по договору и эпохе аренды. `rental_events` хранит действия сотрудников. `MonthlyBilling` и ручной выпуск счёта за аренду проверяют незакрытый вопрос для месяцев, пересекающихся с интервалом между двумя датами начала аренды. Первый счёт и условия договора сохраняются. Результат MAX берётся из `messaging_attempts`. При неизвестном результате бухгалтер записывает основание сверки в карточке, а исходная квитанция транспорта сохраняется. Повтор возможен после положительного подтверждения, что MAX не принял сообщение.
+
+Свежий вопрос или явный повтор после подтверждённого отказа используют committed event, `CurrentContractMaxProof` и `ServerWorkflowMax`. Для события требуется отдельная версия каталога и отдельная нижняя граница событий в прежнем серверном допуске. Установка шаблона через `update-contract-max-templates.php --install-handover-question` выполняется явно с `--apply`; существующий маркер сохраняет прежний набор из восьми событий. Проверка локально использует подставной транспорт через `Messaging`. Живой адресат и допуск вопроса требуют отдельного решения.
+
 ## 6. Что является защитой, а что отдельной задачей улучшения
 
 Сохранять: права, CSRF, versions, точные деньги, idempotency, транзакции, занятость, зафиксированные документы, аудит и сверку внешних результатов.
@@ -363,5 +368,11 @@ PartyDirectory::editor использует общий registry-ui-form-sections
 
 `/rental/invoice-list` → `Controller::page` → `InvoiceRegistry::render(false)`. Четыре флажка используют `InvoiceFacts::view` (`waiting`, `overdue`, `paid`); общее правило даты и остатка находится в `InvoiceFacts::overdueDays`; `overdue` использует его без дублирования. `Menu::counts` только для разрешённого пункта `invoice-list` получает `InvoiceFacts::menuCounts` и суммирует результат в родительскую папку. HTML и `/api/menu-counts` используют этот же путь; поиск/контрагент/договор не ограничивают глобальное меню. Состав записей счётчика совпадает с JOIN реестра. `render(true)` для «Оплаты контрагентов» и остальные задачи Indicators сохраняют прежний контракт. Новый CSS/JS/компонент не добавлен; используются существующие registry-ui-tabs и Menu::badges.
 
+
+### Печатная форма счёта
+
+Карточка счёта открывает `/rental/invoice-preview`. `FinanceController::preview` использует действующие права реестра и сверяет версию для обоих запросов PDF. `Documents::invoicePdfResponse` отдаёт один вид документа для просмотра и скачивания. Зарегистрированный оригинал PDF из `invoice-file` проверяется по SHA-256 и передаётся целиком. Новую форму строит `InvoiceDocument` по сохранённым реквизитам счёта. При пробеле в банковских данных, НДС, строках или итогах просмотр указывает недостающие сведения и удерживает печать. Текущие банковские справочники при печати исторического счёта не читаются.
+
+В привязанном снимке `source_json.printDetails` хранятся исходные `number`, `issued`, основание `basis`, назначение `purpose` и `lines`. В каждой строке есть `description`, `quantity`, `unit`, `netPrice`, `netAmount`, `vatRate`, `vatAmount`. Генератор сверяет номер, дату и сумму строк с записью счёта. Справочники и изменяемый архив провайдера сами по себе такого снимка не образуют. Снимки сторон читаются из `payer_snapshot` и `payee_snapshot`. Для старого импорта поддержаны исходные `payerSnapshot` и `payeeSnapshot`. Короткий номер применяется в форме и имени файла. Для выдачи оригинала имя формируется по подтверждённым номеру, дате и покупателю из версии вложения. Для старой версии без снимка выдаётся сохранённое имя вложения.
 
 Временная PARTY-DEMO-FILL (два набора «Демо: ООО»/«Демо: ИП», ИНН10/12цифр): ContractForm передаёт `context=contract-create` в существующий `/rental/edit-party`; PartyDirectory показывает кнопку `data-party-demo-fill` только при создании (`id=0`). Общий `public/assets/source-party-demo.js` заполняет16полей и flags через прежние input/change, без fetch/submit/обходного сервиса. Сохранение — прежняя команда party.save. Пример кнопки использует этот же модуль в layout-rules.html → «Показать форму контрагента»; стили — существующий btn-danger.

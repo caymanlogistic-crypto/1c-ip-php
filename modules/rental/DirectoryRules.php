@@ -43,6 +43,11 @@ final class DirectoryRules
         return $bank;
     }
 
+    public static function partySaveRoles(int $id): array
+    {
+        return $id === 0 ? ['manager', 'accountant'] : ['manager'];
+    }
+
     public static function party(array $input,?array $old): array
     {
         if (!empty($old['blocked'])) throw new RuntimeException('Работа с контрагентом заблокирована.',403);

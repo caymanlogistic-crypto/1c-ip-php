@@ -37,7 +37,11 @@ final class ExtraService {
             'object.save',
             'organization.save'
         ], true)) {
-            Service::roles($action === 'organization.save' ? ['accountant'] : ['manager']);
+            Service::roles(match ($action) {
+                'party.save' => DirectoryRules::partySaveRoles($id),
+                'organization.save' => ['accountant'],
+                default => ['manager'],
+            });
             $table = match ($action) {
                 'party.save' => 'parties', 'cadastre.save' => 'cadastre', 'object.save' => 'rental_objects', default => 'organization'
             };

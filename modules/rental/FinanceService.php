@@ -106,6 +106,9 @@ final class FinanceService {
             $period = $kind === 'Обеспечительный платёж'?'Обеспечение':($in['period'] ?? substr($issued, 0, 7));
             if ($kind !== 'Обеспечительный платёж')Service::date($period
             . '-01');
+            if (!$i && in_array($kind, ['Аренда', 'Первый период'], true)) {
+                HandoverQuestion::assertBillingReady($p, (int)$c['id'], $period);
+            }
             $due = Service::date($in['due'] ?? InvoiceDueDate::automatic($issued,$period,$initial));
             if ($i) {
                 self::remember($p, $i, (int)$u['id']);
