@@ -16,7 +16,8 @@ final class PartyDirectory
     private static function editable(?array $party=null): bool
     {
         $user=Auth::user();
-        return in_array($user['role'],['admin','manager'],true) && Auth::can('rental.write')
+        $roles=DirectoryRules::partySaveRoles((int)($party['id'] ?? 0));
+        return in_array($user['role'],['admin', ...$roles],true) && Auth::can(Service::commandGrant('party.save',$user))
             && PagePolicy::level('rental.parties',$user)>=2 && empty($party['blocked']);
     }
 
@@ -116,8 +117,11 @@ final class PartyDirectory
 
     public static function editor(): string
     {
-        Access::pages(['parties'],2); Auth::requirePermission('rental.write'); Service::roles(['manager']);
-        $id=(int)($_GET['id'] ?? 0); $party=$id?self::record($id,2):[];
+        $id=(int)($_GET['id'] ?? 0);
+        Access::pages(['parties'],2);
+        $user=Service::roles(DirectoryRules::partySaveRoles($id));
+        Auth::requirePermission(Service::commandGrant('party.save',$user));
+        $party=$id?self::record($id,2):[];
         if (!empty($party['blocked'])) throw new RuntimeException('Работа с контрагентом заблокирована.',403);
         $bank=self::bank($id);
         $provenance=$id?PartyOrigin::read($party):['label'=>'Создан в базе','local_id'=>'Будет присвоен','code'=>null,'guid'=>null];

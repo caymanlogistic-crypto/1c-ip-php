@@ -246,10 +246,13 @@
       preventScroll:true
     });
     menu?.requestRefresh();
+    return true;
   }
   async function submitRental(form,dialog,submitter){
     if(form.dataset.submitting)return;
     const data=new FormData(form,submitter);
+    const creatingParty=data.get('action')==='party.save'&&data.get('id')==='0';
+    let response,partySaved=false;
     form.dataset.submitting='true';
     const buttons=[...dialog.querySelectorAll('button[type="submit"]')];
     buttons.forEach(b=>b.disabled=true);
@@ -258,10 +261,11 @@
       if(method==='GET'){
         for(const [key,value]of data)if(key!=='_csrf'&&typeof value==='string')requestURL.searchParams.append(key,value);
       }
-      const response=await fetch(requestURL,{
+      const workspaceURL=window.RentalRegistry.currentWorkspace();
+      response=await fetch(requestURL,{
         method,body:method==='GET'?undefined:data,headers:{
           'X-Requested-With':'ERP-Fetch',
-          'X-Rental-Workspace-URL':window.RentalRegistry.currentWorkspace()
+          'X-Rental-Workspace-URL':workspaceURL
         }
       });
       const type=response.headers.get('content-type')||'',completion=response.headers.get('X-Rental-Completion-URL');
@@ -283,8 +287,16 @@
       if(type.includes('application/json')){
         const result=await response.json();
         if(response.ok&&result.createdParty){
-          createdParty(result.createdParty,dialog);
-          menu?.requestRefresh();
+          if(activeRental!==dialog)return;
+          partySaved=true;
+          if(rentalStack.at(-1)?.opener?.matches('[data-rental-create-party]')){
+            createdParty(result.createdParty,dialog);
+            menu?.requestRefresh();
+          }else{
+            const directory=workspaceURL&&localURL(workspaceURL).pathname==='/rental/parties'?workspaceURL:'/rental/parties';
+            if(!await finishRental(directory))throw new Error('Повторите сохранение, чтобы обновить справочник.');
+            window.PlanexNotifications?.show({tone:'success',message:'Контрагент сохранён.'});
+          }
           return;
         }
         if(response.ok&&completion){
@@ -319,7 +331,13 @@
       menu?.requestRefresh();
     }
     catch(error){
-      formError(dialog,error.message);
+      let message=error.message;
+      if(partySaved)message='Контрагент сохранён. '+message;
+      else if(creatingParty&&(!response||response.ok||response.status>=500)){
+        message='Не получено подтверждение сохранения контрагента. Повторите сохранение в этой же форме с теми же данными.';
+      }
+      formError(dialog,message);
+      if(creatingParty)dialog.querySelector('[data-rental-form-error]')?.scrollIntoView({block:'nearest'});
     }
     finally{
       delete form.dataset.submitting;
