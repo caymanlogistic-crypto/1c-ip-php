@@ -4,6 +4,7 @@
   const editing = new Map();
   const shortcuts = new WeakMap();
   const groupLabels = {columns:'Колонки',sections:'Секции',fields:'Поля',actions:'Кнопки'};
+  const alignmentLabels = {'':'По умолчанию',left:'Слева',center:'По центру',right:'Справа'};
   const windowLabels = {width:'Ширина окна',height:'Высота окна',x:'По горизонтали',y:'По вертикали'};
   const endpoint = '/administration/interface-designer';
 
@@ -27,7 +28,10 @@
       for (const item of after[group]) {
         const was = original.get(item.key);
         const name = title(item.key);
-        if (group==='columns') change(name + ' · заголовок', was.label, item.label);
+        if (group==='columns') {
+          change(name + ' · заголовок', was.label, item.label);
+          change(name + ' · выравнивание', alignmentLabels[was.align ?? ''], alignmentLabels[item.align ?? '']);
+        }
         const display = value => !value ? 'Авто' : value + (['sections','fields'].includes(group) ? ' из 12' : ' px');
         change(name + ' · ширина', display(was.width), display(item.width));
       }
@@ -60,7 +64,11 @@
       before = node;
     }
   }
-  function summary(row) {
+  function alignCell(cell, alignment) {
+    if (alignment) cell.dataset.designAlign = alignment;
+    else delete cell.dataset.designAlign;
+  }
+  function summary(row, partyAlign) {
     const cells = [...row.cells];
     const content = row.querySelector('[data-design-summary-content]');
     const party = cells.find(cell => cell.dataset.designKey === 'party');
@@ -77,7 +85,10 @@
         start.colSpan++;
         cell.hidden = true;
       }
-      if (cell === party && content.parentNode !== start) start.append(content);
+      if (cell === party) {
+        alignCell(start, partyAlign);
+        if (content.parentNode !== start) start.append(content);
+      }
     }
   }
   function tableLayout(root, layout) {
@@ -98,11 +109,15 @@
       }
       for (const th of headings.cells) {
         const item = byKey.get(th.dataset.designKey);
-        if (item) th.querySelector('[data-design-label]').textContent = item.label;
+        if (item) {
+          th.querySelector('[data-design-label]').textContent = item.label;
+          alignCell(th, item.align);
+        }
       }
       for (const row of table.tBodies[0].rows) {
         reorder(row, layout.columns);
-        if (row.hasAttribute('data-design-summary')) summary(row);
+        for (const cell of row.cells) alignCell(cell, byKey.get(cell.dataset.designKey)?.align);
+        if (row.hasAttribute('data-design-summary')) summary(row, byKey.get('party').align);
       }
       table.toggleAttribute('data-design-widths', layout.columns.some(item => item.width));
     }
@@ -293,7 +308,8 @@
             if (Array.isArray(value)) {
               const keys = incoming?.map?.(item => item?.key).sort().join();
               if (keys!==value.map(item => item.key).sort().join()
-                  || incoming.some(item => !Number.isInteger(item.width) || (key==='columns' && typeof item.label!=='string'))) {
+                  || incoming.some(item => !Number.isInteger(item.width) || (key==='columns' &&
+                    (typeof item.label!=='string' || ('align' in item && !['left','center','right'].includes(item.align)))))) {
                 throw new Error('Проверьте состав компоновки.');
               }
             } else if (!Object.keys(value).every(field => Number.isInteger(incoming?.[field]))) {
@@ -378,7 +394,7 @@
       noteEdit(before,true);
     }
     function number(label, value, min, max, onChange) {
-      const host = element('label', label, 'interface-designer-number');
+      const host = element('label', label, 'interface-designer-field');
       const input = element('input', '', 'field-input');
       Object.assign(input,{type:'number',value,min,max});
       input.addEventListener('change',() => {
@@ -425,6 +441,21 @@
         item.width = value && max!==12 ? Math.max(group==='columns'?48:64,value) : value;
         return item.width;
       }));
+      if (group === 'columns') {
+        const label = element('label','Выравнивание','interface-designer-field');
+        const alignment = element('select','','toolbar-select');
+        alignment.setAttribute('aria-label','Выравнивание');
+        for (const [value,caption] of Object.entries(alignmentLabels)) alignment.add(new Option(caption,value));
+        alignment.value = item.align ?? '';
+        alignment.addEventListener('change',() => {
+          const before = structuredClone(session.layout);
+          if (alignment.value) item.align = alignment.value;
+          else delete item.align;
+          noteEdit(before);
+        });
+        label.append(alignment);
+        row.append(label);
+      }
       const position = list.indexOf(item);
       for (const [delta,label] of [[-1,'Раньше'],[1,'Позже']]) {
         const neighbour = available[available.indexOf(item)+delta];

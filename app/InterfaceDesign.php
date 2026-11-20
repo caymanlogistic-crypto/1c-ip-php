@@ -100,6 +100,12 @@ final class InterfaceDesign
                     $label = $item['label'] ?? null;
                     if (!is_string($label) || trim($label)==='' || mb_strlen($label)>80 || preg_match('/[\p{Cc}]/u',$label)) self::invalid();
                     $entry['label'] = trim($label);
+                    if (array_key_exists('align',$item)) {
+                        if (!in_array($item['align'],['left','center','right'],true)) {
+                            throw new RuntimeException('Выберите выравнивание колонки.',422);
+                        }
+                        $entry['align'] = $item['align'];
+                    }
                 }
                 $result[$group][] = $entry;
             }
