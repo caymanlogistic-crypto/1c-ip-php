@@ -28,31 +28,49 @@ final class MonthlyRentReconciliationPage
         $last = $_GET['last'] ?? $current->modify('+1 month')->format('Y-m');
         $first = is_string($first) ? $first : '';
         $last = is_string($last) ? $last : '';
+        $tab = ($_GET['flag'] ?? '') === 'review' ? 'review' : 'main';
         $body = Controller::heading(self::TITLE, 'План по договорам, счета из 1С и сроки оплаты.',
             '<a class="btn btn-secondary" href="/rental/invoice-list">Счета и оплаты</a>');
-        $body .= '<section class="table-card registry-ui-card"><form class="table-toolbar registry-ui-toolbar" method="get" action="'.self::ROUTE.'">'
-            .'<div class="toolbar-right">'.Controller::input('first', 'Первый месяц', $first, 'month')
-            .Controller::input('last', 'Последний месяц', $last, 'month')
-            .'<button class="btn btn-primary" type="submit">Показать</button></div></form>';
         try {
             $months = MonthlyRentReconciliation::range($first, $last);
         } catch (RuntimeException $error) {
-            return View::page(self::TITLE, $body.'<section class="panel-section">'
+            return View::page(self::TITLE, $body.self::tabs($tab,$first,$last,0,0)
+                .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last)
+                .'<section class="panel-section">'
                 .RentalUI::alert($error->getMessage(), '', 'error').'</section></section>', 'invoice-list');
         }
         $report = (new MonthlyRentReconciliation(DB::pdo(), Config::store()))->capture($months);
-        $body .= '<section class="panel-section"><p class="registry-ui-secondary">'
-            .'Загрузка 1С (МСК) · счета '.self::archiveTime($report['archive']['invoices'], 'ожидаются')
-            .' · банк '.self::archiveTime($report['archive']['bank'], 'ожидается').'</p></section>'
-            .self::monthlyTable($report['months'], $report['invoice_facts']).'</section>';
-        if ($report['issues']) {
-            $body .= '<section class="table-card registry-ui-card"><details class="registry-ui-form-disclosure" data-form-disclosure>'
-                .'<summary class="btn btn-secondary">Требуют сверки · '.count($report['issues']).'</summary>'
-                .Controller::table(['Месяц аренды','Клиент','Документ','Что уточнить'],
-                    array_map(static fn(array $row): array => array_map(View::e(...), $row), $report['issues']),
-                    ['code','flex','code','flex']).'</details></section>';
-        }
-        return View::page(self::TITLE, $body, 'invoice-list');
+        $body .= self::tabs($tab,$first,$last,count($months),count($report['issues']))
+            .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last,$report['archive']);
+        $body .= $tab === 'review' ? self::reviewTable($report['issues'])
+            : self::monthlyTable($report['months'], $report['invoice_facts']);
+        return View::page(self::TITLE, $body.'</section>', 'invoice-list');
+    }
+
+    private static function tabs(string $tab, string $first, string $last, int $months, int $issues): string
+    {
+        return Controller::tabs(['main'=>['Основное',$months], 'review'=>['Требует сверки',$issues]],
+            $tab, context:['first'=>$first,'last'=>$last]);
+    }
+
+    private static function filters(string $tab, string $first, string $last, array $archive = []): string
+    {
+        $summary = $archive ? '<div class="found-label registry-ui-toolbar-summary">'
+            .'Загрузка 1С (МСК) · счета '.self::archiveTime($archive['invoices'], 'ожидаются')
+            .' · банк '.self::archiveTime($archive['bank'], 'ожидается').'</div>' : '';
+        return '<form class="table-toolbar registry-ui-toolbar" method="get" action="'.self::ROUTE.'">'
+            .'<input type="hidden" name="flag" value="'.View::e($tab).'">'.$summary
+            .'<div class="toolbar-right">'.Controller::input('first', 'Первый месяц', $first, 'month')
+            .Controller::input('last', 'Последний месяц', $last, 'month')
+            .'<button class="btn btn-primary" type="submit">Показать</button></div></form>';
+    }
+
+    private static function reviewTable(array $issues): string
+    {
+        if (!$issues) return '<section class="panel-section">'.RentalUI::alert('За выбранный период вопросов на сверку нет.').'</section>';
+        return Controller::table(['Месяц аренды','Клиент','Документ','Что уточнить'],
+            array_map(static fn(array $row): array => array_map(View::e(...), $row), $issues),
+            ['code','flex','code','flex']);
     }
 
     private static function monthlyTable(array $months, array $invoiceFacts): string
