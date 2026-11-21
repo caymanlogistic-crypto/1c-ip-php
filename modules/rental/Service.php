@@ -109,6 +109,7 @@ final class Service {
 
     public static function command(string $action, array $in, ?int &$freshCommittedEventId=null): array {
         $freshCommittedEventId=null;
+        if ($action === TermEndCorrection::ACTION) TermEndCorrection::requireOperator();
         if (in_array($action,ExpiryNotice::ACTIONS,true)) ExpiryNotice::access((int)($in['id'] ?? 0),2);
         if ($action === UpdRegister::SAVE) RegularInvoice::requireAccess(2);
         if ($action === DebtFollowUp::SAVE) self::roles(['manager']);
@@ -277,6 +278,7 @@ final class Service {
         if ($action === DebtFollowUp::SAVE) return DebtFollowUp::write($p,$u,$in);
         if (in_array($action,RentalServices::ACTIONS,true)) return RentalServices::execute($p,$action,$in);
         if(in_array($action,['workspace.reset','workspace.undo','workspace.remove-test-object'],true))return WorkspaceReset::execute($p,$u,$action,$in);
+        if ($action===TermEndCorrection::ACTION) return TermEndCorrection::execute($p,$u,$in);
         if ($action==='zero-point.correct') return ZeroPointCorrection::execute($p,$in);
         if ($action==='zero-point.continuity') return ZeroPointContinuity::execute($p,$in);
         if ($action==='zero-point.clarify') return ZeroPointClarification::execute($p,$in);

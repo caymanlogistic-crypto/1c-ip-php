@@ -12,6 +12,8 @@ OriginalDocuments выбирает исходник владельца или у
 
 Коррекция нулевой точки: `bin/zero-point-correction.php plan/apply/recover` → `ZeroPointCorrection` → `Service::command(zero-point.correct)`. CLI/admin-only, доказательства книги, CAS текущего графа, rental_number_guard. Меняются только16 free_since, продолжение33 и датированное условие/происхождение. Предыдущий JSON/pin сохраняются. `revision-pending.json` блокирует ZeroPoint::load/restore до сверки committed rental_commands receipt; recover сериализуется тем же guard, неизвестную команду не повторяет. Подготовленный файл сам по себе не доказывает commit. DDL, admission, внешние отправки не меняются.
 
+Исправление сроков №51, №34 и №26 выполняет только администратор через `bin/correct-six-term-endings.php`. `plan <admin-id>` печатает JSON предпросмотра, `apply <admin-id> <plan.json> <sha256>` выполняет `Service::command` с проверкой состава, целостности, редакций и будущей занятости внутри транзакции. `undo-plan <admin-id> <original-key>` готовит обратную команду по исходной квитанции, если состояние после исправления совпадает. Исходный импорт и основания хранятся в истории, текущий срок читается из `contracts` и `contract_terms`.
+
 Снимок анализа: 1C-IP-PHP-CURRENT.zip от 17.11.2026, SHA256 e4224741a30c75c3d86272fe92b5106bd56b482c8372a090d660207bead73b84.
 
 Документ описывает код этого снимка. Изменения, которые ещё нужно сделать, отмечены отдельно. Фактическую среду нового проекта бери из START-HERE.md после локального подтверждения. Не выдавай наличие класса за работоспособность функции.
