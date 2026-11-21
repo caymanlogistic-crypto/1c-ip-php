@@ -87,7 +87,7 @@ final class SecurityDeposit
         $spent=bcadd(bcadd($retained,$returned,2),$out,2);
         $free=bcsub(bcsub($limit,$spent,2),$held,2);
         $basis=self::basis($db,$id);
-        $plan=FinalSettlement::fact($db,self::PLAN_NS,(string)$id);
+        $plan=self::savedPlan($db,$id);
         $question=!$invoice?'Сверьте единственное действующее обязательство по обеспечению и исходный счёт.':
             ($incoming['unverified']?'Сверьте источник поступления и распределение по счёту обеспечения.':
             (bccomp($free,'0',2)<0?'Сверьте исходный приход с уже учтёнными операциями.':null));
@@ -124,6 +124,11 @@ final class SecurityDeposit
         return FinalSettlement::fact($db,self::BASIS_NS,(string)$id);
     }
 
+    public static function savedPlan(PDO $db,int $id): array
+    {
+        return FinalSettlement::fact($db,self::PLAN_NS,(string)$id);
+    }
+
     public static function proposal(PDO $db,array $contract,array $ledger): array
     {
         $basis=$ledger['basis'];
@@ -139,13 +144,11 @@ final class SecurityDeposit
             if ($error instanceof \PDOException) throw $error;
             return ['question'=>$error->getMessage()];
         }
-        $act=ReturnAct::state($db,$contract);
-        if (!$act['confirmed'] || !$act['signed_on']) return ['question'=>'Подтвердите дату подписи двустороннего акта возврата.'];
-        $basisProof=['act_id'=>$act['file']['id'],'act_sha256'=>$act['file']['sha256'],'act_signed_on'=>$act['signed_on'],
-            'agreement_id'=>$file['id'],'agreement_sha256'=>$file['sha256']];
-        $saved=self::same($ledger['plan']['evidence'] ?? [],$basisProof) ? ($ledger['plan']['deadline'] ?? []) : [];
-        $deadline=$saved ?: PaymentDayCalendar::after($act['signed_on'],15,'working',true,true);
-        return ['amount'=>$ledger['free'],'evidence'=>$basisProof,'deadline'=>$deadline,'saved'=>(bool)$saved];
+        $signature=SecurityDepositEvidence::returnSignature($db,$contract);
+        if (isset($signature['question'])) return $signature;
+        $basisProof=$signature+['agreement_id'=>$file['id'],'agreement_sha256'=>$file['sha256']];
+        return ['amount'=>$ledger['free'],'evidence'=>$basisProof]
+            +SecurityDepositEvidence::returnDeadline($signature,$file['sha256'],$ledger['plan']);
     }
 
     public static function execute(PDO $db,array $actor,string $action,array $input): array

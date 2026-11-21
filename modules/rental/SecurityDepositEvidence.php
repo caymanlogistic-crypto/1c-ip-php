@@ -8,6 +8,29 @@ use RuntimeException;
 
 final class SecurityDepositEvidence
 {
+    public static function returnSignature(PDO $db,array $contract): array
+    {
+        $act=ReturnAct::state($db,$contract);
+        if (!$act['confirmed'] || empty($act['signed_on']))
+            return ['question'=>'Подтвердите дату подписи двустороннего акта возврата.'];
+        return ['act_id'=>$act['file']['id'],'act_sha256'=>$act['file']['sha256'],'act_signed_on'=>$act['signed_on']];
+    }
+
+    public static function returnDeadline(array $signature,string $agreementSha,array $plan): array
+    {
+        $proof=$plan['evidence'] ?? [];
+        $saved=$plan['deadline'] ?? [];
+        if (isset($saved['date'],$saved['source'],$saved['revision'])
+            && ($proof['act_id'] ?? null)===$signature['act_id']
+            && ($proof['act_sha256'] ?? null)===$signature['act_sha256']
+            && ($proof['act_signed_on'] ?? null)===$signature['act_signed_on']
+            && $agreementSha!=='' && ($proof['agreement_sha256'] ?? null)===$agreementSha) {
+            // The same signed original can exist as an addendum and a closing attachment.
+            return ['deadline'=>$saved,'saved'=>true];
+        }
+        return ['deadline'=>PaymentDayCalendar::after($signature['act_signed_on'],15,'working',true,true),'saved'=>false];
+    }
+
     public static function incoming(PDO $db,array $invoice,array $contract): array
     {
         $q=$db->prepare("SELECT p.*,a.amount AS allocated,
