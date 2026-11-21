@@ -10,6 +10,8 @@ use RuntimeException;
 final class TemplateAssets
 {
     public const PARKING_TYPES=['Машиноместо','Машино-место'];
+    public const DEBT_SAMPLE='debt-letter-d28';
+    public const SAMPLE_TITLES=[self::DEBT_SAMPLE=>'Письмо о задолженности · образец D28'];
 
     public const KINDS=[
         'office'=>['id'=>1,'name'=>'Договор аренды офиса','sha256'=>'17e0fd81583d20bce7923f567121794c95c5da401117aa0ffa88a3caa6d61a96'],
@@ -50,6 +52,17 @@ final class TemplateAssets
         if (!$template || (int)$template['version']<1) throw new RuntimeException('Нет утверждённой версии выбранного шаблона.',409);
         $template['asset']=self::source($db,$template);
         return $template;
+    }
+
+    public static function approvedSamples(PDO $db,string $kind): array
+    {
+        $query=$db->prepare("SELECT t.id,t.name,t.version,t.word_file_id FROM rental_templates t
+            JOIN rental_template_versions v ON v.template_id=t.id AND v.version=t.version
+                AND v.status='approved' AND v.word_file_id=t.word_file_id
+            WHERE JSON_UNQUOTE(JSON_EXTRACT(t.source_json,'$.generation_kind'))=?
+            ORDER BY t.approved_at DESC,t.id DESC");
+        $query->execute([$kind]);
+        return array_column($query->fetchAll(),null,'id');
     }
 
     public static function signature(array $template): array

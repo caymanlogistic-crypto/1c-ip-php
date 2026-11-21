@@ -36,8 +36,8 @@ final class TemplateService
             $source=TemplateAssets::file($db,$id,$fileId);
             $metadata=json_decode($template['source_json'],true)?:[];
             $kind=(string)($input['generation_kind']??$metadata['pending_generation_kind']??$metadata['generation_kind']??'');
-            if($kind!==''&&!isset(OriginalDocuments::TITLES[$kind]))throw new RuntimeException('Выберите допустимый вид документа.',422);
-            if($kind!==''&&!OriginalDocuments::fieldsForKind($source['path'],$kind))throw new RuntimeException('В Word нет полей {{...}}. Скачайте основу или обозначьте места подстановки, например {{number}} и {{party_full_name}}.',422);
+            if($kind!==''&&!isset(OriginalDocuments::TITLES[$kind])&&!isset(TemplateAssets::SAMPLE_TITLES[$kind]))throw new RuntimeException('Выберите допустимый вид документа.',422);
+            if(isset(OriginalDocuments::TITLES[$kind])&&!OriginalDocuments::fieldsForKind($source['path'],$kind))throw new RuntimeException('В Word нет полей {{...}}. Скачайте основу или обозначьте места подстановки, например {{number}} и {{party_full_name}}.',422);
             $metadata['pending_generation_kind']=$kind;
             $pending=(int)$template['version']+1;
             $db->prepare("UPDATE rental_templates SET name=?,pending_version=?,pending_body=?,pending_file_id=?,status='pending',reason=NULL,record_version=record_version+1 WHERE id=?")

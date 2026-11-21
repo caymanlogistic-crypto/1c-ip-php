@@ -3,12 +3,13 @@ declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\DB;
-use Modules\Rental\{Indicators,InvoiceFacts,InvoiceRegistry,InvoiceSignals,SourceCalendar};
+use Modules\Rental\{BankPaymentRefresh,Indicators,InvoiceFacts,InvoiceRegistry,InvoiceSignals,PaymentReview,SourceCalendar};
 
 $p=DB::pdo();
 if(PHP_SAPI!=='cli'||!preg_match('/^ipphp_task_[a-z0-9_]+$/D',(string)$p->query('SELECT DATABASE()')->fetchColumn()))throw new RuntimeException('ISOLATED_TASK_DATABASE_REQUIRED');
 $check=static function(bool $ok,string $why):void{if(!$ok)throw new RuntimeException($why);};
-$base=['amount'=>'100.00','paid'=>'0.00','status'=>'active','control_closed'=>0,'due'=>'2026-11-13'];
+$base=['amount'=>'100.00','paid'=>'0.00','status'=>'active','control_closed'=>0,'due'=>'2026-11-13',
+    '_payment_control'=>['confirmed'=>true,'overdue_ready'=>true]];
 foreach([0=>'',1=>'yellow',5=>'yellow',6=>'red',20=>'red'] as $days=>$severity){
     $row=array_replace($base,['due'=>(new DateTimeImmutable('2026-11-18'))->modify('-'.$days.' days')->format('Y-m-d')]);
     $check(InvoiceFacts::overdueDays($row,'2026-11-18')===$days,'Calendar day boundary '.$days);
@@ -18,7 +19,9 @@ foreach([['paid'=>'100.00'],['paid'=>'101.00'],['amount'=>null],['paid'=>null],[
     $check(InvoiceFacts::overdueSeverity(array_replace($base,$override),'2026-11-18')==='','Excluded debt: '.json_encode($override));
 }
 $check(InvoiceFacts::overdueSeverity(array_replace($base,['paid'=>'99.99']),'2026-11-18')==='yellow','One kopeck remains overdue');
-$check(InvoiceFacts::overdueSeverity(array_replace($base,['due'=>'2026-10-30']),'2026-11-04')==='yellow','Weekend/holiday are calendar days');
+$check(InvoiceFacts::overdueSeverity(array_replace($base,['due'=>'2026-10-30']),'2026-11-04')==='yellow','Calendar-day age after a confirmed working-day start');
+$hold = array_replace($base,['_payment_control'=>['confirmed'=>false,'overdue_ready'=>false]]);
+$check(InvoiceFacts::overdueSeverity($hold,'2026-11-18')==='','Past due date alone is not confirmed debt');
 
 $p->beginTransaction();
 try{
@@ -40,28 +43,29 @@ try{
     $check($before['beforeControlTime']&&$before['plan']===[],'No calculation before 13:00');
     $result=InvoiceSignals::refresh($p,$today,'13:00',$calendar,true);
     $planned=array_column($result['plan'],'severity','invoice_id');
-    foreach(['day1'=>'yellow','day5'=>'yellow','day6'=>'red'] as $key=>$severity)$check(($planned[$ids[$key]]??'')===$severity,'Planner '.$key);
+    foreach(['day1','day5','day6'] as $key)$check(!isset($planned[$ids[$key]]),'Planner requires fresh evidence '.$key);
     $check(!isset($planned[$ids['paidError']]),'Paid error must not create a debt signal');
     $again=InvoiceSignals::refresh($p,$today,'13:00',$calendar,true);
     $check($again['applied']===[],'No duplicate control events');
     foreach(['12:59','13:00'] as $time){
         $tasks=Indicators::tasks($today,$time,['invoices']);$tones=[];
         foreach($tasks as $task)if($task['entity']==='invoice'&&$task['role']==='accountant')$tones[$task['id']]=$task['severity'];
-        foreach(['day1'=>'yellow','day5'=>'yellow','day6'=>'red','paidError'=>'red'] as $key=>$severity)$check(($tones[$ids[$key]]??'')===$severity,'Shared menu severity '.$time.' '.$key);
+        foreach(['day1','day5','day6'] as $key)$check(!isset($tones[$ids[$key]]),'Unknown debt has no indicator '.$time.' '.$key);
+        $check(($tones[$ids['paidError']]??'')==='red','Existing financial review remains visible');
     }
     $_GET=['contract_id'=>$cid,'flag'=>'overdue'];$html=InvoiceRegistry::render(true);
     $doc=new DOMDocument();@$doc->loadHTML('<?xml encoding="UTF-8">'.$html);$xp=new DOMXPath($doc);
     $check($xp->query('//form[contains(@class,"registry-ui-tabs")]//button')->length===2,'Only two grouped tabs');
     $check($xp->query('//button[@name="flag" and @value="all"]//span[@data-attention]')->length===0,'No error badge on All');
-    $check($xp->query('//button[@name="flag" and @value="overdue"]//span[@data-attention="red" and text()="1"]')->length===1,'Only day6 contributes red, paid review excluded');
-    $check($xp->query('//button[@name="flag" and @value="overdue"]//span[@data-attention="yellow" and text()="2"]')->length===1,'Day1 and day5 contribute yellow');
-    $check($xp->query('//tr[@data-rental-url]')->length===3,'Only unpaid overdue invoices');
+    $check($xp->query('//button[@name="flag" and @value="overdue"]//span[@data-attention]')->length===0,'Unknown debt has no badge');
+    $check($xp->query('//tr[@data-row-key]')->length===0,'Unknown debt is excluded from Overdue');
     $check($xp->query('//tr[@data-row-key="invoice:'.$ids['paidError'].'"]')->length===0,'Paid error excluded from Overdue');
     $_GET=['contract_id'=>$cid,'flag'=>'overdue','q'=>'LOCAL-OVERDUE-paidError'];
     $paidHtml=InvoiceRegistry::render(true);
     $check(str_contains($paidHtml,'По заданным условиям счета не найдены.'),'Search cannot add paid error to Overdue');
     $check(!str_contains($paidHtml,'data-attention='),'Paid error alone has no overdue markers');
-    $invoices=$p->query('SELECT * FROM invoices')->fetchAll();
+    $now=BankPaymentRefresh::now($p);
+    $invoices=array_map(static fn(array $invoice):array=>PaymentReview::attach($p,$invoice,$now),$p->query('SELECT * FROM invoices')->fetchAll());
     $check(InvoiceFacts::menuCounts($p,true)===InvoiceFacts::overdueCounts($invoices),'Grouped menu uses the same graded debt projection');
     $_GET=['contract_id'=>$cid,'flag'=>'paid'];
     $check(str_contains(InvoiceRegistry::render(false),'LOCAL-OVERDUE-paidError'),'Flat register retains Paid filter');
@@ -96,5 +100,5 @@ try{
     try { InvoiceRegistry::render(true); throw new RuntimeException('Missing read permission must deny finance'); }
     catch(RuntimeException $e) { $check($e->getCode()===403,'Denied without rental.read'); $denied++; }
     echo 'PASS identical grouped register and overdue menu across '.implode(',',array_keys($tested)).'; denied cases: '.$denied."\n";
-    echo "PASS: 0/1/5/6 days, calendar days, partial/unknown/paid/frozen/revoked/closed cases, 13:00 gate/cache, planner/menu parity, repeat events, two tabs, badge placement, paid error exclusion and search; fixtures rolled back.\n";
+    echo "PASS: 0/1/5/6 days, calendar days, partial/unknown/paid/frozen/revoked/closed cases, 13:00 legacy signal gate, missing statement protection, planner/menu parity, repeat events, two tabs, badge placement, paid error exclusion and search; fixtures rolled back.\n";
 }finally{$p->rollBack();}

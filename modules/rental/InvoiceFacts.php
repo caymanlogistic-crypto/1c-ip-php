@@ -22,7 +22,8 @@ final class InvoiceFacts
 
     public static function overdueDays(array $invoice, ?string $today = null): int
     {
-        $today ??= date('Y-m-d');
+        $today ??= $invoice['_payment_control']['date'] ?? date('Y-m-d');
+        if (empty($invoice['_payment_control']['confirmed']) || empty($invoice['_payment_control']['overdue_ready'])) return 0;
         $remaining = self::remaining($invoice);
         if ($invoice['status'] !== 'active' || !empty($invoice['control_closed'])
             || $remaining === null || bccomp($remaining,'0',2) <= 0
@@ -62,12 +63,10 @@ final class InvoiceFacts
 
     public static function menuCounts(\PDO $pdo, bool $graded = false): array
     {
-        if ($graded) return self::overdueCounts($pdo->query('SELECT i.* FROM invoices i JOIN contracts c ON c.id=i.contract_id JOIN parties p ON p.id=c.party_id'));
-        $count=0;
-        foreach ($pdo->query('SELECT i.* FROM invoices i JOIN contracts c ON c.id=i.contract_id JOIN parties p ON p.id=c.party_id') as $invoice) {
-            if (self::overdue($invoice)) $count++;
-        }
-        return [$count,0,0,0];
+        $now = BankPaymentRefresh::now($pdo);
+        $invoices = $pdo->query('SELECT i.* FROM invoices i JOIN contracts c ON c.id=i.contract_id JOIN parties p ON p.id=c.party_id')->fetchAll();
+        $counts = self::overdueCounts(array_map(static fn(array $invoice): array=>PaymentReview::attach($pdo,$invoice,$now),$invoices));
+        return $graded ? $counts : [$counts[0]+$counts[1],0,0,0];
     }
 
     public static function view(array $invoice, string $severity = ''): array
@@ -78,7 +77,10 @@ final class InvoiceFacts
             || in_array($delivery['intent']['status'] ?? '',['blocked','failed','unknown'],true));
         $remaining = self::remaining($invoice);
         $overdueDays = self::overdueDays($invoice);
-        $unpaid = $invoice['status'] !== 'revoked' && $remaining !== null && bccomp($remaining, '0', 2) > 0;
+        $control = $invoice['_payment_control'] ?? [];
+        $bookUnpaid = $invoice['status'] !== 'revoked' && $remaining !== null && bccomp($remaining,'0',2)>0;
+        $unverified = $bookUnpaid && empty($control['confirmed']);
+        $unpaid = $bookUnpaid && !$unverified;
         $overdue = $overdueDays > 0;
         $state = match (true) {
             !empty($raw['issueError']) => 'Счёт не сформирован',
@@ -90,8 +92,7 @@ final class InvoiceFacts
             !empty($invoice['control_closed']) => 'Контроль закрыт по финальной сверке',
             $remaining === null => 'Не подтверждено',
             bccomp($remaining, '0', 2) === 0 => 'Оплачен',
-            bccomp($invoice['paid'], '0', 2) > 0 => 'Частично оплачен',
-            default => 'Не оплачен',
+            default => $control['label'] ?? 'Оплата требует сверки',
         };
         $explanation = match (true) {
             !empty($invoice['control_closed']) && empty($invoice['manual_review']) && empty($raw['mismatch']) =>
@@ -106,12 +107,12 @@ final class InvoiceFacts
                     : 'Письмо клиенту не отправлено. Повторите отправку или подтвердите передачу документов.'),
             !empty($invoice['manual_review']) => self::reviewExplanation($invoice),
             $remaining === null => 'Исходные данные не подтверждают сумму или оплату.',
-            $overdueDays > 0 => 'Остаток '.strip_tags(Controller::money($remaining)).' · просрочка: '.$overdueDays.' календ. дн.',
-            $unpaid => 'Ожидается оплата за указанный период.',
+            $overdueDays > 0 => 'Долг '.strip_tags(Controller::money($remaining)).' · просрочка: '.$overdueDays.' календ. дн. '.($control['detail'] ?? 'Свежая выписка подтверждена.'),
+            $bookUnpaid => $control['detail'] ?? 'Свежая выписка не подтверждена. Остаток указан по сохранённым данным.',
             default => 'Оплата учтена, задолженности нет.',
         };
         return [
-            'remaining'=>$remaining, 'unpaid'=>$unpaid, 'severity'=>$severity,
+            'remaining'=>$remaining, 'unpaid'=>$unpaid, 'unverified_balance'=>$unverified, 'severity'=>$severity,
             'attention'=>$severity !== '',
             'overdue'=>$overdue, 'overdue_days'=>$overdueDays,
             'waiting'=>$invoice['status'] === 'active' && empty($invoice['control_closed']) && $unpaid && !$overdue,

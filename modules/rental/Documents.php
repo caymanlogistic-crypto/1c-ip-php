@@ -133,6 +133,8 @@ final class Documents {
         $actKind=array_search($kind,PremisesActs::FILE_KINDS,true);
         $photo=$kind===PremisesInventory::PHOTO;
         $serviceDoc=$kind===RentalServices::FILE;
+        $guarantee=$kind===DebtFollowUp::FILE;
+        $invoiceId=$guarantee?(int)($_POST['invoice_id']??0):0;
         $serviceKey=$serviceDoc?DirectoryDetails::text($_POST,'service_id',32):'';
         $state['entity_category']=in_array($type,['contract','document','party','object'],true)?$type:'other';
         $state['entity_id']=$id;
@@ -144,7 +146,7 @@ final class Documents {
         else throw new RuntimeException('Неизвестный контекст документа.', 403);
         if (($type==='party')!==($kind===PartyLegalReview::FILE) ||
             (isset(ContractRevision::KINDS[$kind]) && $type!=='contract') ||
-            (($actKind!==false || $serviceDoc) && $type!=='contract') || ($photo && $type!=='object'))
+            (($actKind!==false || $serviceDoc || $guarantee) && $type!=='contract') || ($photo && $type!=='object'))
             throw new RuntimeException('Вид файла не соответствует карточке.',422);
         if (!in_array($kind, [
             'signed-contract',
@@ -156,6 +158,7 @@ final class Documents {
             ...array_values(PremisesActs::FILE_KINDS),
             PremisesInventory::PHOTO,
             RentalServices::FILE,
+            DebtFollowUp::FILE,
             ...array_keys(ContractRevision::KINDS),
         ], true))throw new RuntimeException('Неизвестный вид документа.');
         Auth::requirePermission($kind === 'lawyer-file'?'rental.approve.legal':'rental.write');
@@ -209,9 +212,9 @@ final class Documents {
         . '.'
         . $ext;
         try {
-            DB::transaction(function($p)use($f, $path, $fid, $ext, $mime, $kind, $type, $id, $version, $actKind, $photo, $serviceDoc, $serviceKey, &$state) {
+            DB::transaction(function($p)use($f, $path, $fid, $ext, $mime, $kind, $type, $id, $version, $actKind, $photo, $serviceDoc, $serviceKey, $guarantee, $invoiceId, &$state) {
                 $state['stage']='row_lock';
-                if ($actKind!==false || $photo || $serviceDoc) $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
+                if ($actKind!==false || $photo || $serviceDoc || $guarantee) $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
                 FileOrder::lock($p);
                 $table=match($type){'contract'=>'contracts','party'=>'parties','object'=>'rental_objects',default=>'rental_documents'};
                 $r = Service::get($p,$table,$id);
@@ -224,6 +227,7 @@ final class Documents {
                 }
                 $state['stage']='row_stage';
                 if ($type==='party') PartyLegalReview::checkUpload($r);
+                if ($guarantee) DebtFollowUp::requireWritable($p,$invoiceId,$id);
                 if (isset(ContractRevision::KINDS[$kind])) ContractRevision::requireOpen($p,$r);
                 if (($kind === 'signed-contract' && ($type !== 'contract' || !in_array($r['status'], [
                     'sent',
@@ -232,7 +236,7 @@ final class Documents {
                 if ($kind === 'lawyer-file' && !($r['status'] === 'legal' || ($r['status'] === 'returned' && $r['return_to'] === 'lawyer')))throw new RuntimeException('Работа с файлом не назначена юристу.');
                 if ($kind === ReturnAct::KIND && $r['status'] !== 'reconciling')throw new RuntimeException('Договор не на сверке.', 409);
                 $state['stage']='baseline';
-                $baseline = $type === 'contract' && !$serviceDoc?Evidence::signature($p, $id):null;
+                $baseline = $type === 'contract' && !$serviceDoc && !$guarantee?Evidence::signature($p, $id):null;
                 $filename = mb_substr(basename($f['name']), 0, 250);
                 if ($photo) $filename=mb_substr(pathinfo($filename,PATHINFO_FILENAME),0,240).'.'.$ext;
                 $sha=hash_file('sha256',$f['tmp_name']);
@@ -245,6 +249,7 @@ final class Documents {
                     $previous=RentalServices::checkUpload($p,$r,$serviceKey,(int)($_POST['service_version']??0));
                     if ($previous && hash_equals($previous['sha256'],$sha)) return;
                 }
+                if ($guarantee && in_array($sha,array_column(DebtFollowUp::files($p,$invoiceId),'sha256'),true)) return;
                 if ($photo) {
                     $item=PremisesInventory::editableItem($p,$id,$_POST);
                     if (in_array($sha,array_column($item['photos'],'sha256'),true)) return;
@@ -288,6 +293,7 @@ final class Documents {
                 FileOrder::assign($p, $fid);
                 if ($actKind!==false) PremisesActs::pinUpload($p,$fid,$objectId);
                 if ($serviceDoc) RentalServices::pinUpload($p,$fid,$serviceKey);
+                if ($guarantee) DebtFollowUp::pin($p,$fid,$invoiceId);
                 if ($photo) PremisesInventory::addPhoto($p,(string)$_POST['item_id'],$item,$fid,$sha);
                 if($kind==='lawyer-file') {
                     $q=$p->prepare('SELECT * FROM rental_files WHERE id=?');$q->execute([$fid]);WordPack::inherit($p,$q->fetch());
@@ -308,6 +314,7 @@ final class Documents {
         }
         $state['stage']='redirect';
         if ($serviceDoc) Http::redirect('/rental/service?id='.$serviceKey);
+        if ($guarantee) Http::redirect(DebtFollowUpCard::route($invoiceId));
         if ($actKind!==false) Http::redirect('/rental/acts?id='.$id.'&object_id='.(int)($_POST['object_id']??0).'&kind='.$actKind);
         if ($photo) Http::redirect('/rental/object-inventory?id='.$id);
         if ($kind===PartyLegalReview::FILE) Http::redirect('/rental/party-review?id='.$id.'&action='.PartyLegalReview::SUBMIT);

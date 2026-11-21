@@ -104,7 +104,8 @@ final class Service {
 
     public static function command(string $action, array $in, ?int &$freshCommittedEventId=null): array {
         $freshCommittedEventId=null;
-        if ($action===LeasePaymentTerms::SAVE || in_array($action,[...RentalServices::ACTIONS,...InitialInvoice::ACTIONS],true)) Access::contract((int)($in['id']??0),2);
+        if ($action === DebtFollowUp::SAVE) self::roles(['manager']);
+        if (in_array($action,[LeasePaymentTerms::SAVE,DebtFollowUp::SAVE,...RentalServices::ACTIONS,...InitialInvoice::ACTIONS],true)) Access::contract((int)($in['id']??0),2);
         else \App\PagePolicy::requireCommand($action);
         Auth::requirePermission('rental.read');
         $actor = Auth::user();
@@ -255,6 +256,7 @@ final class Service {
     }
 
     private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
+        if ($action === DebtFollowUp::SAVE) return DebtFollowUp::write($p,$u,$in);
         if (in_array($action,RentalServices::ACTIONS,true)) return RentalServices::execute($p,$action,$in);
         if(in_array($action,['workspace.reset','workspace.undo','workspace.remove-test-object'],true))return WorkspaceReset::execute($p,$u,$action,$in);
         if ($action==='zero-point.correct') return ZeroPointCorrection::execute($p,$in);

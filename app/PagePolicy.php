@@ -281,6 +281,7 @@ final class PagePolicy {
                 'invoice-state',
                 'invoice-preview',
                 'invoice-report',
+                'payment-review',
                 'finance-save'
             ], true)) {
                 Auth::requirePermission('rental.read');
