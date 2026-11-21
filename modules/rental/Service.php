@@ -103,7 +103,7 @@ final class Service {
 
     public static function command(string $action, array $in, ?int &$freshCommittedEventId=null): array {
         $freshCommittedEventId=null;
-        if (in_array($action,RentalServices::ACTIONS,true)) Access::contract((int)($in['id']??0),2);
+        if ($action===LeasePaymentTerms::SAVE || in_array($action,RentalServices::ACTIONS,true)) Access::contract((int)($in['id']??0),2);
         else \App\PagePolicy::requireCommand($action);
         Auth::requirePermission('rental.read');
         $actor = Auth::user();
@@ -428,6 +428,7 @@ final class Service {
             $c = self::get($p, 'contracts', $id);
             if(ContractDraft::deleted($c))throw new RuntimeException('Договор не найден.',404);
             self::version($c, $in);
+            if ($action===LeasePaymentTerms::SAVE) return LeasePaymentTerms::execute($p,$u,$c,$in);
             if ($action===ContractRevision::ACTION) return ContractRevision::submit($p,$u,$c,$in);
             if($action==='contract.delete'){self::roles(['manager']);return ContractDraft::delete($p,$c,$u,(string)$in['command_key']);}
             if (in_array($action, HandoverQuestion::ACTIONS, true)) {
@@ -542,7 +543,8 @@ final class Service {
                     'active'
                 ], true))throw new RuntimeException('Подпись сейчас не ожидается.');
                 if (empty($in['both_signed']))throw new RuntimeException('Подтвердите подписи обеих сторон.');
-                Evidence::latest($p, 'contract', $id, 'signed-contract', (int)$c['version']);
+                $file = Evidence::latest($p, 'contract', $id, 'signed-contract', (int)$c['version']);
+                if (!empty($in['actual_signature_date'])) LeasePaymentTerms::contractSigned($p,$u,$c,$file,(string)$in['actual_signature_date']);
                 if($status!=='active')CustomerBookings::checkActivation($p,$c);
                 $p->prepare('UPDATE contracts SET signed=1 WHERE id=?')->execute([
                     $id
