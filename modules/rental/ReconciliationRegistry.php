@@ -7,10 +7,9 @@ use App\{DB,View};
 final class ReconciliationRegistry
 {
     /** Closure changes the native end date; the joined receipt binds both baselines. */
-    public static function closedProof(array $contract,array $reviews,?array $file,?array $proof,string $baseline): bool
+    public static function closedProof(array $contract,array $reviews,?array $file,?array $proof,string $baseline,bool $noReturn=false): bool
     {
-        if ($contract['status']!=='closed' || empty($contract['return_confirmed']) || !$proof || !$file
-            || !is_array($proof['act'] ?? null)
+        if ($contract['status']!=='closed' || !$proof
             || (int)($proof['record_version'] ?? 0)!==(int)$contract['version']
             || !hash_equals((string)($proof['closed_baseline'] ?? ''),$baseline)) return false;
         $approved=(string)($proof['approved_baseline'] ?? '');
@@ -25,7 +24,9 @@ final class ReconciliationRegistry
                 || !hash_equals((string)$proof[$kind]['sha256'],hash('sha256',Importer::canonicalJson($snapshot)))
                 || !hash_equals((string)$proof[$kind]['sha256'],hash('sha256',Importer::canonicalJson($row)))) return false;
         }
-        if (($file['entity_type'] ?? '')!=='contract' || (int)($file['entity_id'] ?? 0)!==(int)$contract['id']
+        if ($noReturn && ($proof['return_not_applicable'] ?? false)===true) return $file===null && empty($contract['return_confirmed']);
+        if (empty($contract['return_confirmed']) || !$file || !is_array($proof['act'] ?? null)
+            || ($file['entity_type'] ?? '')!=='contract' || (int)($file['entity_id'] ?? 0)!==(int)$contract['id']
             || ($file['kind'] ?? '')!=='signed-return-act'
             || (($file['baseline_hash'] ?? '')!==$approved && !preg_match('/^[a-f0-9]{64}$/D',$proof['act']['physical_sha256'] ?? ''))) return false;
         foreach (['id','version','sha256','upload_order','baseline_hash'] as $key) {
@@ -79,21 +80,22 @@ final class ReconciliationRegistry
             $finance=FinalReview::current(DB::pdo(),$contract,'finance',$reviews['finance'] ?? null,$baseline);
             $legal=FinalReview::current(DB::pdo(),$contract,'legal',$reviews['legal'] ?? null,$baseline);
             $actState=ReturnAct::state(DB::pdo(),$contract,$baseline);
+            $noReturn=!empty($actState['not_applicable']);
             $file=$actState['file'];
             $act=$actState['confirmed']?$file:null;
             $pendingAct=$contract['status']==='reconciling' && !$actState['confirmed']?$file:null;
             $proof=Controller::query("SELECT after_json FROM audit_log WHERE action='contract.completed' AND entity_type='contract' AND entity_id=? ORDER BY id DESC LIMIT 1",[(string)$contract['id']])[0]['after_json'] ?? null;
             $proof=$proof?json_decode($proof,true):null;
-            $closed=self::closedProof($contract,$reviews,$file,$proof['closure_proof'] ?? null,$baseline);
+            $closed=self::closedProof($contract,$reviews,$file,$proof['closure_proof'] ?? null,$baseline,$noReturn);
             if ($closed) {
                 $finance=true;$legal=true;$act=$file;
             }
-            $view=self::state($contract,$closed,$finance,$legal,$act!==null);
+            $view=self::state($contract,$closed,$finance,$legal,$act!==null || $noReturn);
             $markers=[];
             foreach (FinalReview::LABELS as $kind=>$label) $markers[$kind]=FinalReview::marker(DB::pdo(),(int)$contract['id'],$kind);
             $oneSided=!empty(array_filter(ReturnAct::files(DB::pdo(),(int)$contract['id'],ReturnAct::ONE_FILE),
                 static fn(array $row)=>ReturnAct::receipt(DB::pdo(),$row['id'])));
-            $views[]=compact('contract','reviews','finance','legal','act','pendingAct','view','markers','oneSided');
+            $views[]=compact('contract','reviews','finance','legal','act','pendingAct','view','markers','oneSided','noReturn');
         }
         $tabs=['all'=>['Все',count($views)],
             'open'=>['Требуют завершения',count(array_filter($views,fn($row)=>!$row['view']['closed'] || $row['view']['open']))],
@@ -101,7 +103,7 @@ final class ReconciliationRegistry
         $rows=[];
         foreach ($views as $row) {
             ['contract'=>$contract,'reviews'=>$reviews,'finance'=>$finance,'legal'=>$legal,'act'=>$act,'pendingAct'=>$pendingAct,
-                'view'=>$view,'markers'=>$markers,'oneSided'=>$oneSided]=$row;
+                'view'=>$view,'markers'=>$markers,'oneSided'=>$oneSided,'noReturn'=>$noReturn]=$row;
             if ($flag==='open' && $view['closed'] && !$view['open'] || $flag==='closed' && (!$view['closed'] || $view['open'])) continue;
             if (!WorkRegistry::matches($query,[$contract['number'],$contract['party_name'],$view['comment'],$contract['finish_reason']])) continue;
             $status=$view['closed'] && !$view['open']?'<strong class="registry-ui-success">Расчёты закрыты</strong>':View::e(Controller::status($contract['status']));
@@ -110,9 +112,9 @@ final class ReconciliationRegistry
                 View::e($contract['party_name']),RegistryState::date($contract['finish_date'] ?: $contract['end_date']),
                 self::review($reviews['finance'] ?? [],$finance,'Подтверждено',$view['known'],$markers['finance']),
                 self::review($reviews['legal'] ?? [],$legal,'Претензий нет',$view['known'],$markers['legal']),
-                ($act?'Акт подтверждён<div class="doc-meta">'.View::e($act['filename']).'</div>':
+                ($noReturn?'Физический возврат не применяется':($act?'Акт подтверждён<div class="doc-meta">'.View::e($act['filename']).'</div>':
                     ($pendingAct?'Файл загружен, ожидается подтверждение<div class="doc-meta">'.View::e($pendingAct['filename']).'</div>':
-                        ($oneSided?'Учтён односторонний акт':($view['known']?'Ожидается':'Нет сведений')))),
+                        ($oneSided?'Учтён односторонний акт':($view['known']?'Ожидается':'Нет сведений'))))),
                 $status.'<div class="doc-meta">'.View::e($view['comment']).'</div>'];
         }
         $options='<option value="all">Все контрагенты</option>';

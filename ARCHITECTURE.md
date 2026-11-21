@@ -147,11 +147,13 @@ AJAX реестра `/rental/objects` посылает `X-Rental-Objects-Fragmen
 | ДС | rental_documents, document_terms | Addenda, AddendumController, ExtraService | Собственный цикл согласования и применения |
 | Счёт | invoices, версии/базы выставления | FinanceService, InitialBilling, MonthlyBilling, InvoiceCalculation | Сумма и база выставления не меняются произвольно задним числом |
 | Деньги | payments, payment_allocations | Service, FinanceService | Оплата и распределение — отдельные факты |
-| Занятость | rental_objects, contract_objects, holds, reservations | Occupancy, ContractOccupancy, Availability | Исключённый объект может удерживаться до акта возврата |
+| Занятость | rental_objects, contract_objects, holds, reservations | Occupancy, ContractOccupancy, Availability, OccupiedBilling | Снятый с договора физический объект может удерживаться до акта возврата. Согласованная расчётная строка участвует только в начислениях |
 | История/повторы | rental_commands, rental_events, audit | Service, WorkflowEvents, Audit | Не очищать ради повторной попытки |
 | Внешний обмен | integration_connections, integration_runs, external_documents/files | ProviderService, Config, адаптеры | Логин, чтение, импорт и внешняя запись — разные результаты |
 
 source_json и fact_json сейчас содержат смешанные исторические и изменяемые сведения. Их названия не определяют авторитетность. Для поля, которое меняет задача, явно установи: кто пишет, кто читает, что первично, что вычисляется. Не нормализуй все JSON без отдельной задачи.
+
+В договоре расчётное исключение хранится по ID объекта в `contracts.source_json.occupied_billing_exceptions`. При создании оно проходит проверку вместе с проектом. Для действующего договора форма `/rental/occupied-billing` вызывает `Service::command('contract.occupied-billing', …)`. Физические проекции и резервы используют предикаты `ContractOccupancy`, а начисления продолжают читать полный договорный состав. Для закрытия чисто расчётного договора подтверждаются юридическое и финансовое основания. В снимке закрытия сохраняется неприменимость физического возврата, если отсутствуют физические строки и неисполненные удержания.
 
 Обнаружено расхождение: RegistryState::managed учитывает imported/workflowTouched/servicing_document_id; SourceCards::show учитывает только imported. Оно не считается исправленным этим документом.
 

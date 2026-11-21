@@ -247,6 +247,9 @@ final class Documents {
                 if ($kind === ReturnAct::KIND && $r['status'] !== 'reconciling')throw new RuntimeException('Договор не на сверке.', 409);
                 if ($closingAgreement) FinalSettlement::stage($r);
                 if ($oneReturn && $r['status']!=='reconciling') throw new RuntimeException('Договор не на сверке.',409);
+                if (($oneReturn || $kind===ReturnAct::KIND) && OccupiedBilling::noPhysicalReturn($p,$r)) {
+                    throw new RuntimeException('Физический возврат не применяется.',409);
+                }
                 $state['stage']='baseline';
                 $baseline = $type === 'contract' && !$serviceDoc && !$guarantee && !$expiry?Evidence::signature($p, $id):null;
                 $filename = mb_substr(basename($f['name']), 0, 250);

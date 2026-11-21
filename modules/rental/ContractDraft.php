@@ -70,7 +70,7 @@ final class ContractDraft
     public static function save(PDO $pdo, array $input, ?array $old, string $number): int
     {
         if ($old && $old['return_to']==='lawyer') throw new RuntimeException('Проект не доступен для редактирования.',403);
-        $draft=array_intersect_key($input,array_flip(['party_id','document_date','start_date','end_date','amount','objects','term_amount','part_terms_present','part_terms','booking_id','booking_version','draft_object_id']));
+        $draft=array_intersect_key($input,array_flip(['party_id','document_date','start_date','end_date','amount','objects','term_amount','part_terms_present','part_terms','booking_id','booking_version','draft_object_id','billing_exception_present','billing_exception']));
         // Keep the exact editor values; projection columns contain only valid, known facts.
         $draft['objects']=array_values(array_unique(array_map('intval',(array)($draft['objects'] ?? []))));
         if (count($draft['objects'])>256 || strlen(Importer::json($draft))>262144) throw new RuntimeException('Слишком большой черновик.',422);

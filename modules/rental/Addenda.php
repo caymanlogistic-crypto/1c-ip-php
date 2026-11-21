@@ -30,7 +30,10 @@ final class Addenda {
             $q->execute([
                 $old['id']
             ]);
-            foreach ($q->fetchAll() as $r)$relations[(int)$r['object_id']] = $r;
+            foreach ($q->fetchAll() as $r) {
+                $oid=(int)$r['object_id'];
+                $relations[$oid]=$r+array_intersect_key($relations[$oid] ?? [],['billing_exception'=>true]);
+            }
         }
         $terms = [
         ];
@@ -40,6 +43,7 @@ final class Addenda {
             $end = Service::date($in['term_end'][$oid] ?? $in['end_date'] ?? $old['end_date'] ?? '');
             if ($start>$end)throw new RuntimeException('Проверьте срок каждого помещения.');
             $amount = Service::money($in['term_amount'][$oid] ?? '');
+            OccupiedBilling::checkDocument($c,['object_id'=>$oid,'end_date'=>$end]);
             if (bccomp($amount, '0', 2) <= 0)throw new RuntimeException('Укажите положительную цену каждого помещения.');
             if (Occupancy::physical($relations[$oid] ?? null))Service::available($p, [
                 $oid
@@ -84,15 +88,12 @@ final class Addenda {
         ], array_key_exists('physical_occupancy', $term)?$term:($previous[(int)$term['object_id']] ?? null));
     }
     public static function reserve(PDO $p, array $c, int $id):void {
-        $q = $p->prepare('SELECT * FROM document_terms WHERE document_id=? ORDER BY object_id');
-        $q->execute([
-            $id
-        ]);
-        $terms = $q->fetchAll();
+        $terms = Occupancy::documentTerms($p,$id);
         $p->prepare("UPDATE reservations SET status='cancelled',version=version+1 WHERE document_id=? AND status='active'")->execute([
             $id
         ]);
         foreach ($terms as $t) {
+            OccupiedBilling::checkDocument($c,$t);
             if (!Occupancy::physical($t))continue;
             Service::available($p, [
                 (int)$t['object_id']
@@ -129,19 +130,18 @@ final class Addenda {
     public static function apply(PDO $p, array $c, array $d, ?string $applicationAction = null, ?array $actor = null, ?string $commandKey = null):void {
         $relations = Occupancy::relations($p, (int)$c['id']);
         $previous = array_keys($relations);
-        $q = $p->prepare('SELECT * FROM document_terms WHERE document_id=? ORDER BY object_id');
-        $q->execute([
-            $d['id']
-        ]);
-        $terms = $q->fetchAll();
+        $terms = Occupancy::documentTerms($p,(int)$d['id']);
         $ids = array_map('intval', array_column($terms, 'object_id'));
         \App\Audit::record('document.objects-applied','document',$d['id'],['object_ids'=>$previous],[
             'contract_id'=>(int)$c['id'],'added_object_ids'=>array_values(array_diff($ids,$previous)),
             'effective_date'=>$d['effective_date'],
         ]);
-        foreach ($terms as $term)if (Occupancy::physical($term))Service::available($p, [
-            (int)$term['object_id']
-        ], $term['start_date'], $term['end_date'], (int)$c['id'], null, false, null, true);
+        foreach ($terms as $term) {
+            OccupiedBilling::checkDocument($c,$term);
+            if (Occupancy::physical($term)) {
+                Service::available($p,[(int)$term['object_id']],$term['start_date'],$term['end_date'],(int)$c['id'],null,false,null,true);
+            }
+        }
         $documentParts = \App\BillingParts::terms($p, 'document', (int)$d['id']);
         $contractParts = \App\BillingParts::terms($p, 'contract', (int)$c['id']);
         $documentState = \App\BillingPartTerms::state($p, 'document', (int)$d['id']);
@@ -173,7 +173,7 @@ final class Addenda {
             $term['amount'],
             $d['effective_date']
         ]);
-        foreach (array_diff($previous, $ids) as $oid)Occupancy::insert($p, 'rental_object_holds', [
+        foreach (array_diff($previous, $ids) as $oid)if (empty($relations[$oid]['billing_exception']))Occupancy::insert($p, 'rental_object_holds', [
             'contract_id' => $c['id'],
             'document_id' => $d['id'],
             'object_id' => $oid,

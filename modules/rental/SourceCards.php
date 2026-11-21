@@ -112,6 +112,8 @@ final class SourceCards {
             }
         }
         $body.=RentalUI::pairs($pairs);
+        $body.=OccupiedBillingCard::summary($c,$rows);
+        if (OccupiedBilling::canEdit($c)) $body.='<p>'.RentalUI::button('Исключение по объекту','/rental/occupied-billing?id='.$id).'</p>';
         $body.=PremisesActsCard::summary($c);
         $body.=SecurityDepositCard::section($c);
         $body.=InitialInvoiceCard::entry($c);
@@ -151,7 +153,7 @@ final class SourceCards {
                 . $id, true);
                 $add('Завершение договора', 'contract.reconcile');
             }
-            if ($c['status'] === 'reconciling' && !$actState['confirmed'])$add('Акт возврата', 'contract.return-act', true);
+            if ($c['status'] === 'reconciling' && !$actState['confirmed'] && empty($actState['not_applicable']))$add('Акт возврата', 'contract.return-act', true);
             if ($managed && in_array($c['status'], [
                 'returned',
                 'legal',

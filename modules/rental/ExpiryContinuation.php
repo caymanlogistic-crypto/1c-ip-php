@@ -109,6 +109,12 @@ final class ExpiryContinuation
             || ($kind==='addendum' && ((int)($input['contract_id'] ?? 0)!==$context['contract_id']
                 || ($input['kind'] ?? '')!=='renewal' || ($input['effective_date'] ?? '')!==$offer['new_start'])))
             throw new RuntimeException('Сохраните те же объекты, контрагента и согласованные границы следующего срока.',422);
+        if ($kind==='contract' && ($input['intent'] ?? 'draft')==='submit') {
+            $prior=Service::get(DB::pdo(),'contracts',$context['contract_id']);
+            if (array_diff_key(array_intersect_key(OccupiedBilling::exceptions($prior),array_flip($ids)),OccupiedBilling::draftRows($input))) {
+                throw new RuntimeException('Для расчётных объектов подтвердите исключение на новый срок.',409);
+            }
+        }
         $sum='0.00';
         foreach ($terms as $term) {
             $id=(int)$term['id'];

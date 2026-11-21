@@ -133,7 +133,7 @@ final class RegularInvoice
             $quote['initial_only'] = true;
             return $quote;
         }
-        $objects = PremisesActs::subjects($db,$id);
+        $objects = Occupancy::objects($db,$id);
         if (empty($contract['signed']) || !isset(LeasePaymentTerms::allowedForms($db,$contract)[$form])) {
             $quote['questions'][] = 'Подтвердите подписанный договор, ставку и договорный срок оплаты.';
             return $quote;

@@ -45,6 +45,7 @@ final class ObjectDirectory
         $flag=(string)($_GET['flag'] ?? 'all');
         if (!in_array($flag,['all','office','parking','free','work','inactive'],true)) $flag='all';
         $read=new ObjectReadModel(date('Y-m-d'));
+        $billingByObject=OccupiedBilling::byObject($read->today);
         $availability=$read->availability;$list=[];$floors=[];
         foreach ($read->objects as $object) {
             if (!DirectoryScope::realObject($object,self::parent($object))) continue;
@@ -52,11 +53,13 @@ final class ObjectDirectory
             if ($floor!=='all' && $floor!==(string)$object['floor']) continue;
             if ($type!=='all' && $object['type']!==($type==='office'?'Офис':'Машиноместо')) continue;
             $facts=ObjectFacts::project($object,self::parent($object),$availability[$object['id']] ?? null,$read->today,$read);
+            $billing=$billingByObject[$object['id']] ?? [];
             $search=implode(' ',[$object['name'],$object['type'],$object['floor'],$object['area'],DirectoryUi::area($object['area']),$facts['status'],
                 $facts['lease']['number'] ?? '',$facts['lease']['tenant'] ?? '',$facts['lease']['end_date'] ?? '',$facts['deadline'],
-                $facts['days']===null?'':ObjectFacts::days($facts['days']),$facts['previous'],$facts['booking']['client_name'] ?? '',$facts['booking']['comment'] ?? '']);
+                $facts['days']===null?'':ObjectFacts::days($facts['days']),$facts['previous'],$facts['booking']['client_name'] ?? '',$facts['booking']['comment'] ?? '',
+                ...array_map(OccupiedBilling::contractLabel(...),$billing)]);
             if ($query!=='' && !str_contains(mb_strtolower($search),mb_strtolower($query))) continue;
-            $list[]=['object'=>$object,'facts'=>$facts];
+            $list[]=compact('object','facts','billing');
         }
         $select=static function(array $item,string $key) use($show):bool {
             $object=$item['object'];$facts=$item['facts'];
@@ -98,7 +101,7 @@ final class ObjectDirectory
                         .($lease['document_date']?' от '.Documents::dateText($lease['document_date']):'').' '.View::e($lease['tenant']);
                 }
             }
-            $comment=self::comment($facts);
+            $comment=self::comment($facts,$item['billing']);
             $end=$facts['lease']['end_date'] ?? null;
             $date=$end?Documents::dateText($end):'—';
             if ($facts['deadline']) $date='<strong class="registry-ui-error">'.$date.'</strong>';
@@ -133,9 +136,9 @@ final class ObjectDirectory
         return View::page('Объекты аренды',$body,'objects',[],$read);
     }
 
-    private static function comment(array $facts): string
+    private static function comment(array $facts,array $billing): string
     {
-        $comment='—';
+        $comment='';
         if ($facts['recent']) $comment='<strong class="registry-ui-success">'.ObjectFacts::days($facts['recent']['days']).'</strong><span class="registry-ui-secondary">Новый с '.Documents::dateText($facts['recent']['date']).': '.View::e($facts['lease']['tenant']).'</span>';
         elseif ($facts['severity']==='blue') {
             $comments=[];foreach($facts['bookings'] as $booking)$comments[]=View::e(($booking['client_name'] ?: 'Клиент не указан').' до '.Documents::dateText($booking['until_date']).($booking['comment']?': '.$booking['comment']:''));
@@ -145,7 +148,10 @@ final class ObjectDirectory
         if ($facts['deadline']) $comment.='<div><strong class="registry-ui-error">'.View::e($facts['deadline']).'</strong></div><div class="doc-meta">Необходимо подписать допсоглашение о пролонгации или начать процедуру завершения договора</div>';
         if (!empty($facts['work']['contract'])) $comment.='<div class="doc-meta">Заключение договора</div>';
         if (!empty($facts['work']['renewal'])) $comment.='<div class="doc-meta">Продление договора</div>';
-        return $comment;
+        foreach ($billing as $row) {
+            $comment.='<div class="doc-meta">'.View::e(OccupiedBilling::OBJECT_LABEL.': '.OccupiedBilling::contractLabel($row)).'</div>';
+        }
+        return $comment ?: '—';
     }
 
     public static function card(): string
@@ -155,14 +161,20 @@ final class ObjectDirectory
         $availability=self::availability();
         $facts=ObjectFacts::project($object,self::parent($object),$availability[$object['id']] ?? null,date('Y-m-d'));
         $lease=$facts['lease'];
+        $id=(int)$object['id'];
+        $billing=OccupiedBilling::byObject(date('Y-m-d'),$id)[$id] ?? [];
         $body=DirectoryUi::pairs([
             ['Внутренний номер / название',$object['name']],
             ['Номер по документам здания',$details['building_room_number'] ?? '—'],['Тип',$object['type']],['Этаж',$object['floor']],['Площадь сдачи, м²',DirectoryUi::area($object['area'])],
             ['Кадастровый объект',$object['cadastral']],['Кадастровая площадь, м²',DirectoryUi::area($object['parent_area'])],
             ['Состояние',$facts['status'],$facts['free']],['Дата освобождения',$facts['free']?($object['free_since']?Documents::dateText($object['free_since']):'Не указана'):'—'],
             ['Простой',$facts['free']?($facts['idleUnknown'] ?: ($facts['days']===null?'Указать дату':ObjectFacts::days($facts['days']))):'—',$facts['free'] && !$facts['idleUnknown']],['Последний арендатор',$facts['previous'] ?: '—'],
-            ...($lease ? [['Договор по объекту','№ '.$lease['number'].' · '.$lease['tenant']],
-                ['Срок по договору',Documents::dateText($lease['term_start']).' — '.Documents::dateText($lease['end_date'])]] : []),
+            ...($lease ? [[$billing?'Фактический арендатор':'Договор по объекту',
+                $billing?$lease['tenant'].', №'.$lease['number']:'№ '.$lease['number'].' · '.$lease['tenant']],
+                ['Срок по договору',Documents::dateText($lease['term_start']).' — '.Documents::dateText($lease['end_date'])]]
+                : ($billing?[['Фактический арендатор','—']]:[])),
+            ...array_map(static fn(array $row): array=>[OccupiedBilling::OBJECT_LABEL,OccupiedBilling::contractLabel($row)
+                .' · до '.Documents::dateText($row['until_date'])],$billing),
         ]);
         $plan=DirectoryDetails::read(DB::pdo(),'object_plan',(int)$object['id']);
         if ($plan) $body.='<p><a class="btn btn-secondary" href="/rental/object-plan?id='.(int)$object['id'].'" target="_blank" rel="noopener">Открыть план помещения</a></p>';

@@ -67,6 +67,7 @@ final class ReturnAct
         $contract=Service::get($db,'contracts',$id);
         Service::version($contract,$input);
         if ($contract['status']!=='reconciling') throw new RuntimeException('Договор не на сверке.',409);
+        if (OccupiedBilling::noPhysicalReturn($db,$contract)) throw new RuntimeException('Физический возврат не применяется.',409);
         $file=self::files($db,$id,self::ONE_FILE)[(string)($input['file_id'] ?? '')] ?? null;
         if (!$file || (int)$file['version']!==(int)$contract['version']
             || !hash_equals((string)$file['baseline_hash'],Evidence::signature($db,$id)))
@@ -142,6 +143,9 @@ final class ReturnAct
 
     public static function state(PDO $db, array $contract, ?string $baseline = null): array
     {
+        if (OccupiedBilling::noPhysicalReturn($db,$contract)) {
+            return ['file'=>null,'confirmed'=>false,'not_applicable'=>true,'message'=>'Физический возврат не применяется.'];
+        }
         try {
             $confirmed = self::currentConfirmation($db, $contract, $baseline);
         } catch (RuntimeException $e) {
@@ -203,7 +207,7 @@ final class ReturnAct
             header('X-Rental-Refresh-URL: '.FinanceController::workspaceTarget($_SERVER['HTTP_X_RENTAL_WORKSPACE_URL'] ?? null, '/rental/reconciliation'));
         }
         $body = self::summary($state).self::history(DB::pdo(),(int)$contract['id']);
-        if ($state['confirmed']) return RentalUI::modal('Акт возврата помещения', $body, '', 'reconciliation');
+        if ($state['confirmed'] || !empty($state['not_applicable'])) return RentalUI::modal('Акт возврата помещения', $body, '', 'reconciliation');
         $token = View::e(Http::csrf());
         $common = '<input type="hidden" name="_csrf" value="'.$token.'">'
             .'<input type="hidden" name="id" value="'.(int)$contract['id'].'">'

@@ -19,12 +19,7 @@ final class PremisesActs
 
     public static function subjects(PDO $db,int $contractId): array
     {
-        $q=$db->prepare('SELECT o.id,o.name,o.type FROM contract_objects co JOIN rental_objects o ON o.id=co.object_id
-            WHERE co.contract_id=? ORDER BY o.id');
-        $q->execute([$contractId]);
-        $result=[];
-        foreach ($q->fetchAll() as $object) $result[(int)$object['id']]=$object;
-        return $result;
+        return Occupancy::objects($db,$contractId,true);
     }
 
     public static function parking(array $object): bool

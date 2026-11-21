@@ -82,7 +82,7 @@ final class ObjectFacts
         else {
             $previousRow=Controller::query('SELECT p.name,t.end_date FROM contract_terms t JOIN contracts c ON c.id=t.contract_id JOIN parties p ON p.id=c.party_id '
                 .'LEFT JOIN contract_objects co ON co.contract_id=c.id AND co.object_id=t.object_id '
-                ."WHERE ".ContractOccupancy::physicalPredicate('co')." AND t.object_id=? AND c.status IN ('active','reconciling','closed','ended') AND t.end_date<=? ORDER BY t.end_date DESC,c.id DESC LIMIT 1",[$object['id'],$today])[0] ?? null;
+                ."WHERE ".ContractOccupancy::contractPredicate('co','t')." AND t.object_id=? AND c.status IN ('active','reconciling','closed','ended') AND t.end_date<=? ORDER BY t.end_date DESC,c.id DESC LIMIT 1",[$object['id'],$today])[0] ?? null;
             $seed=Controller::query("SELECT fact_json FROM rental_facts WHERE namespace='zero_point_data' AND source_key=?",['last_occupant:'.$object['id']])[0]['fact_json'] ?? null;
             $previous=self::previousTenant($previousRow,$seed?json_decode($seed,true):null,$today);
         }

@@ -65,6 +65,9 @@ final class ContractForm {
             $booking['object_id']
         ]);
         elseif ($continuation) $selected=ExpiryContinuation::rows($continuation,'contract');
+        $exceptions=$draft===null?OccupiedBilling::exceptions($c ?? []):OccupiedBilling::draftRows($draft);
+        foreach ($selected as &$object) $object['billing_exception']=$exceptions[$object['id'] ?? $object['object_id']] ?? [];
+        unset($object);
         $sum = '0.00';
         foreach ($selected as $o) {
             if ($o['amount'] !== null) {
@@ -117,7 +120,7 @@ final class ContractForm {
         . '. Суммы включают НДС.</span>'
         . ContractObjectEditor::render($selected,
             Availability::options(Availability::items($availabilityStart, $availabilityEnd, $c?(int)$c['id']:null, $booking?(int)$booking['id']:null, true,
-                $continuation['contract_id'] ?? null), empty($draft['draft_object_id'])?null:(int)$draft['draft_object_id']),
+                $continuation['contract_id'] ?? null,true), empty($draft['draft_object_id'])?null:(int)$draft['draft_object_id']),
             $sum, null, true)
         . ($design!==''?'</div>':'')
         . ($parts!=='' && $design!==''?'<div'.$section('parts').'>'.$parts.'</div>':$parts);

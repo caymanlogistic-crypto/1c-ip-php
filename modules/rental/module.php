@@ -5,6 +5,7 @@ $routes=[];
 foreach(array_merge(Controller::pages(),['contract','invoice','new-contract']) as $page)$routes['/rental/'.$page]=static fn()=>Controller::page($page);
 foreach(['edit-party','edit-cadastre','edit-object','edit-organization','reservations','template','documents','document'] as $page)$routes['/rental/'.$page]=static fn()=>\Modules\Rental\AuxController::page($page);
 $routes['/rental/contract']=[\Modules\Rental\SourceCards::class,'show'];
+$routes['/rental/occupied-billing']=[\Modules\Rental\OccupiedBillingCard::class,'editor'];
 $routes['/rental/parties']=[\Modules\Rental\PartyDirectory::class,'page'];
 $routes['/rental/party']=[\Modules\Rental\PartyDirectory::class,'card'];
 $routes['/rental/edit-party']=[\Modules\Rental\PartyDirectory::class,'editor'];
