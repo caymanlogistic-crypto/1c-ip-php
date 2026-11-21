@@ -77,7 +77,8 @@ final class ContractRevision
     public static function legalHandoff(PDO $db,int $id,?array $ordinary): ?array
     {
         $q=$db->prepare("SELECT id,created_at FROM rental_events WHERE contract_id=? AND action=? "
-            ."AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.kind'))='contract-revision-handoff' "
+            ."AND (JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.kind'))='contract-revision-handoff' "
+            ."OR JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.revision_handoff.kind'))='contract-revision-handoff') "
             ."AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.epoch'))=(SELECT epoch FROM rental_runtime_context WHERE id=1) ORDER BY id DESC LIMIT 1");
         $q->execute([$id,self::ACTION]);
         $revision=$q->fetch();

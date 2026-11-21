@@ -188,7 +188,8 @@ final class PremisesActs
         self::saveAct($db,$contract,$object,$kind,$date,$file,$items,$details);
         $question = $kind === 'transfer'
             && HandoverQuestion::fromSignedTransfer($db,Auth::user(),$contract,$date,(string)$input['command_key']);
-        return ['id'=>$id,'message'=>$question ? 'Акт подтверждён. Сдвиг даты ждёт решения бухгалтера.' : 'Подписанный акт подтверждён.'];
+        return ['id'=>$id,'message'=>$question ? 'Акт подтверждён. Сдвиг даты ждёт решения бухгалтера.' : 'Подписанный акт подтверждён.',
+            'question_notification'=>$question];
     }
 
     private static function saveAct(PDO $db,array $contract,array $object,string $kind,string $date,array $file,array $items,array $details): void

@@ -174,6 +174,7 @@ final class WorkflowMaxEvent
         $roles=match($event['action']??''){
             'party.block'=>['manager','lawyer','accountant','director','admin'],
             'party.unblock'=>['director','admin'],
+            \Modules\Rental\StaffHandoff::PACKET=>['lawyer','accountant','director','admin'],
             'contract.cancel'=>['manager','director','admin'],default=>['manager','lawyer','accountant','admin']};
         if(empty($actor['active'])||(int)$actor['id']!==(int)$event['actor_id']
             ||(string)$actor['role_id']!==(string)$event['role_id']
@@ -198,6 +199,7 @@ final class WorkflowMaxEvent
         $event=$row?WorkflowEvents::decode($row):null;
         if(!$event)throw new RuntimeException('RENTAL_MAX_COMMITTED_EVENT_REQUIRED');
         $key=self::select($event);
+        ServerWorkflowMax::assertLane($this->db,$event,false);
         $epoch=(string)$this->db->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn();
         if($epoch!==$event['epoch']||(int)$row['actor_id']!==(int)$event['actor_id']
             ||$row['action']!==$event['action']||($row['contract_id']===null)!==($event['contract_id']===null)

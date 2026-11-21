@@ -14,7 +14,7 @@ final class ServerWorkflowMax
     private ?array $scope=null;
     private ?string $pending=null;
     private int $sent=0;
-    public function __construct(private PDO $db) {}
+    public function __construct(private PDO $db,private bool $staff=false) {}
 
     public function caFile(): string
     {
@@ -43,12 +43,57 @@ final class ServerWorkflowMax
 
     private const KINDS=['submit','resubmit','legalApprove','lawyerReturn','accountantReturn','package','signed','cancelled'];
 
-    public static function requestKey(array $event):string
+    public static function requestKey(array $event,bool $staff=false):string
     {
+        if ($staff) {
+            return 'contract-workflow-staff-'.hash('sha256',$event['epoch'].':'.$event['command_key'].':'.$event['event_id']);
+        }
         if (($event['event_kind'] ?? null) === HandoverQuestion::EVENT) {
             return 'handover-question-'.hash('sha256',$event['epoch'].':'.$event['command_key'].':'.$event['event_id']);
         }
         return 'contract-workflow-'.hash('sha256',$event['command_key'].':'.$event['event_id']);
+    }
+
+    public static function validateStaff(mixed $scope): void
+    {
+        if (!is_array($scope) || ($scope['scope']??null)!=='staff-handoff'
+            || !is_int($scope['contract_id']??null) || $scope['contract_id']<1
+            || !is_int($scope['actor_id']??null) || $scope['actor_id']<1
+            || !is_string($scope['action']??null) || !\Modules\Rental\StaffHandoff::managed($scope['action'])
+            || !is_string($scope['command_key']??null) || !preg_match('/\A[a-zA-Z0-9-]{16,100}\z/',$scope['command_key'])
+            || !is_int($scope['catalog_version']??null) || $scope['catalog_version']<1)
+            throw new RuntimeException('STAFF_HANDOFF_ADMISSION_INVALID');
+        unset($scope['contract_id'],$scope['actor_id'],$scope['action'],$scope['command_key'],$scope['catalog_version']);
+        $scope['scope']='object-activity';
+        ServerObjectMax::validate($scope);
+    }
+
+    public static function staffAdmits(array $scope,array $event): bool
+    {
+        return ($event['event_id']??0)>$scope['event_floor']
+            && $event['contract_id']===$scope['contract_id'] && $event['actor_id']===$scope['actor_id']
+            && $event['action']===$scope['action'] && $event['command_key']===$scope['command_key'];
+    }
+
+    public static function selectedStaffEvent(PDO $db,int $eventId): bool
+    {
+        $scope=self::staffSettings();
+        if ($scope===null || $eventId<=$scope['event_floor']) return false;
+        $q=$db->prepare('SELECT id,source_json,created_at FROM rental_events WHERE id=?');
+        $q->execute([$eventId]);
+        $row=$q->fetch();
+        $event=$row?\Modules\Rental\WorkflowEvents::decode($row):null;
+        return $event!==null && self::staffAdmits($scope,$event);
+    }
+
+    public static function assertLane(PDO $db,array $event,bool $staff): void
+    {
+        if (!$staff && self::selectedStaffEvent($db,$event['event_id']))
+            throw new RuntimeException('STAFF_HANDOFF_LEGACY_ROUTE_FORBIDDEN');
+        $keys=$staff ? [self::requestKey($event),WorkflowMaxEvent::requestKey($event)] : [self::requestKey($event,true),self::requestKey($event,true)];
+        $q=$db->prepare("SELECT 1 FROM messaging_attempts WHERE provider='max' AND actor_id=? AND request_key IN (?,?) LIMIT 1");
+        $q->execute([$event['actor_id'],...$keys]);
+        if ($q->fetchColumn()) throw new RuntimeException('STAFF_HANDOFF_ROUTE_ALREADY_CLAIMED');
     }
 
     public function plan(int $eventId,string $commandKey,array $actor):?array
@@ -57,8 +102,13 @@ final class ServerWorkflowMax
         if(($_SERVER['REQUEST_METHOD']??'')!=='POST')throw new RuntimeException('WORKFLOW_MAX_POST_REQUIRED');
         $q=$this->db->prepare('SELECT id,source_json,created_at FROM rental_events WHERE id=?');$q->execute([$eventId]);$row=$q->fetch();
         $event=$row?\Modules\Rental\WorkflowEvents::decode($row):null;
-        if(!$event||$event['entity_kind']!=='contract'||$eventId<=$scope['event_floor'])return null;
-        if ($event['event_kind'] === HandoverQuestion::EVENT) {
+        if (!$event || $eventId<=$scope['event_floor']) return null;
+        if ($this->staff) {
+            if (!self::staffAdmits($scope,$event) || empty($event['staff_handoff'])) return null;
+            $version=$scope['catalog_version'];
+        } elseif ($event['entity_kind']!=='contract') {
+            return null;
+        } elseif ($event['event_kind'] === HandoverQuestion::EVENT) {
             $question = $scope['handover_question'] ?? null;
             if ($question === null || $eventId <= $question['event_floor']) return null;
             $version = $question['catalog_version'];
@@ -69,7 +119,8 @@ final class ServerWorkflowMax
         $current=Auth::user();
         if(!$current||(int)$current['id']!==(int)($actor['id']??0)||$event['actor_id']!==(int)$current['id']
             ||$event['auth_version']!==(int)$current['auth_version']||$event['command_key']!==$commandKey)throw new RuntimeException('WORKFLOW_MAX_ACTOR_CHANGED');
-        $proof=(new CurrentContractMaxProof($this->db))->plan($eventId,$scope['group_id'],$scope['revision'],$version);
+        self::assertLane($this->db,$event,$this->staff);
+        $proof=(new CurrentContractMaxProof($this->db))->plan($eventId,$scope['group_id'],$scope['revision'],$version,$this->staff);
         return ['event_id'=>$eventId,'command_key'=>$commandKey,'actor_id'=>$event['actor_id'],'text'=>$proof['catalog']['body'],
             'proof_sha256'=>$proof['sha256'],'request_key'=>$proof['request_key']];
     }
@@ -91,9 +142,18 @@ final class ServerWorkflowMax
         $m=Support::decode(file_get_contents($path));self::validate($m);return $m;
     }
 
+    public static function staffSettings(): ?array
+    {
+        if (PHP_OS_FAMILY!=='Linux'||getenv('APP_STAND')!=='ui') return null;
+        $path=Config::root().'/.local/staff-handoff-max-admission.json';
+        if (!file_exists($path)) return null;
+        if (is_link($path)||!is_readable($path)||filesize($path)>4096) throw new RuntimeException('STAFF_HANDOFF_ADMISSION_INVALID');
+        $scope=Support::decode(file_get_contents($path));self::validateStaff($scope);return $scope;
+    }
+
     private function context(): array
     {
-        $m=self::settings();
+        $m=$this->staff?self::staffSettings():self::settings();
         if ($m===null||$this->db->inTransaction()||$this->db->query('SELECT DATABASE()')->fetchColumn()!==$m['database']) throw new RuntimeException('WORKFLOW_MAX_SCOPE_REJECTED');
         $c=Config::get($this->db,'max');$secret=Config::secrets('max');Config::assertSecretRevision($secret,$m['revision']);
         $path=Config::root().'/private/integrations/max.enc';
@@ -112,10 +172,16 @@ final class ServerWorkflowMax
         if ($proof!==$event||$event['event_id']<=$scope['event_floor']) throw new RuntimeException('WORKFLOW_MAX_EVENT_REJECTED');
         if ((int)$this->db->query("SELECT GET_LOCK('ipphp-provider:max',0)")->fetchColumn()!==1) throw new RuntimeException('WORKFLOW_MAX_BUSY');
         try {
+            if ($this->plan($event['event_id'],$event['command_key'],Auth::user() ?? [])!==$event)
+                throw new RuntimeException('WORKFLOW_MAX_EVENT_REJECTED');
             $key=$event['request_key'];
-            // Never replay legacy claims. Their unknown outcome cannot duplicate a distinct,
-            // freshly committed contract event; unresolved deliveries of this capability do block it.
-            $q=$this->db->prepare("SELECT COUNT(*) FROM messaging_attempts WHERE provider='max' AND (status='pending' OR (status='uncertain' AND request_key LIKE 'contract-workflow-%')) AND NOT(actor_id=? AND request_key=?)");$q->execute([$event['actor_id'],$key]);
+            // A pending claim always blocks the provider. An uncertain result blocks later
+            // use of its own lane. assertLane also fences the same event across both lanes.
+            $uncertain=$this->staff?"request_key LIKE 'contract-workflow-staff-%'"
+                :"request_key LIKE 'contract-workflow-%' AND request_key NOT LIKE 'contract-workflow-staff-%'";
+            $q=$this->db->prepare("SELECT COUNT(*) FROM messaging_attempts WHERE provider='max'
+                AND (status='pending' OR (status='uncertain' AND ($uncertain))) AND NOT(actor_id=? AND request_key=?)");
+            $q->execute([$event['actor_id'],$key]);
             if ((int)$q->fetchColumn()>0) throw new RuntimeException('WORKFLOW_MAX_RECONCILIATION_REQUIRED');
             $this->scope=$this->context();$this->event=$event;$this->sent=0;$this->pending=null;
             $transport=fn($p,$o,$c,$s,$t,$r,$id,$g)=>(new MessageTransport(null,null,null,$this))->execute($p,$o,$c,$s,$t,$r,$id,$g);

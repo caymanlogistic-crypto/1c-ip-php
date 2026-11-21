@@ -1118,12 +1118,16 @@ final class Controller {
         return null;
     }
 
-    private static function workflowMaxNotice(?int $freshEventId,string $commandKey):string {
+    public static function workflowMaxNotice(?int $freshEventId,string $commandKey,string $action):string {
         if($freshEventId===null)return '';
         try{
             $actor=Auth::user();
             if(!$actor)return '';
-            $delivery=(new \Modules\Integrations\ObjectActivityMax(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+            if (StaffHandoff::managed($action) && \Modules\Integrations\ServerWorkflowMax::selectedStaffEvent(DB::pdo(),$freshEventId)) {
+                $delivery=(new \Modules\Integrations\ServerWorkflowMax(DB::pdo(),true))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+            } else {
+                $delivery=(new \Modules\Integrations\ObjectActivityMax(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+            }
             if ($delivery===null) {
                 if(\Modules\Integrations\ServerWorkflowMax::settings()!==null){
                     $delivery=(new \Modules\Integrations\ServerWorkflowMax(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
@@ -1173,7 +1177,7 @@ final class Controller {
             $result = Service::command($action, $in, $freshCommittedEventId);
             if (in_array($action,RentalServices::ACTIONS,true) && !empty($result['service_id'])) $target='/rental/service?id='.$result['service_id'];
             if ($action===PremisesInventory::MOVE) $target='/rental/object-inventory?id='.(int)$result['id'];
-            $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''));
+            $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''),$action);
             if ($action === 'party.save' && empty($in['id']) && ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'ERP-Fetch') {
                 $party = self::query('SELECT id,name,inn FROM parties WHERE id=?', [
                     $result['id']

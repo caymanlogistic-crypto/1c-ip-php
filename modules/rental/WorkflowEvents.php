@@ -17,10 +17,14 @@ final class WorkflowEvents
         $party=count($parts)===2&&$parts[0]==='party'&&in_array($parts[1],['block','unblock'],true);
         $cancel=$action==='contract.cancel';
         $question=in_array($action,[HandoverQuestion::OPEN,HandoverQuestion::RETRY],true);
-        if(!$party&&!$cancel&&!$question&&(count($parts)!==2||!in_array($parts[0],['contract','document'],true)||!in_array($parts[1],self::ACTIONS,true)))return null;
+        $staff=StaffHandoff::managed($action);
+        if(!$party&&!$cancel&&!$question&&!$staff&&(count($parts)!==2||!in_array($parts[0],['contract','document'],true)||!in_array($parts[1],self::ACTIONS,true)))return null;
+        $kind=$parts[0]==='document'?'document':($party?'party':'contract');
+        $id=(int)($input['id']??0);
         $row=null;
-        if($parts[1]!=='create')$row=Service::get($db,$party?'parties':($parts[0]==='contract'?'contracts':'rental_documents'),(int)($input['id']??0));
-        return ['kind'=>$parts[0],'before'=>$row,'event_floor'=>(int)$db->query('SELECT COALESCE(MAX(id),0) FROM rental_events')->fetchColumn()];
+        if($parts[1]!=='create')$row=Service::get($db,$party?'parties':($kind==='contract'?'contracts':'rental_documents'),$id);
+        return ['kind'=>$kind,'before'=>$row,'staff_before'=>$staff?StaffHandoff::before($db,$action,$id,$row):[],
+            'event_floor'=>(int)$db->query('SELECT COALESCE(MAX(id),0) FROM rental_events')->fetchColumn()];
     }
 
     /** Pure selector: an attempted/failed command, draft save or replay is not an event. */
@@ -51,13 +55,20 @@ final class WorkflowEvents
         $kind=$context['kind'];$party=$kind==='party';$id=(int)($result['id']??$context['before']['id']??0);
         $after=Service::get($db,$party?'parties':($kind==='contract'?'contracts':'rental_documents'),$id);
         $transition=self::transition($action,$input,$context['before'],$after);
-        if (!empty($result['question_notification'])) {
+        if (!empty($result['question_notification']) && $action!==PremisesActs::CONFIRM) {
             $transition=['event_kind'=>HandoverQuestion::EVENT,'target_role'=>'accountant','resubmitted'=>false];
         }
+        $staff=StaffHandoff::managed($action)?StaffHandoff::record($db,$actor,$action,$input,$result,$context,$after,$transition,$commandKey):null;
+        if ($staff && !$transition) $transition=['event_kind'=>'staffHandoff','target_role'=>null,'resubmitted'=>false];
         if($transition===null)return null;
         $contractId=$party?null:($kind==='contract'?$id:(int)$after['contract_id']);
-        $q=$db->prepare($party?'SELECT id,description,source_json FROM rental_events WHERE id>? AND actor_id=? AND action=? AND contract_id IS NULL ORDER BY id':'SELECT id,description FROM rental_events WHERE id>? AND actor_id=? AND action=? AND contract_id=? ORDER BY id');
+        $q=$db->prepare($party?'SELECT id,description,source_json FROM rental_events WHERE id>? AND actor_id=? AND action=? AND contract_id IS NULL ORDER BY id':'SELECT id,description,source_json FROM rental_events WHERE id>? AND actor_id=? AND action=? AND contract_id=? ORDER BY id');
         $q->execute($party?[$context['event_floor'],$actor['id'],$action]:[$context['event_floor'],$actor['id'],$action,$contractId]);$events=$q->fetchAll(PDO::FETCH_ASSOC);
+        if (!$events && $staff && in_array($action, array_merge(FinalReview::ACTIONS, [SecurityDeposit::BASIS,PremisesActs::CONFIRM]), true)) {
+            Service::event($db,$actor,$action,$staff['task'],$contractId);
+            $q->execute([$context['event_floor'],$actor['id'],$action,$contractId]);
+            $events=$q->fetchAll(PDO::FETCH_ASSOC);
+        }
         if(count($events)!==1)throw new RuntimeException('Workflow event must bind one actual command event.');
         $q=$db->prepare('SELECT fingerprint,result_json FROM rental_commands WHERE command_key=?');$q->execute([$commandKey]);$command=$q->fetch(PDO::FETCH_ASSOC);
         if(!$command)throw new RuntimeException('Workflow command receipt missing.');
@@ -73,14 +84,24 @@ final class WorkflowEvents
             'actor_id'=>(int)$actor['id'],'role_id'=>$actor['role_id']??$actor['role'],'actor_role'=>$actor['role'],
             'auth_version'=>(int)$actor['auth_version'],'actor_name'=>$actor['name'],'epoch'=>(string)$epoch,
             'text'=>(string)$events[0]['description'],'reason'=>(string)($party?($after['block_reason']??''):($after['reason']??''))]+$transition;
+        if (StaffHandoff::managed($action)) $body['staff_handoff']=$staff;
         if($party){
             $original=json_decode($events[0]['source_json']??'',true,32,JSON_THROW_ON_ERROR);
             if(($original['kind']??null)!=='party-block-projects'||($original['command_key']??null)!==$commandKey)throw new RuntimeException('Party event provenance missing.');
             $body['party_id']=$id;$body['extra']=$original['extra'];$body['source_commit']=$original['source_commit'];
         }
+        $revision=$action===ContractRevision::ACTION;
+        if ($revision) {
+            $original=json_decode($events[0]['source_json']??'',true,32,JSON_THROW_ON_ERROR);
+            if (($original['kind']??null)!=='contract-revision-handoff' || ($original['command_key']??null)!==$commandKey
+                || ($original['version']??null)!==(int)$after['version'])
+                throw new RuntimeException('Contract revision event provenance missing.');
+            $body['revision_handoff']=$original;
+        }
         $body['sha256']=hash('sha256',Importer::canonicalJson($body));
-        $q=$db->prepare($party?'UPDATE rental_events SET source_json=? WHERE id=? AND source_json=CAST(? AS JSON)':'UPDATE rental_events SET source_json=? WHERE id=? AND source_json IS NULL');
-        $q->execute($party?[Importer::json($body),$body['event_id'],$events[0]['source_json']]:[Importer::json($body),$body['event_id']]);
+        $replaceSource=$party||$revision;
+        $q=$db->prepare($replaceSource?'UPDATE rental_events SET source_json=? WHERE id=? AND source_json=CAST(? AS JSON)':'UPDATE rental_events SET source_json=? WHERE id=? AND source_json IS NULL');
+        $q->execute($replaceSource?[Importer::json($body),$body['event_id'],$events[0]['source_json']]:[Importer::json($body),$body['event_id']]);
         if($q->rowCount()!==1)throw new RuntimeException('Workflow event provenance already differs.');
         return $body['event_id'];
     }
@@ -96,12 +117,46 @@ final class WorkflowEvents
         return $body+['sha256'=>$sha,'created_at'=>$row['created_at']];
     }
 
+    /** Called only by the existing packet settlement transaction, after the guarded update. */
+    public static function packetCompleted(PDO $db,array $actor,array $intent): ?array
+    {
+        if (!$db->inTransaction()) throw new RuntimeException('Packet handoff must share its settlement transaction.');
+        if ($actor['role']==='manager') return null;
+        $action=StaffHandoff::PACKET;
+        $id=(int)$intent['entity_id'];
+        $kind=$intent['entity_type'];
+        $contractId=$kind==='contract'?$id:(int)Service::get($db,'rental_documents',$id)['contract_id'];
+        $proof=self::packetProof($db,(string)$intent['id']);
+        $key='packet-handoff-'.hash('sha256',$intent['id']);
+        $floor=(int)$db->query('SELECT COALESCE(MAX(id),0) FROM rental_events')->fetchColumn();
+        $result=['id'=>$id,'packet'=>$proof];
+        $db->prepare('INSERT INTO rental_commands(command_key,action,fingerprint,result_json) VALUES(?,?,?,?)')
+            ->execute([$key,$action,hash('sha256',Importer::canonicalJson([$actor['id'],$action,$proof])),Importer::json($result)]);
+        Service::event($db,$actor,$action,'Выполнена передача пакета. Требуются подписанные документы.',$contractId);
+        $eventId=self::record($db,$actor,$action,[],$result,$key,[
+            'kind'=>$kind,'before'=>['status'=>'approved'],'staff_before'=>[],'event_floor'=>$floor,
+        ]);
+        return $eventId===null?null:['event_id'=>$eventId,'command_key'=>$key,'action'=>$action];
+    }
+
+    public static function packetProof(PDO $db,string $intentId): array
+    {
+        $q=$db->prepare("SELECT id,entity_type,entity_id,entity_version,baseline_hash,status,receipt_json FROM rental_delivery_intents
+            WHERE id=? AND provider='email' AND (entity_type,operation) IN (('contract','contract-packet'),('document','addendum-packet'))");
+        $q->execute([$intentId]);
+        $intent=$q->fetch(PDO::FETCH_ASSOC)?:throw new RuntimeException('STAFF_HANDOFF_PACKET_MISSING');
+        if (($intent['status']!=='accepted' || empty(json_decode($intent['receipt_json']??'{}',true)['accepted']))
+            && !Delivery::manualMarked($intent['receipt_json'])) throw new RuntimeException('STAFF_HANDOFF_PACKET_UNCONFIRMED');
+        return ['id'=>$intent['id'],'kind'=>$intent['entity_type'],'entity_id'=>(int)$intent['entity_id'],
+            'before_version'=>(int)$intent['entity_version'],'baseline_sha256'=>$intent['baseline_hash']];
+    }
+
     public static function latest(PDO $db,string $kind,int $id,bool $handoffOnly=false): ?array
     {
         if(!in_array($kind,['contract','document'],true))throw new RuntimeException('Invalid workflow entity.');
         $sql="SELECT id,source_json,created_at FROM rental_events WHERE JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.kind'))='committed-rental-workflow-event' AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.epoch'))=(SELECT epoch FROM rental_runtime_context WHERE id=1) AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.entity_kind'))=? AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.entity_id'))=?";
         if($handoffOnly)$sql.=" AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.event_kind')) IN ('submit','resubmit')";
-        else $sql.=" AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.event_kind'))<>'handoverQuestion'";
+        else $sql.=" AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.event_kind')) NOT IN ('handoverQuestion','staffHandoff')";
         $q=$db->prepare($sql.' ORDER BY id DESC LIMIT 1');$q->execute([$kind,(string)$id]);$row=$q->fetch(PDO::FETCH_ASSOC);
         return $row?self::decode($row):null;
     }

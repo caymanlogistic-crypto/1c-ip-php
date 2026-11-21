@@ -128,7 +128,7 @@ final class PagePolicy {
     }
     public static function commandPage(string $action):string {
         if(str_starts_with($action,'workspace.'))return 'core.zero-point';
-        if (in_array($action, ['operation.retry', 'operation.manual'], true))return 'rental.operations';
+        if (in_array($action, ['operation.retry', 'operation.manual', \Modules\Rental\StaffHandoff::PACKET], true))return 'rental.operations';
         if (str_starts_with($action, 'payment.'))return 'rental.invoices';
         if ($action === \Modules\Rental\UpdRegister::SAVE)return 'rental.invoice-list';
         if (str_starts_with($action, 'invoice.'))return 'rental.invoice-list';

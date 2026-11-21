@@ -239,6 +239,7 @@ final class RentalOutbox {
                 'kind' => 'rental-transport-receipt'],
             Support::json($receipt));
         $receipt['receipt_path'] = $receiptPath;
+        $staffHandoff=null;
         $this->db->beginTransaction();
         try{
             $this->db->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
@@ -247,13 +248,14 @@ final class RentalOutbox {
                 $receiptPath=$this->store->spool(['intent_id'=>$intentId,'kind'=>'rental-manual-reconciliation-receipt'],Support::json($receipt));
                 $receipt['receipt_path']=$receiptPath;
             }
-            $handler::settle($this->db,
+            $staffHandoff=$handler::settle($this->db,
                 $intentId,
                 $status,
                 $receipt);
             $this->db->commit();
         }
         catch (\Throwable $e){
+            $staffHandoff=null;
             if ($this->db->inTransaction())$this->db->rollBack();
             $receipt['accepted_transport'] = $receipt['accepted'];
             $receipt['accepted'] = false;
@@ -280,7 +282,7 @@ final class RentalOutbox {
             'status' => $status,
             'receipt_path' => $receiptPath,
             'attempt_ids' => array_column($attempts,
-                'id')];
+                'id')]+($currentActor!==null&&$staffHandoff!==null?['staff_handoff'=>$staffHandoff]:[]);
     }
     private function authorizeInitial(array $intent,bool $invoice,string $page):void
     {

@@ -209,7 +209,7 @@ final class ContractDelivery
         PacketDeliveryProof::validateAttachments($db,$payload,$packet);
     }
 
-    public static function settle(PDO $db,string $id,string $status,array $receipt):void
+    public static function settle(PDO $db,string $id,string $status,array $receipt):?array
     {
         if(!$db->inTransaction()||!in_array($status,['accepted','failed','unknown','manual'],true))throw new RuntimeException('Недопустимый результат отправки.');
         $query=$db->prepare('SELECT * FROM rental_delivery_intents WHERE id=? FOR UPDATE');$query->execute([$id]);
@@ -218,8 +218,8 @@ final class ContractDelivery
         $prior=json_decode($intent['receipt_json']??'{}',true,128,JSON_THROW_ON_ERROR);
         if(isset($prior['manual_completion']))$receipt['manual_completion']=$prior['manual_completion'];
         if($status==='manual'){
-            DeliveryRetry::manualExisting($db,$id,Auth::user()??throw new RuntimeException('Требуется вход.',401));
-            return;
+            $completion=DeliveryRetry::manualExisting($db,$id,Auth::user()??throw new RuntimeException('Требуется вход.',401));
+            return $completion['staff_handoff']??null;
         }
         if($status==='accepted'){
             if(empty($receipt['accepted']))throw new RuntimeException('Нет подтверждения транспорта.');
@@ -227,9 +227,9 @@ final class ContractDelivery
             self::validate($db,$intent);$descriptor=self::descriptor($intent['entity_type']);
             $payload=json_decode($intent['payload_json'],true,128,JSON_THROW_ON_ERROR);
             $db->prepare('UPDATE rental_delivery_intents SET status=?,receipt_json=? WHERE id=?')->execute([$status,Importer::json($receipt),$id]);
-            DeliveryRetry::completeInitialAccepted($db,$intent,$payload);
-            return;
+            return DeliveryRetry::completeInitialAccepted($db,$intent,$payload);
         }
         $db->prepare('UPDATE rental_delivery_intents SET status=?,receipt_json=? WHERE id=?')->execute([$status,Importer::json($receipt),$id]);
+        return null;
     }
 }
