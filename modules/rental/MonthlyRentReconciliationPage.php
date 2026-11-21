@@ -42,8 +42,8 @@ final class MonthlyRentReconciliationPage
         }
         $report = (new MonthlyRentReconciliation(DB::pdo(), Config::store()))->capture($months);
         $body .= '<section class="panel-section"><p class="registry-ui-secondary">'
-            .'Загрузка 1С · счета '.View::e($report['archive']['invoices'] ?? 'ожидаются')
-            .' · банк '.View::e($report['archive']['bank'] ?? 'ожидается').'</p></section>'
+            .'Загрузка 1С (МСК) · счета '.self::archiveTime($report['archive']['invoices'], 'ожидаются')
+            .' · банк '.self::archiveTime($report['archive']['bank'], 'ожидается').'</p></section>'
             .self::monthlyTable($report['months'], $report['invoice_facts']).'</section>';
         if ($report['issues']) {
             $body .= '<section class="table-card registry-ui-card"><details class="registry-ui-form-disclosure" data-form-disclosure>'
@@ -108,7 +108,7 @@ final class MonthlyRentReconciliationPage
                     self::money($facts['balance'] ?? null)];
             }
             $body .= self::heading('Аренда за месяц').Controller::table(
-                ['Основание','Договор','Сумма с НДС','Разница','Срок оплаты','Из 1С','Остаток по счёту'],
+                ['Основание','Договор','Сумма с НДС','Разница','Срок оплаты','Из 1С','Остаток'],
                 $rows, ['flex','short','money','money','code','money','money']);
         }
         if ($client['due']) {
@@ -154,6 +154,11 @@ final class MonthlyRentReconciliationPage
     private static function heading(string $label): string
     {
         return '<section class="panel-section"><h2 class="section-title">'.View::e($label).'</h2></section>';
+    }
+
+    private static function archiveTime(?string $value, string $empty): string
+    {
+        return $value ? (new DateTimeImmutable($value))->format('d.m.Y H:i') : $empty;
     }
 
     private static function details(string $id, string $label, string $body): array
