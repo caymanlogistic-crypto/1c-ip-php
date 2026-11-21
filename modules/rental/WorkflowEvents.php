@@ -85,6 +85,9 @@ final class WorkflowEvents
             'auth_version'=>(int)$actor['auth_version'],'actor_name'=>$actor['name'],'epoch'=>(string)$epoch,
             'text'=>(string)$events[0]['description'],'reason'=>(string)($party?($after['block_reason']??''):($after['reason']??''))]+$transition;
         if (StaffHandoff::managed($action)) $body['staff_handoff']=$staff;
+        if ($action==='contract.submit' && $staff && ($named=\Modules\Integrations\StaffHandoffProbe::assign($db,$body))) {
+            $body['staff_handoff']['targets']=[$named];
+        }
         if($party){
             $original=json_decode($events[0]['source_json']??'',true,32,JSON_THROW_ON_ERROR);
             if(($original['kind']??null)!=='party-block-projects'||($original['command_key']??null)!==$commandKey)throw new RuntimeException('Party event provenance missing.');

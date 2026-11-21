@@ -167,6 +167,9 @@ final class ServerWorkflowMax
         if (!$event || $eventId<=$scope['event_floor']) return null;
         if ($this->staff) {
             if (!self::staffAdmits($scope,$event) || empty($event['staff_handoff'])) return null;
+            if (isset($scope['isolated_probe'])) {
+                StaffHandoffProbe::assertReviewer($this->db,$scope['isolated_probe']['recipient_id'],$event['staff_handoff']['targets'][0]);
+            }
             $version=$scope['catalog_version'];
         } elseif ($event['entity_kind']!=='contract') {
             return null;
@@ -217,14 +220,19 @@ final class ServerWorkflowMax
     {
         $m=$this->staff?self::staffSettings():self::settings();
         if ($m===null||$this->db->inTransaction()||$this->db->query('SELECT DATABASE()')->fetchColumn()!==$m['database']) throw new RuntimeException('WORKFLOW_MAX_SCOPE_REJECTED');
-        $c=Config::get($this->db,'max');$secret=Config::secrets('max');Config::assertSecretRevision($secret,$m['revision']);
+        self::assertProfile($this->db,$m);
+        return $m;
+    }
+
+    public static function assertProfile(PDO $db,array $m): void
+    {
+        $c=Config::get($db,'max');$secret=Config::secrets('max');Config::assertSecretRevision($secret,$m['revision']);
         $path=Config::root().'/private/integrations/max.enc';
         if (!$c['enabled']||(int)$c['revision']!==$m['revision']||($secret['_owner_bound_revision'] ?? null)!==$m['revision']
             ||($secret['approved_chat_ids'] ?? null)!==[$m['chat_id']]||empty($secret['secret'])||is_link($path)
             ||!hash_equals($m['vault_sha256'],hash_file('sha256',$path))) throw new RuntimeException('WORKFLOW_MAX_PROFILE_CHANGED');
-        $q=$this->db->prepare("SELECT name,chat_id FROM messaging_groups WHERE provider='max' AND enabled=1 AND id=?");$q->execute([$m['group_id']]);$group=$q->fetch();
+        $q=$db->prepare("SELECT name,chat_id FROM messaging_groups WHERE provider='max' AND enabled=1 AND id=?");$q->execute([$m['group_id']]);$group=$q->fetch();
         if (!$group||$group['name']!==$m['group_name']||(string)$group['chat_id']!==$m['chat_id']) throw new RuntimeException('WORKFLOW_MAX_GROUP_CHANGED');
-        return $m;
     }
 
     public function dispatch(array $event): array

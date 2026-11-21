@@ -2,7 +2,8 @@
 declare(strict_types=1);
 namespace Modules\Integrations;
 
-use App\Audit;
+use App\{Audit,Auth,PagePolicy};
+use Modules\Rental\{Service,StaffHandoff};
 use PDO;
 use RuntimeException;
 
@@ -42,13 +43,74 @@ final class StaffHandoffProbe
     public static function admits(array $probe,array $event,int $now): bool
     {
         $targets=$event['staff_handoff']['targets'] ?? [];
+        return self::selectsSubmission($probe,$event,$now)
+            && count($targets)===1 && ($targets[0]['role'] ?? null)==='lawyer'
+            && ($targets[0]['id'] ?? null)===$probe['recipient_id'];
+    }
+
+    private static function selectsSubmission(array $probe,array $event,int $now): bool
+    {
         return $now>=$probe['valid_from'] && $now<$probe['expires_at']
             && $event['epoch']===$probe['epoch'] && $event['contract_number']===$probe['contract_number']
             && ($event['entity_kind'] ?? null)==='contract' && ($event['from_status'] ?? null)==='draft'
             && ($event['to_status'] ?? null)==='legal' && ($event['event_kind'] ?? null)==='submit'
-            && ($event['actor_role'] ?? null)==='manager'
-            && count($targets)===1 && ($targets[0]['role'] ?? null)==='lawyer'
-            && ($targets[0]['id'] ?? null)===$probe['recipient_id'];
+            && ($event['actor_role'] ?? null)==='manager';
+    }
+
+    public static function reviewer(PDO $db,int $id): array
+    {
+        $q=$db->prepare("SELECT u.name,u.role role_id,r.grants_configured FROM users u
+            JOIN roles r ON r.id=u.role JOIN role_profiles p ON p.role_id=u.role
+            WHERE u.id=? AND u.active=1 AND p.kind='lawyer'");
+        $q->execute([$id]);
+        $user=$q->fetch(PDO::FETCH_ASSOC);
+        if (!$user || !Auth::canFor($user,'rental.read')
+            || !Auth::canFor($user,Service::commandGrant('contract.legal',['role'=>'lawyer']))
+            || PagePolicy::levelForRole($user['role_id'],'lawyer',(bool)$user['grants_configured'],PagePolicy::commandPage('contract.legal'))<2
+            || ($name=StaffHandoff::name($user['name'],'lawyer'))!==trim($user['name'])
+            || $name===\App\People::roleLabel('lawyer')) {
+            throw new RuntimeException('STAFF_HANDOFF_PROBE_RECIPIENT_CHANGED');
+        }
+        return ['role'=>'lawyer','id'=>$id,'label'=>$name];
+    }
+
+    public static function assertReviewer(PDO $db,int $id,array $target): void
+    {
+        if (Support::canonical(self::reviewer($db,$id))!==Support::canonical($target))
+            throw new RuntimeException('STAFF_HANDOFF_PROBE_RECIPIENT_CHANGED');
+    }
+
+    public function namedReviewer(array $scope,array $event): ?array
+    {
+        $probe=$scope['isolated_probe'] ?? null;
+        if ($probe===null || !ServerWorkflowMax::staffSelects($scope,$event)
+            || !self::selectsSubmission($probe,$event,time())
+            || ($event['target_role'] ?? null)!=='lawyer'
+            || ($event['staff_handoff']['targets'][0]['role'] ?? null)!=='lawyer'
+            || count($event['staff_handoff']['targets'])!==1) return null;
+
+        ServerWorkflowMax::assertProfile($this->db,$scope);
+        $q=$this->db->query("SELECT version,source_sha256 FROM integration_template_catalog WHERE channel='max' AND source_key='staffHandoff'");
+        $template=$q->fetch(PDO::FETCH_ASSOC);
+        if (!$template || (int)$template['version']!==$scope['catalog_version']
+            || $template['source_sha256']!==hash_file('sha256',__DIR__.'/defaults/staff-handoff-max.json')) {
+            throw new RuntimeException('STAFF_HANDOFF_TEMPLATE_CHANGED');
+        }
+        $this->verifyReady($scope);
+        return self::reviewer($this->db,$probe['recipient_id']);
+    }
+
+    /** Reads only the trusted server marker; unusable probes leave the regular target intact. */
+    public static function assign(PDO $db,array $event): ?array
+    {
+        try {
+            $scope=ServerWorkflowMax::staffSettings();
+            if ($scope===null || !isset($scope['isolated_probe'])
+                || $db->query('SELECT DATABASE()')->fetchColumn()!==$scope['database']) return null;
+            return (new self($db,Config::store()))->namedReviewer($scope,$event);
+        } catch (RuntimeException) {
+            return null;
+        }
     }
 
     public function verifyReady(array $scope): array
@@ -127,6 +189,7 @@ final class StaffHandoffProbe
             throw new RuntimeException('STAFF_HANDOFF_PROBE_EVENT_CHANGED');
         }
         $ids=$this->verifyReady($scope);
+        self::assertReviewer($this->db,$probe['recipient_id'],$event['staff_handoff']['targets'][0]);
         $q=$this->db->prepare("SELECT 1 FROM messaging_attempts WHERE provider='max' AND actor_id=? AND request_key=? LIMIT 1");
         $q->execute([$event['actor_id'],$event['request_key']]);
         if ($q->fetchColumn()) throw new RuntimeException('STAFF_HANDOFF_PROBE_ALREADY_CLAIMED');
