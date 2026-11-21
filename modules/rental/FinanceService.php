@@ -108,6 +108,7 @@ final class FinanceService {
                 'accountant'
             ]);
             if ($initialProof) throw new RuntimeException('Исходный первый счёт сохранён. Срок оплаты уточняется отдельным действием.',409);
+            if ($i) SecurityDeposit::protectInvoice($p,$i);
             if ($periodProof) throw new RuntimeException('Сохранённый счёт связан с подтверждёнными условиями. Корректировка оформляется отдельно.',409);
             if ($manualProof) throw new RuntimeException('Сохранённый счёт связан с подтверждённым основанием и периодом. Корректировка оформляется отдельно.',409);
             $number = trim($in['number'] ?? '');
@@ -224,6 +225,7 @@ final class FinanceService {
             $payment = null;
             $allocation = '0.00';
             if ($action === 'invoice.edit-payment') {
+                SecurityDeposit::protectInvoice($p,$i);
                 $payment = Service::get($p, 'payments', (int)$in['payment_id']);
                 $q = $p->prepare('SELECT amount FROM payment_allocations WHERE payment_id=? AND invoice_id=? FOR UPDATE');
                 $q->execute([
@@ -239,7 +241,7 @@ final class FinanceService {
                 if ((int)$q->fetchColumn() !== 1)throw new RuntimeException('Разделённый приход редактируется через отдельные распределения.');
             }
             $others = bcsub($i['paid'], $allocation, 2);
-            if (bccomp(bcadd($others, $a, 2), $i['amount'], 2)>0)throw new RuntimeException('Сумма оплаты превышает остаток счёта.');
+            if (bccomp($a,SecurityDeposit::payable($p,$i,$others),2)>0)throw new RuntimeException('Сумма оплаты превышает остаток счёта.');
             if ($payment) {
                 $paymentId = (int)$payment['id'];
                 NativeOperatingWriter::requirePayment($p,$paymentId);
@@ -324,6 +326,7 @@ final class FinanceService {
             $status = match ($action) {
                 'invoice.freeze' => 'frozen', 'invoice.revoke' => 'revoked', default => 'active'
             };
+            if ($status!=='active') SecurityDeposit::protectInvoice($p,$i);
             if ($i['status'] === $status)return [
                 'id' => $id,
                 'invoice_id' => $id,

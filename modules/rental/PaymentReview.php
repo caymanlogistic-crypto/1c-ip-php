@@ -12,6 +12,8 @@ final class PaymentReview
 {
     public static function attach(PDO $db,array $invoice,?DateTimeImmutable $now = null): array
     {
+        if (($invoice['kind'] ?? '')===SecurityDeposit::KIND)
+            $invoice['_security_credit']=SecurityDeposit::invoiceCredit($db,$invoice);
         $invoice['_payment_control'] = self::state($db,$invoice,$now ?? BankPaymentRefresh::now($db));
         return $invoice;
     }
@@ -70,7 +72,8 @@ final class PaymentReview
         return array_replace($result,[
             'confirmed'=>true,'overdue_ready'=>$date >= $businessDay['date'],
             'first_day'=>$businessDay['date'],'cutoff'=>$receipt['cutoff'],
-            'label'=>$bookedPayment ? 'Частично оплачен' : 'Оплата не поступила',
+            'label'=>bccomp($invoice['_security_credit'] ?? '0','0',2)>0?'Часть обязательства покрыта зачётом':
+                ($bookedPayment?'Частично оплачен':'Оплата не поступила'),
             'detail'=>'Полная выписка к 11:00 МСК. Первый рабочий день после срока — '.Documents::dateText($businessDay['date']).'.',
         ]);
     }

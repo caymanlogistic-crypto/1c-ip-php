@@ -163,7 +163,12 @@ final class Evidence {
             $id
         ]);
         $kinds = $q->fetchAll(PDO::FETCH_COLUMN);
-        if (!in_array('Обеспечительный платёж', $kinds, true) || !in_array('Первый период', $kinds, true))return false;
+        if (!in_array('Первый период',$kinds,true)) return false;
+        if (!in_array(SecurityDeposit::KIND,$kinds,true)) {
+            $security=SecurityDeposit::obligation($p,$id);
+            if (!$security || !$security['initial_invoice'] || $security['paid']===null
+                || bccomp(SecurityDeposit::payable($p,$security,$security['paid']),'0',2)!==0) return false;
+        }
         CustomerBookings::checkActivation($p,$c);
         $p->prepare("UPDATE contracts SET status='active',version=version+1 WHERE id=?")->execute([
             $id
