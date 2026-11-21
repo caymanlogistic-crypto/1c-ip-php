@@ -1154,6 +1154,11 @@ final class Controller {
     {
         if ($error->getMessage()===\Modules\Integrations\ServerWorkflowMax::RECONCILIATION_REQUIRED)
             return ' Уведомление MAX не отправлено. Сверьте результат предыдущей попытки. Это событие автоматически повторено не будет.';
+        if ($error->getMessage()==='STAFF_HANDOFF_PROBE_ALREADY_CLAIMED')
+            return ' Разовый допуск MAX уже использован. Повтора не было.';
+        if (str_starts_with($error->getMessage(),'STAFF_HANDOFF_PROBE_')
+            || str_starts_with($error->getMessage(),'STAFF_HANDOFF_OBSERVATION_'))
+            return ' Данные сохранены. Уведомление MAX не отправлено. Условия разовой пробы требуют сверки.';
         return ' Данные сохранены. Уведомление MAX не подтверждено; автоматического повтора нет.';
     }
 
