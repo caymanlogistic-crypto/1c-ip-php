@@ -70,6 +70,13 @@ final class ServerWorkflowMax
                 || !is_string($scope['action']??null) || !StaffHandoff::managed($scope['action'])
                 || !is_string($scope['command_key']??null) || !preg_match('/\A[a-zA-Z0-9-]{16,100}\z/',$scope['command_key']))
                 throw new RuntimeException('STAFF_HANDOFF_ADMISSION_INVALID');
+            if (array_key_exists('isolated_probe',$scope)) {
+                StaffHandoffProbe::validate($scope['isolated_probe']);
+                if ($scope['action']!=='contract.submit' || $scope['actor_id']===$scope['isolated_probe']['recipient_id']) {
+                    throw new RuntimeException('STAFF_HANDOFF_PROBE_ADMISSION_INVALID');
+                }
+                unset($scope['isolated_probe']);
+            }
             unset($scope['contract_id'],$scope['actor_id'],$scope['action'],$scope['command_key']);
         }
         unset($scope['catalog_version']);
@@ -120,6 +127,7 @@ final class ServerWorkflowMax
     public static function staffAdmits(array $scope,array $event,?int $now=null): bool
     {
         if (!self::staffSelects($scope,$event)) return false;
+        if (isset($scope['isolated_probe'])) return StaffHandoffProbe::admits($scope['isolated_probe'],$event,$now??time());
         if (($scope['scope']??null)!==self::STAFF_SEQUENCE) return true;
         $now??=time();
         return $event['epoch']===$scope['epoch'] && $now>=$scope['valid_from'] && $now<$scope['expires_at'];
@@ -129,11 +137,16 @@ final class ServerWorkflowMax
     {
         $scope=self::staffSettings();
         if ($scope===null || $eventId<=$scope['event_floor']) return false;
+        $event=self::readEvent($db,$eventId);
+        return $event!==null && self::staffSelects($scope,$event);
+    }
+
+    private static function readEvent(PDO $db,int $eventId): ?array
+    {
         $q=$db->prepare('SELECT id,source_json,created_at FROM rental_events WHERE id=?');
         $q->execute([$eventId]);
         $row=$q->fetch();
-        $event=$row?WorkflowEvents::decode($row):null;
-        return $event!==null && self::staffSelects($scope,$event);
+        return $row?WorkflowEvents::decode($row):null;
     }
 
     public static function assertLane(PDO $db,array $event,bool $staff): void
@@ -150,8 +163,7 @@ final class ServerWorkflowMax
     {
         $scope=$this->context();
         if(($_SERVER['REQUEST_METHOD']??'')!=='POST')throw new RuntimeException('WORKFLOW_MAX_POST_REQUIRED');
-        $q=$this->db->prepare('SELECT id,source_json,created_at FROM rental_events WHERE id=?');$q->execute([$eventId]);$row=$q->fetch();
-        $event=$row?WorkflowEvents::decode($row):null;
+        $event=self::readEvent($this->db,$eventId);
         if (!$event || $eventId<=$scope['event_floor']) return null;
         if ($this->staff) {
             if (!self::staffAdmits($scope,$event) || empty($event['staff_handoff'])) return null;
@@ -221,18 +233,27 @@ final class ServerWorkflowMax
         $proof=$this->plan($event['event_id'],$event['command_key'],Auth::user() ?? []);
         if ($proof!==$event||$event['event_id']<=$scope['event_floor']) throw new RuntimeException('WORKFLOW_MAX_EVENT_REJECTED');
         $sequence=$this->staff && $scope['scope']===self::STAFF_SEQUENCE;
+        $probe=$this->staff && isset($scope['isolated_probe']);
         $lock=$this->db->prepare("SELECT GET_LOCK('ipphp-provider:max',?)");
         $lock->execute([$sequence?5:0]);
         if ((int)$lock->fetchColumn()!==1) throw new RuntimeException('WORKFLOW_MAX_BUSY');
         try {
-            $this->assertSlot($event);
+            if (!$probe) $this->assertSlot($event);
             if ($sequence) $this->waitForTarget($scope['chat_id'],$event['request_key']);
             if ($this->context()!==$scope || $this->plan($event['event_id'],$event['command_key'],Auth::user() ?? [])!==$event)
                 throw new RuntimeException('WORKFLOW_MAX_EVENT_REJECTED');
+            if ($probe) $this->claimProbe($scope,$event);
             $this->scope=$scope;$this->event=$event;$this->sent=0;$this->pending=null;
             $transport=fn($p,$o,$c,$s,$t,$r,$id,$g)=>(new MessageTransport(null,null,null,$this))->execute($p,$o,$c,$s,$t,$r,$id,$g);
             return (new Messaging($this->db,Config::store(),$transport))->dispatch('max',$event['actor_id'],$event['request_key'],'send',[$scope['group_id']],$event['text']);
         } finally {$this->event=null;$this->scope=null;$this->pending=null;$this->db->query("SELECT RELEASE_LOCK('ipphp-provider:max')");}
+    }
+
+    private function claimProbe(array $scope,array $event): void
+    {
+        $committed=self::readEvent($this->db,$event['event_id']);
+        if (!$committed) throw new RuntimeException('STAFF_HANDOFF_PROBE_EVENT_CHANGED');
+        (new StaffHandoffProbe($this->db,Config::store()))->claim($scope,$committed+['request_key'=>$event['request_key']]);
     }
 
     private function assertSlot(array $event): void
