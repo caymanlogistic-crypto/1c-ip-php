@@ -91,7 +91,7 @@ final class Service {
 
     /** Same coarse grant for command execution and its later typed workflow notification. */
     public static function commandGrant(string $action,array $actor): string {
-        if ($action === UpdRegister::SAVE) return 'finance.write';
+        if (in_array($action,[UpdRegister::SAVE,SavedReceipt408::ACTION],true)) return 'finance.write';
         if ($action === StaffHandoff::PACKET) return match($actor['role']) {
             'admin'=>'*','director'=>'rental.approve.executive',
             'lawyer'=>'rental.approve.legal','accountant'=>'finance.write',default=>'rental.write',
@@ -110,6 +110,7 @@ final class Service {
     public static function command(string $action, array $in, ?int &$freshCommittedEventId=null): array {
         $freshCommittedEventId=null;
         if ($action === TermEndCorrection::ACTION) TermEndCorrection::requireOperator();
+        if ($action === SavedReceipt408::ACTION) SavedReceipt408::requireOperator();
         if (in_array($action,ExpiryNotice::ACTIONS,true)) ExpiryNotice::access((int)($in['id'] ?? 0),2);
         if ($action === UpdRegister::SAVE) RegularInvoice::requireAccess(2);
         if ($action === DebtFollowUp::SAVE) self::roles(['manager']);
@@ -279,6 +280,7 @@ final class Service {
         if (in_array($action,RentalServices::ACTIONS,true)) return RentalServices::execute($p,$action,$in);
         if(in_array($action,['workspace.reset','workspace.undo','workspace.remove-test-object'],true))return WorkspaceReset::execute($p,$u,$action,$in);
         if ($action===TermEndCorrection::ACTION) return TermEndCorrection::execute($p,$u,$in);
+        if ($action===SavedReceipt408::ACTION) return SavedReceipt408::execute($p,$u,$in);
         if ($action==='zero-point.correct') return ZeroPointCorrection::execute($p,$in);
         if ($action==='zero-point.continuity') return ZeroPointContinuity::execute($p,$in);
         if ($action==='zero-point.clarify') return ZeroPointClarification::execute($p,$in);
@@ -700,6 +702,7 @@ final class Service {
                 'accountant'
             ]);
             $payment = self::get($p, 'payments', (int)$in['payment_id']);
+            SavedReceipt408::rejectManualChange($payment);
             NativeOperatingWriter::requirePayment($p,(int)$payment['id']);
             $invoice = self::get($p, 'invoices', $id);
             self::version($invoice, $in);
