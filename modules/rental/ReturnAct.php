@@ -3,13 +3,82 @@ declare(strict_types=1);
 
 namespace Modules\Rental;
 
-use App\{Auth, DB, Http, View};
+use App\{Audit, Auth, DB, Http, View};
 use PDO;
 use RuntimeException;
 
 final class ReturnAct
 {
     public const KIND = 'signed-return-act';
+    public const ONE_FILE='one-sided-return-act';
+    public const RECORD_ONE='closing.return-act-one-sided';
+    private const SIGNATURES='rental_return_act_signature';
+
+    public static function receipt(PDO $db,string $file): array
+    {
+        return FinalSettlement::fact($db,self::SIGNATURES,$file);
+    }
+
+    public static function record(PDO $db,array $contract,array $file,string $mode,?string $signedOn,string $signer,?string $returned): void
+    {
+        $data=['contract_id'=>(int)$contract['id'],'sha256'=>$file['sha256'],'mode'=>$mode,'signed_on'=>$signedOn,
+            'signer'=>$signer,'returned'=>$returned,'physical_sha256'=>self::physicalBaseline($db,$contract),'when'=>date(DATE_ATOM),
+            'actor'=>Auth::user()['name']];
+        $old=self::receipt($db,$file['id']);
+        if ($old) {
+            unset($old['when'],$old['actor']);
+            $same=$data;unset($same['when'],$same['actor']);
+            if (Importer::canonicalJson($old)!==Importer::canonicalJson($same))
+                throw new RuntimeException('Этот файл акта уже учтён с другими реквизитами.',409);
+            return;
+        }
+        $db->prepare('INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,1)')
+            ->execute([self::SIGNATURES,$file['id'],Importer::json($data)]);
+    }
+
+    private static function physicalBaseline(PDO $db,array $contract): string
+    {
+        return hash('sha256',Importer::canonicalJson(['contract_id'=>(int)$contract['id'],'party_id'=>(int)$contract['party_id'],
+            'objects'=>array_keys(array_filter(Occupancy::relations($db,(int)$contract['id']),Occupancy::physical(...)))]));
+    }
+
+    public static function physicalProof(PDO $db,array $contract,array $file): ?string
+    {
+        $original=self::receipt($db,$file['id']);
+        if (($original['mode'] ?? '')!=='both' || $original['contract_id']!==(int)$contract['id']
+            || !hash_equals($original['sha256'],$file['sha256']) || $original['returned']!==$contract['return_confirmed']
+            || !hash_equals($original['physical_sha256'],self::physicalBaseline($db,$contract))) return null;
+        self::assertIntegrity($file);
+        return $original['physical_sha256'];
+    }
+
+    public static function files(PDO $db,int $contract,string $kind): array
+    {
+        $q=$db->prepare("SELECT * FROM rental_files WHERE entity_type='contract' AND entity_id=? AND kind=? ORDER BY upload_order DESC");
+        $q->execute([$contract,$kind]);
+        return array_column($q->fetchAll(),null,'id');
+    }
+
+    public static function recordOne(PDO $db,array $input): array
+    {
+        Service::roles(['manager']);
+        $id=(int)($input['id'] ?? 0);
+        Access::contract($id,2);
+        $contract=Service::get($db,'contracts',$id);
+        Service::version($contract,$input);
+        if ($contract['status']!=='reconciling') throw new RuntimeException('Договор не на сверке.',409);
+        $file=self::files($db,$id,self::ONE_FILE)[(string)($input['file_id'] ?? '')] ?? null;
+        if (!$file || (int)$file['version']!==(int)$contract['version']
+            || !hash_equals((string)$file['baseline_hash'],Evidence::signature($db,$id)))
+            throw new RuntimeException('Загрузите односторонний акт для актуальной версии сверки.',409);
+        $signer=DirectoryDetails::text($input,'signer',240);
+        if ($signer==='') throw new RuntimeException('Укажите, кто подписал односторонний акт.',422);
+        self::assertIntegrity($file);
+        self::record($db,$contract,$file,'one',FinalSettlement::signedDate($input),$signer,null);
+        $db->prepare('UPDATE contracts SET version=version+1 WHERE id=?')->execute([$id]);
+        Audit::record(self::RECORD_ONE,'contract',$id,null,['file_id'=>$file['id'],'sha256'=>$file['sha256'],'signer'=>$signer]);
+        return ['id'=>$id,'message'=>'Односторонний акт учтён. Двусторонний возврат и расчёты не подтверждены.'];
+    }
 
     public static function confirmed(PDO $db, array $contract): ?array
     {
@@ -43,6 +112,7 @@ final class ReturnAct
     {
         $file = self::confirmed($db, $contract);
         if (!$file || $contract['status'] === 'closed') return $file;
+        if (self::physicalProof($db,$contract,$file)!==null) return $file;
         return hash_equals((string)$file['baseline_hash'], $baseline ?? Evidence::signature($db, (int)$contract['id'])) ? $file : null;
     }
 
@@ -78,7 +148,11 @@ final class ReturnAct
             if ($e instanceof \PDOException) throw $e;
             if ($contract['status'] === 'closed') return ['file'=>null, 'confirmed'=>false, 'message'=>$e->getMessage()];
         }
-        if (isset($confirmed)) return ['file'=>$confirmed, 'confirmed'=>true, 'message'=>'Акт возврата подтверждён'];
+        if (isset($confirmed)) {
+            $receipt=self::receipt($db,$confirmed['id']);
+            return ['file'=>$confirmed,'confirmed'=>true,'message'=>'Акт возврата подтверждён',
+                'signed_on'=>$receipt['signed_on'] ?? null,'actual_return'=>$contract['return_confirmed']];
+        }
         if ($contract['status'] !== 'reconciling') return ['file'=>null, 'confirmed'=>false, 'message'=>'Акт возврата не подтверждён'];
         try {
             return ['file'=>self::candidate($db, $contract, $baseline), 'confirmed'=>false, 'message'=>'Файл загружен. Ожидается подтверждение.'];
@@ -93,12 +167,29 @@ final class ReturnAct
         $file = $state['file'];
         $html = RentalUI::pairs([
             ['Акт возврата', $state['message']],
+            ...(isset($state['actual_return']) ? [['Фактический возврат',Documents::dateText($state['actual_return'])],
+                ['Подписание акта',Documents::dateText($state['signed_on'] ?? null)]] : []),
             ...($file ? [['Сохранённый файл', $file['filename']]] : []),
         ]);
         if ($file) {
             $html .= '<div><a class="btn btn-secondary" href="/rental/download?id='.View::e($file['id']).'">Открыть сохранённый акт</a></div>';
         }
         return $html;
+    }
+
+    public static function history(PDO $db,int $contract): string
+    {
+        $rows=[];
+        foreach ([self::KIND=>'Двусторонний акт',self::ONE_FILE=>'Односторонний акт'] as $kind=>$label) {
+            foreach (self::files($db,$contract,$kind) as $file) {
+                $proof=self::receipt($db,$file['id']);
+                $rows[]=[View::e($label),$proof?'Учтён':'Сохранённый файл',
+                    View::e(Documents::dateText($proof['signed_on'] ?? null)),View::e(($proof['signer'] ?? '') ?: '—'),
+                    '<a href="/rental/download?id='.View::e($file['id']).'">'.View::e($file['filename']).'</a>'];
+            }
+        }
+        return $rows?'<h3 class="registry-ui-modal-summary">История актов возврата</h3>'
+            .Controller::table(['Вид','Статус','Подписание','Подписант','Файл'],$rows):'';
     }
 
     public static function form(array $contract): string
@@ -111,7 +202,7 @@ final class ReturnAct
         if ($state['file'] && ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'ERP-Fetch') {
             header('X-Rental-Refresh-URL: '.FinanceController::workspaceTarget($_SERVER['HTTP_X_RENTAL_WORKSPACE_URL'] ?? null, '/rental/reconciliation'));
         }
-        $body = self::summary($state);
+        $body = self::summary($state).self::history(DB::pdo(),(int)$contract['id']);
         if ($state['confirmed']) return RentalUI::modal('Акт возврата помещения', $body, '', 'reconciliation');
         $token = View::e(Http::csrf());
         $common = '<input type="hidden" name="_csrf" value="'.$token.'">'
@@ -129,7 +220,8 @@ final class ReturnAct
                 .$common.'<input type="hidden" name="action" value="contract.return-act">'
                 .'<input type="hidden" name="command_key" value="'.bin2hex(random_bytes(16)).'">'
                 .'<input type="hidden" name="file_id" value="'.View::e($state['file']['id']).'">'
-                .Controller::input('return_date', 'Дата фактического возврата', $contract['finish_date'] ?? date('Y-m-d'), 'date', true)
+                .Controller::input('return_date', 'Дата фактического возврата', '', 'date', true)
+                .Controller::input('signed_on','Дата подписания акта','','date',true)
                 .PremisesActsCard::returnFields(DB::pdo(),$contract)
                 .'<label class="registry-ui-checkbox"><input type="checkbox" name="both_signed" value="1" required>'
                 .'<span>Акт подписан обеими сторонами</span></label></form>';

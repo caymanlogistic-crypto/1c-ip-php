@@ -97,51 +97,19 @@ final class SourceCards {
         }
         if ($c['status'] === 'returned')$body.=RentalUI::alert(Controller::status($c['status']), $c['reason'] ?? '', 'error');
         $actState = null;
+        $reviewStates=[];
         if (in_array($c['status'], [
             'reconciling',
             'ended',
             'closed'
         ], true)) {
             $actState = ReturnAct::state(\App\DB::pdo(), $c);
-            $body.=RentalUI::pairs([
-                [
-                    'Причина завершения',
-                    $c['finish_reason'] ?? 'Нет сведений'
-                ],
-                [
-                    'Дата завершения',
-                    self::date($c['finish_date'])
-                ]
-            ]);
-            $check = [
-            ];
-            foreach ([
-                [
-                    'Бухгалтерия',
-                    'Взаиморасчёты и остаток',
-                    'finance_review'
-                ],
-                [
-                    'Юрист',
-                    'Юридическая проверка',
-                    'legal_review'
-                ],
-                [
-                    'Менеджер',
-                    'Акт возврата помещения',
-                    'return_confirmed'
-                ]
-            ] as $r)$check[] = [
-                View::e($r[0]),
-                View::e($r[1]),
-                ($r[2]==='return_confirmed'?$actState['confirmed']:$c[$r[2]])?'Подтверждено':'Ожидается подтверждение'
-            ];
-            $body.='<span class="registry-ui-modal-summary">Условия завершения</span>'
-            . Controller::table([
-                'Участник',
-                'Проверка',
-                'Состояние'
-            ], $check).ReturnAct::summary($actState);
+            $body.=FinalSettlementCard::section($c,$actState).FinalSettlementCard::actions($c);
+            $reviews=FinalReview::approvals(\App\DB::pdo(),$id);
+            foreach (FinalReview::LABELS as $kind=>$reviewLabel) {
+                $reviewStates[$kind]=FinalReview::current(\App\DB::pdo(),$c,$kind,$reviews[$kind] ?? null)
+                    || (FinalReview::marker(\App\DB::pdo(),$id,$kind)['state'] ?? '')==='returned';
+            }
         }
         $body.=RentalUI::pairs($pairs);
         $body.=PremisesActsCard::summary($c);
@@ -203,7 +171,7 @@ final class SourceCards {
             if (in_array($c['status'], [
                 'reconciling',
                 'ended'
-            ], true) && !$c['legal_review'])$add('Претензий нет', 'reconcile.legal', true);
+            ], true) && empty($reviewStates['legal']))$add('Претензий нет', 'reconcile.legal', true);
         }
         if (in_array($role, [
             'admin',
@@ -217,7 +185,7 @@ final class SourceCards {
             if (in_array($c['status'], [
                 'reconciling',
                 'ended'
-            ], true) && !$c['finance_review'])$add('Взаиморасчёты согласованы', 'reconcile.finance', true);
+            ], true) && empty($reviewStates['finance']))$add('Взаиморасчёты согласованы', 'reconcile.finance', true);
         }
         return RentalUI::modal('Договор '
         . $c['number'], $body, $actions, 'contracts-active');
@@ -325,10 +293,12 @@ final class SourceCards {
             'contract.close' => 'Завершить финальную сверку',
             'reconcile.finance' => 'Взаиморасчёты согласованы',
             'reconcile.legal' => 'Претензий нет',
+            ...FinalSettlementCard::TITLES,
             ...HandoverQuestionCard::TITLES
         ];
         $title = $allowed[$action] ?? throw new RuntimeException('Действие не найдено.', 404);
         if ($action === 'contract.return-act') return ReturnAct::form($c);
+        if (isset(FinalSettlementCard::TITLES[$action])) return FinalSettlementCard::action($c,$action);
         $legalFile=null;
         if ($action==='contract.legal') {
             Service::roles(['lawyer']);
@@ -362,7 +332,8 @@ final class SourceCards {
             'contract.cancel',
             'contract.reconcile'
         ], true))$fields.=Controller::input('reason', 'Причина', '', 'text', true);
-        if ($action === 'contract.reconcile')$fields.=Controller::input('finish_date', 'Дата завершения', $c['end_date'], 'date', true);
+        if ($action === 'contract.reconcile')$fields.=Controller::input('finish_date', 'Дата прекращения договора', $c['end_date'], 'date', true)
+            .PremisesActsCard::hidden('closing_scope','1').FinalSettlementCard::timelineFields();
         if (in_array($action, [
             'contract.legal',
             'contract.packet'

@@ -297,9 +297,13 @@ final class ExtraService {
                 'lawyer'
             ]);
             if (empty($in['confirmed']))throw new RuntimeException('Подтвердите результат сверки.');
-            $field === 'finance_review' && $p->prepare('UPDATE invoices SET manual_review=0,control_closed=1 WHERE contract_id=? AND status=\'active\'')->execute([
-                $id
-            ]);
+            $reviewKind=$action==='reconcile.finance'?'finance':'legal';
+            FinalReview::assertApproval($p,$c,$u,$reviewKind);
+            $previous=FinalReview::approvals($p,$id)[$reviewKind] ?? null;
+            if ($field==='finance_review') {
+                $scope=FinalSettlement::scoped($p,$id) ? " AND COALESCE(kind,'')<>'Обеспечительный платёж'" : '';
+                $p->prepare("UPDATE invoices SET manual_review=0,control_closed=1 WHERE contract_id=? AND status='active'".$scope)->execute([$id]);
+            }
             $signature = Evidence::signature($p, $id);
             $p->prepare('INSERT INTO rental_reviews(contract_id,kind,baseline_hash,actor_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE baseline_hash=VALUES(baseline_hash),actor_id=VALUES(actor_id),confirmed_at=CURRENT_TIMESTAMP')->execute([
                 $id,
@@ -312,6 +316,7 @@ final class ExtraService {
             . '=1,version=version+1 WHERE id=?')->execute([
                 $id
             ]);
+            FinalReview::approved($p,$c,$u,$reviewKind,$previous);
             Service::event($p, $u, $action, 'Проверка финальной сверки: '
             . $field, $id);
             if (Evidence::complete($p, $id))Service::event($p, $u, 'contract.completed', 'Бухгалтер, юрист и акт возврата подтверждены; договор завершён', $id);

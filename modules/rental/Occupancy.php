@@ -34,7 +34,7 @@ final class Occupancy
 
     public static function leasesOn(string $date,?int $object=null): array
     {
-        $rows=Controller::query('SELECT co.object_id,c.id,c.number,c.document_date,c.status,p.name tenant,t.source_json term_source,
+        $rows=Controller::query('SELECT co.object_id,c.id,c.number,c.document_date,c.status,c.return_confirmed,p.name tenant,t.source_json term_source,
             COALESCE(t.start_date,c.start_date) term_start,COALESCE(t.end_date,c.end_date) end_date
             FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN parties p ON p.id=c.party_id
             LEFT JOIN contract_terms t ON t.id=(SELECT MAX(t2.id) FROM contract_terms t2 WHERE t2.contract_id=c.id AND t2.object_id=co.object_id

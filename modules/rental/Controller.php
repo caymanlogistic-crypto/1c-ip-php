@@ -1155,6 +1155,7 @@ final class Controller {
             in_array($action,InitialInvoice::ACTIONS,true) => InitialInvoiceCard::route((int)($in['id']??0)),
             $action===LeasePaymentTerms::SAVE => LeasePaymentTermsCard::route((int)($in['id']??0),(string)($in['month']??'')),
             $action===DebtFollowUp::SAVE => DebtFollowUpCard::route((int)($in['invoice_id']??0)),
+            str_starts_with($action,'closing.') => '/rental/contract?id='.(int)($in['id'] ?? 0),
             in_array($action,RentalServices::ACTIONS,true) => '/rental/services?contract_id='.(int)($in['id']??0),
             in_array($action,[PremisesInventory::SAVE,PremisesInventory::MOVE],true) => '/rental/object-inventory?id='.(int)($in['id']??0),
             in_array($action,[PremisesActs::COUNT,PremisesActs::CONFIRM],true) => '/rental/acts?id='.(int)($in['id']??0),
