@@ -128,6 +128,7 @@ final class LeaseRegistry
         }
         $actions=$active && in_array($user['role'],['manager','admin'],true) && Auth::can('rental.write')
             && \App\PagePolicy::level('rental.contracts',$user)>=2?RentalUI::button('Создать договор','/rental/new-contract',true):'';
+        if ($active) $actions.=RentalUI::button('Клининг и допуслуги','/rental/services');
         $title=$active?'Действующие договоры':'Завершённые договоры';
         $controls='<form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'.View::e($flag).'">'.DirectoryUi::search($query)
             .'<button type="submit" name="reset" value="1" class="registry-ui-reset"'.($query===''?' hidden':'').'>Сбросить фильтры</button></form>';
