@@ -261,6 +261,7 @@ final class InvoiceRegistry
         $chosen=array_values(array_filter($all,static fn($r)=>self::selected($r,$flag)));
         $groups=self::groups($chosen);
         $html=self::controls($all,$query,$party,$flag,$cid,$grouped,$months);
+        if (!$grouped) $html.=YakovlevSyncReview::section($cid);
         $t=self::totals($chosen);
         $registryId=$grouped ? 'rental-invoices-grouped' : 'rental-invoices-flat';
         $designId=$grouped ? 'rental.invoices' : 'rental.invoice-list';

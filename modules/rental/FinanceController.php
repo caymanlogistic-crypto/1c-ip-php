@@ -257,7 +257,7 @@ final class FinanceController {
         ], true) && Auth::can('finance.write') && \App\PagePolicy::level('rental.invoice-list',$user)>=2) {
             if ($initialProof && $r['status'] !== 'revoked') {
                 $actions.=RentalUI::button('Уточнить срок оплаты','/rental/invoice-state?id='.$id.'&action=invoice.edit-due',!$r['due']);
-            } elseif (!$initialProof && !$periodProof && !$manualProof) {
+            } elseif (!$initialProof && !$periodProof && !$manualProof && empty($raw['yakovlev_archive'])) {
                 $actions.=RentalUI::button(!empty($raw['issueError'])?'Заполнить реквизиты':'Редактировать', '/rental/edit-invoice?id='.$id,!empty($raw['issueError']));
             }
             if ($debt!==null && bccomp($debt,'0',2)>0 && empty($raw['issueError']) && $r['status']!=='revoked') {
@@ -267,7 +267,7 @@ final class FinanceController {
             . $id
             . '&action=invoice.confirm-review', true);
         }
-        if (in_array($role,['admin','manager','accountant'],true) && empty($raw['issueError']) && $r['status']!=='revoked' && $emailQuestion===null && (!$initialProof || $r['due'])
+        if (in_array($role,['admin','manager','accountant'],true) && empty($raw['issueError']) && empty($raw['yakovlev_archive']) && $r['status']!=='revoked' && $emailQuestion===null && (!$initialProof || $r['due'])
             && Auth::can($role==='manager'?'rental.write':'finance.write') && \App\PagePolicy::level('rental.invoice-list',$user)>=2) {
             [$sendForm,$sendButton]=self::form('invoice.send',$r,'',$sendError?'Повторить отправку':'Отправить клиенту');
             $body.=$sendForm;
