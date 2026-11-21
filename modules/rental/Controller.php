@@ -538,7 +538,7 @@ final class Controller {
             . '"></label><label><input type="checkbox" name="inactive"'
             . ($show?' checked':'')
             . '> Показывать неактивные</label><button class="btn">Применить</button></form>';
-            $rows = self::query("SELECT o.*,c.number cadastral,(SELECT MAX(ct.end_date) FROM contract_objects co JOIN contracts ct ON ct.id=co.contract_id WHERE ".\App\ContractOccupancy::physicalPredicate('co')." AND co.object_id=o.id AND ct.status IN ('active','sent','approved')) due_end,(SELECT GROUP_CONCAT(co.contract_id) FROM contract_objects co JOIN contracts ct ON ct.id=co.contract_id WHERE ".\App\ContractOccupancy::physicalPredicate('co')." AND co.object_id=o.id AND ct.status IN ('active','sent','approved')) occupied FROM rental_objects o LEFT JOIN cadastre c ON c.id=o.cadastre_id WHERE o.name LIKE ? AND (?=1 OR o.active=1) AND (?='' OR o.floor=?) ORDER BY o.name", [
+            $rows = self::query("SELECT o.*,c.number cadastral,(SELECT MAX(ct.end_date) FROM contract_objects co JOIN contracts ct ON ct.id=co.contract_id WHERE ".\App\ContractOccupancy::contractPredicate('co')." AND co.object_id=o.id AND ct.status IN ('active','sent','approved')) due_end,(SELECT GROUP_CONCAT(co.contract_id) FROM contract_objects co JOIN contracts ct ON ct.id=co.contract_id WHERE ".\App\ContractOccupancy::contractPredicate('co')." AND co.object_id=o.id AND ct.status IN ('active','sent','approved')) occupied FROM rental_objects o LEFT JOIN cadastre c ON c.id=o.cadastre_id WHERE o.name LIKE ? AND (?=1 OR o.active=1) AND (?='' OR o.floor=?) ORDER BY o.name", [
                 '%'
                 . $q
                 . '%',

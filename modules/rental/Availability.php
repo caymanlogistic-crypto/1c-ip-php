@@ -4,16 +4,16 @@ namespace Modules\Rental;
 use App\Http;
 final class Availability {
 
-    public static function items(string $start, string $end, ?int $except = null, ?int $booking = null, bool $sharedCustomerBookings = false, ?int $predecessor=null): array {
+    public static function items(string $start, string $end, ?int $except = null, ?int $booking = null, bool $sharedCustomerBookings = false, ?int $predecessor=null, bool $occupiedBilling=false): array {
         Service::date($start);
         Service::date($end);
         if ($start>$end)throw new \RuntimeException('Проверьте даты аренды.', 422);
         // Load occupancy sets once; the predicates and precedence are shared by every object.
         $busy=[];$held=[];$reserved=[];$expired=[];
         foreach (Controller::query('SELECT DISTINCT co.object_id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE '
-            .\App\ContractOccupancy::physicalPredicate('co')." AND c.id<>? AND (c.status='reconciling' OR c.status='active' AND ".Occupancy::boundary('start_date')."<=? AND ".Occupancy::boundary('end_date').">=?)",[$except ?? 0,$end,$start]) as $row) $busy[$row['object_id']]=true;
+            .\App\ContractOccupancy::contractPredicate('co')." AND c.id<>? AND (c.status='reconciling' OR c.status='active' AND ".Occupancy::boundary('start_date')."<=? AND ".Occupancy::boundary('end_date').">=?)",[$except ?? 0,$end,$start]) as $row) $busy[$row['object_id']]=true;
         foreach (Controller::query('SELECT DISTINCT co.object_id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE '
-            .\App\ContractOccupancy::physicalPredicate('co').' AND c.id<>? AND c.id<>? AND '
+            .\App\ContractOccupancy::contractPredicate('co').' AND c.id<>? AND c.id<>? AND '
             .Occupancy::expiredWithoutReturn(Occupancy::boundary('end_date'),'LEAST(CURRENT_DATE,?)','?'),
             [$except ?? 0,$predecessor ?? 0,$end,$start]) as $row) $expired[$row['object_id']]=true;
         foreach (Controller::query('SELECT DISTINCT h.object_id FROM rental_object_holds h JOIN contracts c ON c.id=h.contract_id WHERE '
@@ -28,6 +28,9 @@ final class Availability {
                 'number'=>$o['cadastre_number'],'type'=>$o['cadastre_type'],'rentable'=>$o['cadastre_rentable'],'source_json'=>$o['cadastre_source']
             ])) continue;
             $reason=isset($held[$o['id']]) || isset($expired[$o['id']])?'Ожидается акт возврата':(isset($busy[$o['id']])?'Занято договором или ожидается возврат':(isset($reserved[$o['id']])?'Резервирование':''));
+            $billingOnly=$occupiedBilling && isset($busy[$o['id']])
+                && !isset($held[$o['id']]) && !isset($expired[$o['id']]) && !isset($reserved[$o['id']]);
+            if ($billingOnly) $reason='Занято · только по исключению для начислений';
             $bookingCount=$bookingCounts[$o['id']] ?? 0;
             $area = $o['area'] === null?'—':rtrim(rtrim($o['area'], '0'), '.');
             $rows[] = [
@@ -45,7 +48,7 @@ final class Availability {
                 . ' м² · '
                 . ($reason?:'Доступно').($bookingCount?' · резервирований: '.$bookingCount:''),
                 'available' => $reason === '',
-                'disabled' => $reason !== ''
+                'disabled' => $reason !== '' && !$billingOnly
             ];
         }
         return $rows;
@@ -65,7 +68,8 @@ final class Availability {
         $end = Service::date($endInput === '' ? $start : $endInput);
         $continuation=isset($_GET['expiry_contract']) ? ExpiryContinuation::editorContext(null,'contract') : [];
         $predecessor=$continuation && $start===$continuation['offer']['new_start'] ? $continuation['contract_id'] : null;
-        Http::json(['items' => self::items($start, $end, $except, $booking, in_array($_GET['mode'] ?? '',['booking','contract'],true),$predecessor)]);
+        $mode=$_GET['mode'] ?? '';
+        Http::json(['items' => self::items($start, $end, $except, $booking, in_array($mode,['booking','contract'],true),$predecessor,$mode==='contract')]);
     }
 
     public static function options(array $items, ?int $selected = null): string {

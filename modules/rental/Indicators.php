@@ -166,12 +166,14 @@ final class Indicators {
             if (in_array($status, [
                 'reconciling',
                 'ended'
-            ], true) && $c['finish_date'])foreach ([
-                'manager',
-                'lawyer',
-                'accountant',
-                'director'
-            ] as $role)$add('contract', $id, $role, 'red', 'reconciliation', 'Финальная сверка: нужны актуальные финансовая и юридическая проверки и акт возврата', $id);
+            ], true) && $c['finish_date']) {
+                $noReturn=OccupiedBilling::noPhysicalReturn(DB::pdo(),$c);
+                $text='Финальная сверка: нужны актуальные финансовая и юридическая проверки'
+                    .($noReturn?'':' и акт возврата');
+                foreach (['manager','lawyer','accountant','director'] as $role) {
+                    $add('contract',$id,$role,'red','reconciliation',$text,$id);
+                }
+            }
         }
         if ($allow('invoices') || $allow('invoice-list') || $allow('payments')) {
         $invoiceRows=Controller::query("SELECT i.*,c.source_json contract_source FROM invoices i JOIN contracts c ON c.id=i.contract_id WHERE i.status<>'revoked' ORDER BY i.id");

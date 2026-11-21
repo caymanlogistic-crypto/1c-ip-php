@@ -155,14 +155,18 @@ final class ObjectDirectory
         $availability=self::availability();
         $facts=ObjectFacts::project($object,self::parent($object),$availability[$object['id']] ?? null,date('Y-m-d'));
         $lease=$facts['lease'];
+        $billing=OccupiedBillingCard::forObject((int)$object['id']);
         $body=DirectoryUi::pairs([
             ['Внутренний номер / название',$object['name']],
             ['Номер по документам здания',$details['building_room_number'] ?? '—'],['Тип',$object['type']],['Этаж',$object['floor']],['Площадь сдачи, м²',DirectoryUi::area($object['area'])],
             ['Кадастровый объект',$object['cadastral']],['Кадастровая площадь, м²',DirectoryUi::area($object['parent_area'])],
             ['Состояние',$facts['status'],$facts['free']],['Дата освобождения',$facts['free']?($object['free_since']?Documents::dateText($object['free_since']):'Не указана'):'—'],
             ['Простой',$facts['free']?($facts['idleUnknown'] ?: ($facts['days']===null?'Указать дату':ObjectFacts::days($facts['days']))):'—',$facts['free'] && !$facts['idleUnknown']],['Последний арендатор',$facts['previous'] ?: '—'],
-            ...($lease ? [['Договор по объекту','№ '.$lease['number'].' · '.$lease['tenant']],
-                ['Срок по договору',Documents::dateText($lease['term_start']).' — '.Documents::dateText($lease['end_date'])]] : []),
+            ...($lease ? [[$billing?'Фактический арендатор':'Договор по объекту',
+                $billing?$lease['tenant'].', №'.$lease['number']:'№ '.$lease['number'].' · '.$lease['tenant']],
+                ['Срок по договору',Documents::dateText($lease['term_start']).' — '.Documents::dateText($lease['end_date'])]]
+                : ($billing?[['Фактический арендатор','—']]:[])),
+            ...$billing,
         ]);
         $plan=DirectoryDetails::read(DB::pdo(),'object_plan',(int)$object['id']);
         if ($plan) $body.='<p><a class="btn btn-secondary" href="/rental/object-plan?id='.(int)$object['id'].'" target="_blank" rel="noopener">Открыть план помещения</a></p>';

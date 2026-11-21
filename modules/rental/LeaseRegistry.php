@@ -51,7 +51,9 @@ final class LeaseRegistry
             && ($task['role']===$role || $role==='admin') && ($role!=='director' || $contract['status']==='reconciling' || !in_array($task['severity'],['red','yellow'],true))));
         $comment=implode('; ',array_unique(array_column($mine,'text')));
         $completed=self::section($contract)==='contracts-completed';
-        if ($comment==='' && $closed) $comment='Взаиморасчёты, юридическая проверка и акт возврата подтверждены.';
+        if ($comment==='' && $closed) $comment=!empty($reviews['return_not_applicable'])
+            ?'Взаиморасчёты и юридическая проверка подтверждены. Физический возврат не применяется.'
+            :'Взаиморасчёты, юридическая проверка и акт возврата подтверждены.';
         elseif ($comment==='' && $completed) $comment='Аренда завершена. Подтверждения финальной сверки пока не представлены.';
         if ($contract['status']==='reconciling') {
             $responsible=[];
@@ -96,6 +98,7 @@ final class LeaseRegistry
                     $file=Evidence::latest(DB::pdo(),'contract',(int)$contract['id'],'return-act');
                     $reviews['act']=$contract['return_confirmed'] && hash_equals($signature,$file['baseline_hash'] ?? '');
                 } catch (\RuntimeException $error) {if($error instanceof \PDOException)throw $error;}
+                if (OccupiedBilling::noPhysicalReturn(DB::pdo(),$contract)) $reviews['act']=$reviews['return_not_applicable']=true;
             }
             $planned=Controller::query("SELECT COUNT(*) n FROM rental_documents d WHERE d.contract_id=? AND d.kind='renewal' AND d.applied=0 AND d.status<>'cancelled' AND d.end_date>? AND (d.status IN ('sent','signed') OR EXISTS(SELECT 1 FROM reservations r WHERE r.document_id=d.id AND r.status='active'))",[$contract['id'],$contract['end_date']])[0]['n'];
             $ending=$contract['status']==='active' && !$planned && self::expiry($contract['end_date'],date('Y-m-d'))!=='';

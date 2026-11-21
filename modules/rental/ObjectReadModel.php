@@ -28,7 +28,7 @@ final class ObjectReadModel
         }
         foreach (Controller::query('SELECT t.object_id,p.name,t.end_date FROM contract_terms t JOIN contracts c ON c.id=t.contract_id JOIN parties p ON p.id=c.party_id '
             .'LEFT JOIN contract_objects co ON co.contract_id=c.id AND co.object_id=t.object_id '
-            .'WHERE '.ContractOccupancy::physicalPredicate('co')." AND c.status IN ('active','reconciling','closed','ended') AND t.end_date<=? ORDER BY t.end_date DESC,c.id DESC",[$today]) as $row) $this->previous[$row['object_id']]??=$row;
+            .'WHERE '.ContractOccupancy::contractPredicate('co','t')." AND c.status IN ('active','reconciling','closed','ended') AND t.end_date<=? ORDER BY t.end_date DESC,c.id DESC",[$today]) as $row) $this->previous[$row['object_id']]??=$row;
         foreach (Controller::query("SELECT source_key,fact_json FROM rental_facts WHERE namespace='zero_point_data' AND source_key LIKE 'last_occupant:%'") as $row)
             $this->historical[(int)substr($row['source_key'],strlen('last_occupant:'))]=json_decode($row['fact_json'],true);
         foreach (Controller::query("SELECT contract_id,DATE(MIN(created_at)) at FROM rental_events WHERE id>? AND action IN ('contract.sign','contract.activated') GROUP BY contract_id",[ZeroPoint::eventFloor(\App\DB::pdo())]) as $row) $this->events[$row['contract_id']]=$row['at'];
@@ -48,10 +48,10 @@ final class ObjectReadModel
     public static function pendingWork(?int $id=null): array
     {
         $rows=Controller::query("SELECT co.object_id,'contract' kind FROM contract_objects co JOIN contracts c ON c.id=co.contract_id "
-            ."WHERE ".ContractOccupancy::physicalPredicate('co')." AND c.status IN ('legal','accounting','returned','approved','sent') "
+            ."WHERE ".ContractOccupancy::contractPredicate('co')." AND c.status IN ('legal','accounting','returned','approved','sent') "
             ."AND ".ContractDraft::visibleSql('c')." AND (? IS NULL OR co.object_id=?) "
             ."UNION SELECT t.object_id,'renewal' FROM document_terms t JOIN rental_documents d ON d.id=t.document_id "
-            ."WHERE ".ContractOccupancy::physicalPredicate('t')." AND d.kind='renewal' AND d.applied=0 "
+            ."WHERE ".ContractOccupancy::documentPredicate('t')." AND d.kind='renewal' AND d.applied=0 "
             ."AND d.status IN ('draft','legal','accounting','returned','approved','sent','signed') AND (? IS NULL OR t.object_id=?)",
             [$id,$id,$id,$id]);
         $work=[];

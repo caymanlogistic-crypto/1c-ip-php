@@ -319,7 +319,12 @@ final class ExtraService {
             FinalReview::approved($p,$c,$u,$reviewKind,$previous);
             Service::event($p, $u, $action, 'Проверка финальной сверки: '
             . $field, $id);
-            if (Evidence::complete($p, $id))Service::event($p, $u, 'contract.completed', 'Бухгалтер, юрист и акт возврата подтверждены; договор завершён', $id);
+            if (Evidence::complete($p, $id)) {
+                $summary=OccupiedBilling::noPhysicalReturn($p,$c)
+                    ?'Бухгалтер и юрист подтвердили сверку. Физический возврат не применяется. Договор завершён.'
+                    :'Бухгалтер, юрист и акт возврата подтверждены; договор завершён';
+                Service::event($p,$u,'contract.completed',$summary,$id);
+            }
             return [
                 'message' => $message
             ];
@@ -512,11 +517,7 @@ final class ExtraService {
                 'lawyer'
             ]);
             if (!($status === 'legal' || ($status === 'returned' && $d['return_to'] === 'lawyer')))throw new RuntimeException('ДС не у юриста.');
-            $q = $p->prepare('SELECT * FROM document_terms WHERE document_id=? ORDER BY object_id');
-            $q->execute([
-                $id
-            ]);
-            foreach ($q->fetchAll() as $t)if (Occupancy::physical($t))Service::available($p, [
+            foreach (Occupancy::documentTerms($p,$id) as $t)if (Occupancy::physical($t))Service::available($p, [
                 (int)$t['object_id']
             ], $t['start_date'], $t['end_date'], (int)$c['id']);
             $file = Evidence::latest($p, 'document', $id, 'lawyer-file', (int)$d['version']);

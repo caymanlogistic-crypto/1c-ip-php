@@ -127,6 +127,7 @@ final class PagePolicy {
         return self::levelForRole($u['role_id'] ?? $u['role'], $u['role'], !empty($u['grants_configured']), $key);
     }
     public static function commandPage(string $action):string {
+        if ($action===\Modules\Rental\OccupiedBilling::SAVE) return 'rental.contracts-active';
         if(str_starts_with($action,'workspace.'))return 'core.zero-point';
         if (in_array($action, ['operation.retry', 'operation.manual', \Modules\Rental\StaffHandoff::PACKET], true))return 'rental.operations';
         if (str_starts_with($action, 'payment.'))return 'rental.invoices';

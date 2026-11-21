@@ -4,6 +4,13 @@ namespace Modules\Rental;
 use PDO;
 use RuntimeException;
 final class Evidence {
+    private static function exceptionEvidence(PDO $db,int $id): array {
+        $query=$db->prepare('SELECT source_json FROM contracts WHERE id=?');
+        $query->execute([$id]);
+        $exceptions=OccupiedBilling::exceptions(['source_json'=>$query->fetchColumn() ?: '{}']);
+        return $exceptions?['occupied_billing_exceptions'=>$exceptions]:[];
+    }
+
     public static function documentBase(PDO $p, int $id):string {
         $q = $p->prepare('SELECT id,number,party_id,document_date,start_date,end_date,amount,status,version FROM contracts WHERE id=?');
         $q->execute([
@@ -20,6 +27,7 @@ final class Evidence {
             $c,
             $terms,
             ... (\App\InvoiceScope::enabled()?[Occupancy::relations($p,$id)]:[]),
+            ...self::exceptionEvidence($p,$id),
             ...($parts?['part_terms' => $parts]:[]),
             ...( ($state = \App\BillingPartTerms::state($p, 'contract', $id))!==null?['part_state' => $state]:[]),
         ]));
@@ -91,10 +99,12 @@ final class Evidence {
         $q->execute([
             $id
         ]);
+        $invoices=$q->fetchAll();
         return hash('sha256', Importer::json([
             $c,
             $objects,
-            $q->fetchAll(),
+            $invoices,
+            ...self::exceptionEvidence($p,$id),
             ...( ($parts = PartTerms::signatureTerms($p, 'contract', $id))?['part_terms' => $parts]:[]),
             ...( ($state = \App\BillingPartTerms::state($p, 'contract', $id))!==null?['part_state' => $state]:[]),
         ]));
@@ -119,6 +129,7 @@ final class Evidence {
         return hash('sha256', Importer::json([
             $c,
             $objects,
+            ...self::exceptionEvidence($p,$id),
             TemplateAssets::signature(TemplateAssets::active($p,TemplateAssets::contractKind($p,$c))),
             ...(($pack=WordPack::evidence($p,$fileId))?['word_pack'=>$pack]:[]),
             [
@@ -184,7 +195,8 @@ final class Evidence {
             'reconciling',
             'ended'
         ], true) || !$c['finish_date'] || $c['finish_date']>date('Y-m-d'))throw new RuntimeException('Дата завершения ещё не наступила.');
-        if (!$c['return_confirmed'])throw new RuntimeException('Менеджер должен подтвердить подписанный акт возврата.');
+        $noReturn=OccupiedBilling::noPhysicalReturn($p,$c);
+        if (!$noReturn && !$c['return_confirmed'])throw new RuntimeException('Менеджер должен подтвердить подписанный акт возврата.');
         FinalSettlement::assertReview($p,$c,'finance');
         FinalSettlement::assertReview($p,$c,'legal');
         $sig = self::signature($p, $id);
@@ -199,11 +211,13 @@ final class Evidence {
                 throw new RuntimeException('Нужна актуальная проверка: '.$kind);
             }
         }
-        $file = $newReturnAct ?? ReturnAct::confirmed($p, $c);
-        if ($file === null) throw new RuntimeException('Менеджер должен подтвердить подписанный акт возврата.', 409);
-        $physical=ReturnAct::physicalProof($p,$c,$file);
-        if ($file['baseline_hash'] !== $sig && $physical===null) {
-            throw new RuntimeException('Акт возврата относится к прежним данным сверки.');
+        if (!$noReturn) {
+            $file = $newReturnAct ?? ReturnAct::confirmed($p, $c);
+            if ($file === null) throw new RuntimeException('Менеджер должен подтвердить подписанный акт возврата.', 409);
+            $physical=ReturnAct::physicalProof($p,$c,$file);
+            if ($file['baseline_hash'] !== $sig && $physical===null) {
+                throw new RuntimeException('Акт возврата относится к прежним данным сверки.');
+            }
         }
         $c['_closure_proof'] = [
             'close_id' => bin2hex(random_bytes(16)),
@@ -211,8 +225,9 @@ final class Evidence {
             'record_version' => (int)$c['version'] + 1,
             'finance' => ['row' => $reviews['finance'], 'sha256' => hash('sha256', Importer::canonicalJson($reviews['finance']))],
             'legal' => ['row' => $reviews['legal'], 'sha256' => hash('sha256', Importer::canonicalJson($reviews['legal']))],
-            'act' => array_intersect_key($file, array_flip(['id', 'version', 'sha256', 'upload_order', 'baseline_hash']))
-                +($physical===null?[]:['physical_sha256'=>$physical]),
+            ...($noReturn?['return_not_applicable'=>true]:['act'=>array_intersect_key($file,
+                array_flip(['id', 'version', 'sha256', 'upload_order', 'baseline_hash']))
+                +($physical===null?[]:['physical_sha256'=>$physical])]),
         ];
         return $c;
     }

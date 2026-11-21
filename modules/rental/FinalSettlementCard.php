@@ -52,7 +52,8 @@ final class FinalSettlementCard
                 $body.=RentalUI::alert('На доработке у менеджера',($marker['reviewer'] ?? $label).' · '.$task,'warning');
             }
         }
-        $rows[]=['Менеджер',View::e($act['confirmed']?'Фактический возврат подтверждён':'Ожидается двусторонний акт'),'—'];
+        $rows[]=['Менеджер',View::e(!empty($act['not_applicable'])?$act['message']:
+            ($act['confirmed']?'Фактический возврат подтверждён':'Ожидается двусторонний акт')),'—'];
         $body.=Controller::table(['Участник','Состояние','Сотрудник'],$rows)
             .ReturnAct::summary($act).ReturnAct::history($db,$id);
         $agreement=$data['agreement'] ?? null;
@@ -122,7 +123,9 @@ final class FinalSettlementCard
         $accounting=in_array($user['role'],['accountant','admin'],true) && Auth::can('finance.write');
         if ($manager) {
             $buttons[]=self::link($id,FinalSettlement::TERMS);
-            if ($contract['status']==='reconciling') $buttons[]=self::link($id,ReturnAct::RECORD_ONE);
+            if ($contract['status']==='reconciling' && !OccupiedBilling::noPhysicalReturn(DB::pdo(),$contract)) {
+                $buttons[]=self::link($id,ReturnAct::RECORD_ONE);
+            }
         }
         if ($legal) $buttons[]=self::link($id,FinalSettlement::AGREEMENT);
         if ($accounting) $buttons[]=self::link($id,FinalSettlement::FINANCE);

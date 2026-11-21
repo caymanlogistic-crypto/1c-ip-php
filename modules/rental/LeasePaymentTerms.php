@@ -134,7 +134,7 @@ final class LeasePaymentTerms
 
     public static function allowedForms(PDO $db, array $contract): array
     {
-        $objects = PremisesActs::subjects($db,(int)$contract['id']);
+        $objects = Occupancy::objects($db,(int)$contract['id']);
         $forms = [];
         foreach ($objects as $object) {
             $forms[] = match (true) {

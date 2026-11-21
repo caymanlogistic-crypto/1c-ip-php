@@ -379,6 +379,11 @@
       body.append(tr);
     }
   }
+  document.addEventListener('change',event=>{
+    const check=event.target.closest('[data-occupied-billing-check]');
+    if(!check)return;
+    check.closest('[data-occupied-billing]').querySelector('[data-occupied-billing-fields]').hidden=!check.checked;
+  });
   function addObject(form){
     const picker=form.querySelector('[data-rental-object-picker]'),option=picker?.selectedOptions[0],template=form.querySelector('template[data-rental-term-template]'),body=form.querySelector('[data-rental-terms]');
     if(!option||!template||!body||!/^\d+$/.test(option.value))return;
