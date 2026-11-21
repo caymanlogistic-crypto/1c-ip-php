@@ -12,7 +12,8 @@ use RuntimeException;
 
 final class MonthlyRentReconciliationPage
 {
-    public const ROUTE = '/rental/monthly-reconciliation';
+    public const MENU_KEY = 'monthly-reconciliation';
+    public const ROUTE = '/rental/'.self::MENU_KEY;
     private const TITLE = 'Помесячная сверка аренды';
 
     public static function available(array $user): bool
@@ -22,7 +23,7 @@ final class MonthlyRentReconciliationPage
 
     public static function page(): string
     {
-        Access::pages(['invoice-list']);
+        Access::pages([\App\Menu::permissionPage(self::MENU_KEY)]);
         if (!self::available(Auth::user() ?? [])) throw new RuntimeException('Сверка доступна бухгалтеру и администратору.', 403);
         $current = new DateTimeImmutable('first day of this month', new DateTimeZone('Europe/Moscow'));
         $first = $_GET['first'] ?? $current->modify('-1 month')->format('Y-m');
@@ -38,14 +39,14 @@ final class MonthlyRentReconciliationPage
             return View::page(self::TITLE, $body.self::tabs($tab,$first,$last,0,0)
                 .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last)
                 .'<section class="panel-section">'
-                .RentalUI::alert($error->getMessage(), '', 'error').'</section></section>', 'invoice-list');
+                .RentalUI::alert($error->getMessage(), '', 'error').'</section></section>', self::MENU_KEY);
         }
         $report = (new MonthlyRentReconciliation(DB::pdo(), Config::store()))->capture($months);
         $body .= self::tabs($tab,$first,$last,count($months),count($report['issues']))
             .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last,$report['archive']);
         $body .= $tab === 'review' ? self::reviewTable($report['issues'])
             : self::monthlyTable($report['months'], $report['invoice_facts']);
-        return View::page(self::TITLE, $body.'</section>', 'invoice-list');
+        return View::page(self::TITLE, $body.'</section>', self::MENU_KEY);
     }
 
     private static function tabs(string $tab, string $first, string $last, int $months, int $issues): string
