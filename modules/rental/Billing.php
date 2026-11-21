@@ -11,7 +11,7 @@ final class Billing
         $q->execute([$id]);
         $payer=$q->fetch();
         $payee=$p->query('SELECT * FROM organization WHERE id=1')->fetch();
-        $partyType=DirectoryDetails::read($p,'party',(int)$payer['id'])['party_type'] ?? '';
+        $partyType=DirectoryDetails::read($p,'parties',(int)$payer['id'])['party_type'] ?? '';
         if (isset(DirectoryRules::PARTY_TYPES[$partyType])) $payer['party_type']=$partyType;
         unset($payer['source_json'],$payee['source_json']);
         $q=$p->prepare('SELECT bank,account,bik,correspondent_account FROM party_bank_accounts WHERE party_id=? AND operational=1 LIMIT 1');
