@@ -5,6 +5,7 @@ namespace Modules\Rental;
 
 use App\BillableTerms;
 use DateTimeImmutable;
+use DateTimeZone;
 use DomainException;
 use Modules\Integrations\{PrivateStore, Support, YakovlevImport};
 use PDO;
@@ -17,7 +18,33 @@ final class MonthlyRentReconciliation
 
     public function __construct(private PDO $db, private PrivateStore $store) {}
 
-    public function collect(array $months, DateTimeImmutable $now): array
+    public static function range(string $first, string $last): array
+    {
+        if (!InvoicePeriods::month($first) || !InvoicePeriods::month($last) || $first > $last) {
+            throw new RuntimeException('Укажите первый и последний месяц в порядке возрастания.', 422);
+        }
+        $months = [];
+        $end = new DateTimeImmutable($last.'-01');
+        for ($month = new DateTimeImmutable($first.'-01'); $month <= $end; $month = $month->modify('+1 month')) {
+            if (count($months) === 24) throw new RuntimeException('Выберите период не больше 24 месяцев.', 422);
+            $months[] = $month->format('Y-m');
+        }
+        return $months;
+    }
+
+    public function capture(array $months): array
+    {
+        $now = new DateTimeImmutable('now', new DateTimeZone('Europe/Moscow'));
+        $this->db->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
+        $this->db->beginTransaction();
+        try {
+            return $this->collect($months, $now);
+        } finally {
+            $this->db->rollBack();
+        }
+    }
+
+    private function collect(array $months, DateTimeImmutable $now): array
     {
         $report = array_fill_keys($months, []);
         $contracts = $this->db->query('SELECT c.*,p.name client,p.source_json party_source FROM contracts c JOIN parties p ON p.id=c.party_id ORDER BY p.name,c.number')

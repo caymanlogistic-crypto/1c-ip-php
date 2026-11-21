@@ -60,6 +60,7 @@ $routes['/rental/pay-invoice']=[\Modules\Rental\FinanceController::class,'pay'];
 $routes['/rental/create-invoice']=[\Modules\Rental\RegularInvoiceCard::class,'card'];
 $routes['/rental/month-invoices']=[\Modules\Rental\InvoiceBatchCard::class,'page'];
 $routes['/rental/invoice-report']=[\Modules\Rental\InvoiceReport::class,'page'];
+$routes[\Modules\Rental\MonthlyRentReconciliationPage::ROUTE]=[\Modules\Rental\MonthlyRentReconciliationPage::class,'page'];
 $routes['/rental/payment-review']=[\Modules\Rental\DebtFollowUpCard::class,'page'];
 $routes['/rental/upd']=[\Modules\Rental\UpdCard::class,'page'];
 $routes['/rental/edit-invoice']=[\Modules\Rental\FinanceController::class,'edit'];
