@@ -78,7 +78,7 @@ final class FinanceController {
     public static function card():string {
         Auth::requirePermission('rental.read');
         $id = (int)($_GET['id'] ?? 0);
-        $r = self::invoice($id);
+        $r = PaymentReview::attach(DB::pdo(),self::invoice($id));
         $r['_calculation_review']=InvoiceCalculation::reviewFacts(DB::pdo(),[$id])[$id] ?? null;
         $raw=json_decode($r['source_json'],true) ?: [];
         $periodProof=$raw['regular_invoice'] ?? null;
@@ -139,7 +139,7 @@ final class FinanceController {
                 Controller::money($r['paid'])
             ],
             [
-                'Остаток',
+                !empty($view['unverified_balance']) ? 'Остаток по учёту' : 'Остаток',
                 Controller::money($debt)
             ]
         ]);
@@ -179,7 +179,7 @@ final class FinanceController {
             foreach ($coverage as $item) $rows[]=[View::e($item['object_name'] ?? $item['object_id']),Documents::dateText($item['start_date']),Documents::dateText($item['end_date'])];
             $body.=Controller::table(['Помещение','Период с','По'],$rows);
         }
-        $body.='<span class="registry-ui-modal-help">Просрочка неоплаченного остатка считается от даты «Оплатить до»: 1–5 календарных дней — жёлтый, с 6-го дня — красный. Контроль после 13:00 по Москве.</span>';
+        $body.='<span class="registry-ui-modal-help">Для контроля долга нужна полная выписка к 11:00 МСК и подтверждённый первый рабочий день после срока оплаты.</span>';
         $payments = [
         ];
         foreach (Controller::query('SELECT p.*,a.amount allocated FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.invoice_id=? ORDER BY p.payment_date,p.id', [
@@ -285,6 +285,8 @@ final class FinanceController {
         . $id
         . '&action=invoice.revoke')
         . '</div>';
+        if (DebtFollowUp::canView($r) && (DebtFollowUp::eligible($r) || DebtFollowUp::notes(DB::pdo(),$id)))
+            $actions .= RentalUI::button('Разговор об оплате',DebtFollowUpCard::route($id));
         if(self::canPaymentWrite()&&$debt!==null&&bccomp($debt,'0',2)>0&&$r['status']!=='revoked')
             $actions.=RentalUI::button('Распределить приход','/rental/invoice-state?id='.$id.'&action=payment.allocate');
         return RentalUI::modal('Счёт '

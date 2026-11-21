@@ -44,7 +44,7 @@ final class InvoiceRegistry
                 if ($row[$key] === null) $result[$key.'_unknown']++;
                 else $result[$key] = bcadd($result[$key],$row[$key],2);
             }
-            if ($view['remaining'] === null) $result['debt_unknown']++;
+            if ($view['remaining'] === null || !empty($view['unverified_balance'])) $result['debt_unknown']++;
             if ($view['unpaid']) {
                 $result['unpaid']++;
                 $result['debt'] = bcadd($result['debt'],$view['remaining'],2);
@@ -96,7 +96,7 @@ final class InvoiceRegistry
             self::date($row['due']),
             Controller::money($row['amount']),
             Controller::money($row['paid']),
-            Controller::money($view['remaining']),
+            Controller::money($view['remaining']).(!empty($view['unverified_balance']) ? '<div class="doc-meta">По учёту, ждёт сверки</div>' : ''),
             $state,
         ];
     }
@@ -114,7 +114,9 @@ final class InvoiceRegistry
             [$contractId,$contractId]
         );
         $reviews=InvoiceCalculation::reviewFacts(\App\DB::pdo(),array_column(array_filter($rows,static fn($r)=>!empty($r['manual_review'])),'id'));
+        $now = BankPaymentRefresh::now(\App\DB::pdo());
         foreach ($rows as &$row) {
+            $row = PaymentReview::attach(\App\DB::pdo(),$row,$now);
             $row['_calculation_review']=$reviews[(int)$row['id']] ?? null;
             $row['_delivery']=InvoiceDelivery::presentation(\App\DB::pdo(),(int)$row['id']);
             $row['_view'] = InvoiceFacts::view($row,$severity[$row['id']] ?? '');

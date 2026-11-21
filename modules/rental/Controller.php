@@ -313,6 +313,8 @@ final class Controller {
         ], true) && Auth::can('finance.write') && \App\PagePolicy::level('rental.invoice-list',$u)>=2)
             $headActions = RentalUI::button('Создать счёт',RegularInvoiceCard::route((int)($_GET['contract_id'] ?? 0)),true)
                 .RentalUI::button('Сформировать за месяц',InvoiceBatchCard::ROUTE);
+        if ($page === 'invoice-list' && in_array($u['role'],['accountant','admin'],true))
+            $headActions .= RentalUI::button('Сверка банковских оплат',DebtFollowUpCard::route());
         if ($page === 'invoice-list') {
             $reportMonth = InvoicePeriods::month($_GET['rental_month'] ?? null);
             $headActions .= RentalUI::button('Отчёт по начислениям',InvoiceReport::ROUTE
@@ -1151,6 +1153,7 @@ final class Controller {
         $target = match (true) {
             in_array($action,InitialInvoice::ACTIONS,true) => InitialInvoiceCard::route((int)($in['id']??0)),
             $action===LeasePaymentTerms::SAVE => LeasePaymentTermsCard::route((int)($in['id']??0),(string)($in['month']??'')),
+            $action===DebtFollowUp::SAVE => DebtFollowUpCard::route((int)($in['invoice_id']??0)),
             in_array($action,RentalServices::ACTIONS,true) => '/rental/services?contract_id='.(int)($in['id']??0),
             in_array($action,[PremisesInventory::SAVE,PremisesInventory::MOVE],true) => '/rental/object-inventory?id='.(int)($in['id']??0),
             in_array($action,[PremisesActs::COUNT,PremisesActs::CONFIRM],true) => '/rental/acts?id='.(int)($in['id']??0),

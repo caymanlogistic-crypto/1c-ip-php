@@ -48,6 +48,7 @@ final class Access
     public static function finance(int $level=1):void{self::pages(['invoices','invoice-list'],$level);}
     public static function file(array $f,int $contractId=0):void
     {
+        if ($f['kind']===DebtFollowUp::FILE) self::finance();
         if ($f['entity_type']==='object' && $f['kind']===PremisesInventory::PHOTO) {
             if ($contractId) {
                 self::contract($contractId);

@@ -16,8 +16,11 @@ final class InvoiceSignals
   if(!$actor||!in_array($actor['role'],['accountant','admin'],true)||!Auth::can('rental.read')||!Auth::can('finance.write'))return ['state'=>'NOT_AUTHORIZED'];
   try{\App\PagePolicy::requireCommand('invoice.issue');}catch(RuntimeException $e){if($e->getCode()===403)return ['state'=>'NOT_AUTHORIZED'];throw $e;}
   if($p->inTransaction())return ['state'=>'OUTER_TRANSACTION'];
-  $calendar=SourceCalendar::registered();
-  if(!$calendar||$calendar->metadata()['admission']!=='LOCAL_TEST')throw new RuntimeException('Рабочий календарь контроля оплаты не подтверждён.',422);
+  try{$calendar=SourceCalendar::registered();}catch(RuntimeException $error){
+   if($error instanceof \PDOException)throw $error;
+   $calendar=null;
+  }
+  if(!$calendar||$calendar->metadata()['admission']!=='LOCAL_TEST')return ['state'=>'PAYMENT_CONTROL_REQUIRES_CALENDAR'];
   $p->beginTransaction();
   try{
    $result=self::refresh($p,$date,$time,$calendar,true);
@@ -34,7 +37,9 @@ final class InvoiceSignals
  public static function refresh(PDO $p,string $date,string $time,SourceCalendar $calendar,bool $apply=false):array
  {
   Service::date($date);if(!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/D',$time))throw new RuntimeException('Некорректное время.');if($apply){Auth::requirePermission('rental.read');Auth::requirePermission('finance.write');Service::roles(['accountant']);\App\PagePolicy::requireCommand('invoice.issue');if(!$p->inTransaction()||$calendar->metadata()['admission']!=='LOCAL_TEST')throw new RuntimeException('WORKDAY_ADMISSION_REQUIRED');$p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();}$plan=[];$blocked=[];$done=[];if($time<'13:00')return ['plan'=>[],'blocked'=>[],'applied'=>[],'beforeControlTime'=>true];
+  $now=new \DateTimeImmutable($date.' '.$time,new \DateTimeZone('Europe/Moscow'));
   foreach($p->query("SELECT * FROM invoices WHERE status='active' AND control_closed=0 ORDER BY id")->fetchAll() as $i){
+   $i=PaymentReview::attach($p,$i,$now);
    $raw=json_decode($i['source_json'],true);
    if($i['manual_review']||!empty($raw['issueError'])||!empty($raw['mismatch'])||!empty($raw['sendError']))continue;
    $severity=InvoiceFacts::overdueSeverity($i,$date);

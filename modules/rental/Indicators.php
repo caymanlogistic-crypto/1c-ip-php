@@ -176,7 +176,9 @@ final class Indicators {
         if ($allow('invoices') || $allow('invoice-list') || $allow('payments')) {
         $invoiceRows=Controller::query("SELECT i.*,c.source_json contract_source FROM invoices i JOIN contracts c ON c.id=i.contract_id WHERE i.status<>'revoked' ORDER BY i.id");
         $reviews=InvoiceCalculation::reviewFacts(DB::pdo(),array_column(array_filter($invoiceRows,static fn($r)=>!empty($r['manual_review'])),'id'));
+        $bankNow = BankPaymentRefresh::now(DB::pdo());
         foreach ($invoiceRows as $i) {
+            $i = PaymentReview::attach(DB::pdo(),$i,$bankNow);
             $i['_calculation_review']=$reviews[(int)$i['id']] ?? null;
             $raw = json_decode($i['source_json'], true);
             $i['_delivery']=InvoiceDelivery::presentation(DB::pdo(),(int)$i['id']);
@@ -186,8 +188,7 @@ final class Indicators {
                 || ($i['manual_review'] && !empty($contractSource['financialReview']))) continue;
             $error = $i['manual_review'] || !empty($raw['issueError']) || !empty($raw['mismatch']) || $sendError;
             $severity = $error?'red':'';
-            if (!$error && $time >= '13:00') $severity = InvoiceFacts::overdueSeverity($i,$today);
-            if (!$error && InvoiceFacts::overdueDays($i,$today)>0 && $time<'13:00')$severity = InvoiceSignals::cached(DB::pdo(), $i);
+            if (!$error) $severity = InvoiceFacts::overdueSeverity($i);
             $owners = !empty($raw['issueError']) ? ['accountant']
                 : (!empty($raw['mismatch']) ? ['manager','accountant','director'] : ['manager','accountant']);
             $view=InvoiceFacts::view($i,$severity);
