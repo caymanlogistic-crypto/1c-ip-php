@@ -81,6 +81,8 @@ final class FinanceController {
         $r = self::invoice($id);
         $r['_calculation_review']=InvoiceCalculation::reviewFacts(DB::pdo(),[$id])[$id] ?? null;
         $raw=json_decode($r['source_json'],true) ?: [];
+        $periodProof=$raw['regular_invoice'] ?? null;
+        $emailQuestion = $periodProof ? InvoiceDeliveryPreference::emailQuestion(DB::pdo(),$r) : null;
         $r['_delivery']=InvoiceDelivery::presentation(DB::pdo(),$id);
         $delivery=$r['_delivery']['intent'];
         $sendError=InvoiceFacts::view($r)['send_error'];
@@ -143,6 +145,10 @@ final class FinanceController {
         $initialProof = $raw['separate_initial_invoice'] ?? null;
         if ($initialProof && !$r['due']) {
             $body.=RentalUI::alert('Срок оплаты требует подтверждения',$initialProof['due_basis'],'warning');
+        }
+        if ($periodProof) {
+            $body.=RegularInvoiceCard::recorded($periodProof,$r,$delivery);
+            if ($emailQuestion) $body.=RentalUI::alert($emailQuestion,'','warning');
         }
         $review = $r['_calculation_review'];
         if ($review) {
@@ -236,7 +242,7 @@ final class FinanceController {
         ], true) && Auth::can('finance.write') && \App\PagePolicy::level('rental.invoice-list',$user)>=2) {
             if ($initialProof && $r['status'] !== 'revoked') {
                 $actions.=RentalUI::button('Уточнить срок оплаты','/rental/invoice-state?id='.$id.'&action=invoice.edit-due',!$r['due']);
-            } elseif (!$initialProof) {
+            } elseif (!$initialProof && !$periodProof) {
                 $actions.=RentalUI::button(!empty($raw['issueError'])?'Заполнить реквизиты':'Редактировать', '/rental/edit-invoice?id='.$id,!empty($raw['issueError']));
             }
             if ($debt!==null && bccomp($debt,'0',2)>0 && empty($raw['issueError']) && $r['status']!=='revoked') {
@@ -246,7 +252,7 @@ final class FinanceController {
             . $id
             . '&action=invoice.confirm-review', true);
         }
-        if (in_array($role,['admin','manager','accountant'],true) && empty($raw['issueError']) && $r['status']!=='revoked' && (!$initialProof || $r['due'])
+        if (in_array($role,['admin','manager','accountant'],true) && empty($raw['issueError']) && $r['status']!=='revoked' && $emailQuestion===null && (!$initialProof || $r['due'])
             && Auth::can($role==='manager'?'rental.write':'finance.write') && \App\PagePolicy::level('rental.invoice-list',$user)>=2) {
             [$sendForm,$sendButton]=self::form('invoice.send',$r,'',$sendError?'Повторить отправку':'Отправить клиенту');
             $body.=$sendForm;
@@ -388,7 +394,8 @@ final class FinanceController {
             'accountant'
         ]);
         $id = (int)($_GET['id'] ?? 0);
-        $i = $id?self::invoice($id):null;
+        if (!$id) return RegularInvoiceCard::card();
+        $i = self::invoice($id);
         $choices = '';
         foreach (Controller::query("SELECT c.id,c.number,p.name FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status IN ('approved','sent','active','reconciling') ORDER BY c.number") as $c)$choices.='<option value="'
         . $c['id']
@@ -576,6 +583,8 @@ final class FinanceController {
     }
     public static function persist(array $in,?array $upload=null): array {
         $stored = null;
+        if (in_array($in['action'] ?? '',RegularInvoice::ACTIONS,true) && $upload && $upload['error']!==UPLOAD_ERR_NO_FILE)
+            throw new RuntimeException('В этом действии файл счёта формируется по сохранённым реквизитам.',422);
         if ($upload && $upload['error'] !== UPLOAD_ERR_NO_FILE)$in['attachment_sha256'] = $upload['error'] === UPLOAD_ERR_OK?hash_file('sha256', $upload['tmp_name']):'invalid';
         try {
             return DB::transaction(function()use($in, $upload, &$stored) {
@@ -628,6 +637,17 @@ final class FinanceController {
         try {
             $result=self::persist($in,$_FILES['attachment'] ?? null);
             $_SESSION['rental_notice'] = $result['message'];
+            if (($in['action'] ?? '') === InvoiceDeliveryPreference::SAVE) {
+                $target=RegularInvoiceCard::route((int)$in['contract_id'],(string)($in['period'] ?? ''),
+                    (string)($in['issued'] ?? ''),(int)($in['payment_id'] ?? 0));
+                if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')==='ERP-Fetch') {
+                    parse_str((string)parse_url($target,PHP_URL_QUERY),$_GET);
+                    header('Content-Type: text/html; charset=UTF-8');
+                    echo RegularInvoiceCard::card();
+                    exit;
+                }
+                Http::redirect($target);
+            }
             if(($in['action']??'')==='payment.create'){
                 if(($_SERVER['HTTP_X_REQUESTED_WITH']??'')==='ERP-Fetch'){
                     header('Content-Type: text/html; charset=UTF-8');$_GET=['id'=>$result['payment_id']];echo self::payment();exit;
@@ -662,6 +682,8 @@ final class FinanceController {
                 exit;
             }
             $_SESSION['rental_notice'] = $e->getMessage();
+            if (in_array($in['action'] ?? '',RegularInvoice::ACTIONS,true))
+                Http::redirect(RegularInvoiceCard::route((int)($in['contract_id'] ?? 0),(string)($in['period'] ?? ''),(string)($in['issued'] ?? ''),(int)($in['payment_id'] ?? 0)));
             if(($in['action']??'')==='payment.create')Http::redirect('/rental/payment');
             Http::redirect('/rental/invoice?id='
             . (int)($in['id'] ?? 0));

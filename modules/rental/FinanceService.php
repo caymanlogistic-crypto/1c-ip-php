@@ -28,6 +28,7 @@ final class FinanceService {
         ]);
     }
     public static function execute(PDO $p, array $u, string $action, array $in):array {
+        if (in_array($action,RegularInvoice::ACTIONS,true)) return RegularInvoice::execute($p,$u,$action,$in);
         $id = (int)($in['id'] ?? 0);
         $i = $action === 'invoice.issue'?null:Service::get($p, 'invoices', $id);
         if ($i)Service::version($i, $in);
@@ -42,6 +43,7 @@ final class FinanceService {
             if (!$allowed) throw new RuntimeException('Исторический счёт доступен только для просмотра.');
         }
         $initialProof = $i ? (json_decode($i['source_json'],true)['separate_initial_invoice'] ?? null) : null;
+        $periodProof = $i ? (json_decode($i['source_json'],true)['regular_invoice'] ?? null) : null;
         if ($action === 'invoice.send') {
             if ($initialProof && !$i['due']) throw new RuntimeException('Подтвердите срок оплаты первого счёта перед отправкой.',409);
             $intent=InvoiceDelivery::prepare($p,$u,$i);
@@ -73,6 +75,7 @@ final class FinanceService {
             $due=Service::date((string)($in['due'] ?? ''));
             $reason=trim((string)($in['reason'] ?? ''));
             if($reason==='')throw new RuntimeException('Укажите основание изменения срока оплаты.',422);
+            if ($periodProof) throw new RuntimeException('Срок этого счёта закреплён договором. Корректировка оформляется отдельно.',409);
             if ($initialProof) {
                 $mode = $in['deadline_basis'] ?? null;
                 if (($in['confirmed'] ?? null) !== '1' || !in_array($mode,['rule','individual'],true))
@@ -98,6 +101,7 @@ final class FinanceService {
                 'accountant'
             ]);
             if ($initialProof) throw new RuntimeException('Исходный первый счёт сохранён. Срок оплаты уточняется отдельным действием.',409);
+            if ($periodProof) throw new RuntimeException('Сохранённый счёт связан с подтверждёнными условиями. Корректировка оформляется отдельно.',409);
             if (!$i && !in_array($c['status'], [
                 'approved',
                 'sent',
@@ -121,6 +125,17 @@ final class FinanceService {
             $period = $kind === 'Обеспечительный платёж'?'Обеспечение':($in['period'] ?? substr($issued, 0, 7));
             if ($kind !== 'Обеспечительный платёж')Service::date($period
             . '-01');
+            if (!$i && ($error=InitialInvoice::dateError($c,$issued))) throw new RuntimeException($error,422);
+            if (!$i) {
+                $facts = LeasePaymentTerms::facts($p,(int)$c['id']);
+                $accrual = $facts['accrual']['date'] ?? $c['start_date'];
+                if (($facts['base']['form'] ?? '') === 'D09') {
+                    $handover = LeasePaymentTerms::actDate(PremisesActs::history($p,(int)$c['id']),'transfer');
+                    if ($handover && (!$accrual || $handover > $accrual)) $accrual = $handover;
+                }
+                if ($accrual && $period <= substr($accrual,0,7))
+                    throw new RuntimeException('Первый период оформляется из карточки договора действием «Выставить первый счёт».',409);
+            }
             if (!$i && in_array($kind, ['Аренда', 'Первый период'], true)) {
                 HandoverQuestion::assertBillingReady($p, (int)$c['id'], $period);
             }
