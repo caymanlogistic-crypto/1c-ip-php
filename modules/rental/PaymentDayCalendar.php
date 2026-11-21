@@ -43,6 +43,42 @@ final class PaymentDayCalendar
         return ['question'=>'Срок выходит за подтверждённый охват календаря. Нужна сверка сотрудника.'];
     }
 
+    public static function preparation(string $period): array
+    {
+        $target = new DateTimeImmutable(RegularInvoice::period($period).'-01');
+        $day = $target->modify('-1 month')->format('Y-m-17');
+        $previous = (new DateTimeImmutable($day))->modify('-1 day')->format('Y-m-d');
+        $next = (new DateTimeImmutable($day))->modify('+1 day')->format('Y-m-d');
+        $source = self::approved('working');
+        if ($source) {
+            $days = array_fill_keys($source['days'],true);
+            $isWorking = static fn(string $date): bool => isset($days[$date]);
+            $label = $source['source'];
+            $revision = hash('sha256',Importer::canonicalJson($source));
+        } else {
+            try {
+                $local = in_array(PHP_SAPI,['cli','cli-server'],true) && !getenv('APP_STAND') ? SourceCalendar::registered() : null;
+            } catch (RuntimeException $error) {
+                if ($error instanceof \PDOException) throw $error;
+                $local = null;
+            }
+            if (!$local) return ['question'=>'Подтвердите рабочий календарь для даты подготовки счетов.'];
+            $source = $local->metadata();
+            $isWorking = $local->isWorkingDate(...);
+            $label = 'Локальный рабочий календарь 2026 года';
+            $revision = SourceCalendar::REFERENCE;
+        }
+        $known = static fn(string $date): bool => $date >= $source['valid_from'] && $date <= $source['valid_to'];
+        if (!$known($day)) return ['question'=>'Дата подготовки выходит за подтверждённые границы рабочего календаря.'];
+        $result = ['date'=>$day,'source'=>$label,'revision'=>$revision];
+        if ($isWorking($day)) return $result;
+        if (!$known($previous) || !$known($next))
+            return ['question'=>'Для переноса с 17-го подтвердите рабочие дни по обе стороны даты.'];
+        if (!$isWorking($previous) || !$isWorking($next))
+            return ['question'=>'17-е входит в несколько нерабочих дней подряд. Бухгалтеру нужно подтвердить дату подготовки.'];
+        return array_replace($result,['date'=>$previous]);
+    }
+
     private static function approved(string $unit): ?array
     {
         // The operator supplies an admitted source with explicit daily coverage. No weekday fallback.

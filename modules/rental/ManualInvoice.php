@@ -20,21 +20,11 @@ final class ManualInvoice
         if ($error = InitialInvoice::dateError($contract,$issued))
             throw new RuntimeException($error,422);
         HandoverQuestion::assertBillingReady($db,$id,$period);
-        if (!$contract['start_date'] || !$contract['end_date'])
-            throw new RuntimeException('Сверьте даты начала и окончания аренды.',409);
+        InvoiceCycle::assertIndividual($db,$id,$period);
         $facts = LeasePaymentTerms::facts($db,$id);
         if (($facts['decision']['decision'] ?? null) === 'self')
             throw new RuntimeException('По договору подтверждена самостоятельная оплата. Для счёта сначала уточните согласованный порядок.',409);
-        $transfer = ($facts['base']['form'] ?? '') === 'D09'
-            ? LeasePaymentTerms::actDate(PremisesActs::history($db,$id),'transfer') : null;
-        $starts = array_unique(array_filter([$contract['start_date'],$facts['accrual']['date'] ?? null,$transfer]));
-        $firstAlreadyIssued = array_filter(InitialInvoice::issuedFor($db,$id),
-            static fn(array $invoice): bool => $invoice['kind'] === 'Первый период' && $invoice['status'] !== 'revoked');
-        foreach ($starts as $start) {
-            $next = (new DateTimeImmutable($start))->modify('first day of next month')->format('Y-m');
-            if ($period <= substr($start,0,7) || (!$firstAlreadyIssued && substr($start,8,2) >= '16' && $period === $next))
-                throw new RuntimeException('Проверьте начисление в карточке договора действием «Выставить первый счёт».',409);
-        }
+        $starts = InitialInvoice::assertBeyondInitial($db,$contract,$period,$facts);
 
         $first = $period.'-01';
         $last = (new DateTimeImmutable($first))->format('Y-m-t');
