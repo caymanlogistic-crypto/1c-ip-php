@@ -82,6 +82,7 @@ final class FinanceController {
         $r['_calculation_review']=InvoiceCalculation::reviewFacts(DB::pdo(),[$id])[$id] ?? null;
         $raw=json_decode($r['source_json'],true) ?: [];
         $periodProof=$raw['regular_invoice'] ?? null;
+        $manualProof=$raw['manual_regular_invoice'] ?? null;
         $emailQuestion = $periodProof ? InvoiceDeliveryPreference::emailQuestion(DB::pdo(),$r) : null;
         $r['_delivery']=InvoiceDelivery::presentation(DB::pdo(),$id);
         $delivery=$r['_delivery']['intent'];
@@ -149,6 +150,13 @@ final class FinanceController {
         if ($periodProof) {
             $body.=RegularInvoiceCard::recorded($periodProof,$r,$delivery);
             if ($emailQuestion) $body.=RentalUI::alert($emailQuestion,'','warning');
+        }
+        if ($manualProof) {
+            $body.=RentalUI::pairs([
+                ['Способ внесения','Вручную по документу'],
+                ['Основание суммы и срока оплаты',$manualProof['reason']],
+                ['Создан',(new \DateTimeImmutable($manualProof['created_at']))->format('d.m.Y H:i:s')],
+            ]);
         }
         $review = $r['_calculation_review'];
         if ($review) {
@@ -242,7 +250,7 @@ final class FinanceController {
         ], true) && Auth::can('finance.write') && \App\PagePolicy::level('rental.invoice-list',$user)>=2) {
             if ($initialProof && $r['status'] !== 'revoked') {
                 $actions.=RentalUI::button('Уточнить срок оплаты','/rental/invoice-state?id='.$id.'&action=invoice.edit-due',!$r['due']);
-            } elseif (!$initialProof && !$periodProof) {
+            } elseif (!$initialProof && !$periodProof && !$manualProof) {
                 $actions.=RentalUI::button(!empty($raw['issueError'])?'Заполнить реквизиты':'Редактировать', '/rental/edit-invoice?id='.$id,!empty($raw['issueError']));
             }
             if ($debt!==null && bccomp($debt,'0',2)>0 && empty($raw['issueError']) && $r['status']!=='revoked') {
@@ -394,7 +402,7 @@ final class FinanceController {
             'accountant'
         ]);
         $id = (int)($_GET['id'] ?? 0);
-        if (!$id) return RegularInvoiceCard::card();
+        if (!$id) return self::manualInvoice();
         $i = self::invoice($id);
         $choices = '';
         foreach (Controller::query("SELECT c.id,c.number,p.name FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status IN ('approved','sent','active','reconciling') ORDER BY c.number") as $c)$choices.='<option value="'
@@ -406,18 +414,9 @@ final class FinanceController {
         . ' · '
         . $c['name'])
         . '</option>';
-        $next = \App\BusinessIds::next(DB::pdo(),'invoices',900000);
-        $fields = (!$i?'<input type="hidden" name="expected_new_id" value="'
-        . $next
-        . '">':'')
-        . '<label class="field"><span class="field-label">Договор</span><select class="field-input field-select" name="contract_id"'
-        . ($i?' disabled':'')
-        . '>'
-        . $choices
-        . '</select></label>'
-        . ($i?'<input type="hidden" name="contract_id" value="'
-        . $i['contract_id']
-        . '">':'')
+        $fields = '<label class="field"><span class="field-label">Договор</span>'
+        . '<select class="field-input field-select" name="contract_id" disabled>'.$choices.'</select></label>'
+        . PremisesActsCard::hidden('contract_id',(int)$i['contract_id'])
         . '<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
         . Controller::input('number', 'Номер счёта', $i['number'] ?? '', 'text', true)
         . Controller::input('issued', 'Дата счёта', $i['issued'] ?? date('Y-m-d'), 'date', true)
@@ -447,11 +446,59 @@ final class FinanceController {
         [
             $body,
             $actions
-        ] = self::form($i?'invoice.edit':'invoice.issue', $i ?? [
-        ], $fields, 'Сохранить', true, true);
-        return RentalUI::modal($i?'Редактировать счёт '
-        . $i['number']:'Внести счёт', $body, $actions, 'invoice-list');
+        ] = self::form('invoice.edit',$i,$fields,'Сохранить',true,true);
+        return RentalUI::modal('Редактировать счёт '.$i['number'],$body,$actions,'invoice-list');
     }
+
+    private static function manualInvoice(): string
+    {
+        RegularInvoice::requireAccess(2);
+        $db = DB::pdo();
+        $id = (int)($_GET['contract_id'] ?? 0);
+        $period = RegularInvoice::period((string)($_GET['period'] ?? date('Y-m')));
+        $issued = Service::date((string)($_GET['issued'] ?? date('Y-m-d')));
+        $body = RentalUI::notice();
+        if (!$id) {
+            $body .= '<form method="get" action="/rental/edit-invoice" class="registry-ui-modal-grid">'
+                .RegularInvoiceCard::contractSelect(0)
+                .Controller::input('period','Период аренды',$period,'month',true)
+                .Controller::input('issued','Дата документа',$issued,'date',true)
+                .'<button class="btn btn-secondary" type="submit">Открыть форму</button></form>';
+            return RentalUI::modal('Внести счёт вручную',$body,'','invoice-list',wide:true,extractForms:false);
+        }
+        $contract = RegularInvoice::contract($id);
+        try {
+            $plan = ManualInvoice::coverage($db,$contract,$period,$issued);
+        } catch (RuntimeException $error) {
+            if ($error instanceof \PDOException || !in_array($error->getCode(),[409,422],true)) throw $error;
+            return RentalUI::modal('Внести счёт вручную',$body.RentalUI::alert($error->getMessage(),'','warning'),
+                RentalUI::button('Открыть предпросмотр',RegularInvoiceCard::route($id,$period,$issued)),'invoice-list');
+        }
+        $segment = $plan['coverage'][0];
+        $body .= RentalUI::pairs([
+            ['Договор',$contract['number']],
+            ['Период аренды',Documents::dateText($segment['start_date']).' — '.Documents::dateText($segment['end_date'])],
+        ]);
+        $fields = PremisesActsCard::hidden('expected_new_id',\App\BusinessIds::next($db,'invoices',900000))
+            .PremisesActsCard::hidden('contract_id',$id).PremisesActsCard::hidden('period',$period)
+            .PremisesActsCard::hidden('kind','Аренда')
+            .'<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
+            .Controller::input('number','Номер счёта','','text',true)
+            .Controller::input('issued','Дата счёта',$issued,'date',true)
+            .Controller::input('title','Наименование платежа','Арендная плата','text',true)
+            .Controller::input('amount','Сумма с НДС','','text',true)
+            .Controller::input('due','Срок оплаты','','date',true)
+            .'</div>'
+            .Controller::input('purpose','Назначение платежа / за что','','text',true)
+            .Controller::input('manual_reason','Документ и пункт, подтверждающие сумму и срок оплаты','','text',true)
+            .'<label class="registry-ui-checkbox"><input type="checkbox" name="manual_confirmed" value="1" required>'
+            .'<span>Подтверждаю сумму и срок оплаты по указанному документу</span></label>'
+            .'<label class="field"><span class="field-label">Готовый файл счёта при наличии</span>'
+            .'<input class="field-input" name="attachment" type="file"></label>';
+        [$form,$actions] = self::form('invoice.issue',['version'=>$contract['version']],$fields,'Сохранить',true);
+        return RentalUI::modal('Внести счёт вручную',$body.$form,$actions,'invoice-list');
+    }
+
     public static function state():string {
         Auth::requirePermission('rental.read');
         $i = self::invoice((int)($_GET['id'] ?? 0));
@@ -595,7 +642,7 @@ final class FinanceController {
                     $payment = isset($r['payment_id']);
                     $stored = FinanceFiles::save($upload, $payment?'payment':'invoice', (int)($r['payment_id'] ?? $r['invoice_id']), $payment?'payment-order':'invoice-file');
                 }
-                if (($in['intent'] ?? '') === 'send' && in_array($in['action'] ?? '',['invoice.issue','invoice.edit'],true)) {
+                if (($in['intent'] ?? '') === 'send' && ($in['action'] ?? '') === 'invoice.edit') {
                     $sent=Service::command('invoice.send',[
                         'id'=>$r['invoice_id'],'version'=>$r['version'],
                         'command_key'=>hash('sha256','invoice-save-send:'.$in['command_key']),
@@ -684,6 +731,8 @@ final class FinanceController {
             $_SESSION['rental_notice'] = $e->getMessage();
             if (in_array($in['action'] ?? '',RegularInvoice::ACTIONS,true))
                 Http::redirect(RegularInvoiceCard::route((int)($in['contract_id'] ?? 0),(string)($in['period'] ?? ''),(string)($in['issued'] ?? ''),(int)($in['payment_id'] ?? 0)));
+            if (($in['action'] ?? '') === 'invoice.issue')
+                Http::redirect(ManualInvoice::route((int)($in['contract_id'] ?? 0),(string)($in['period'] ?? ''),(string)($in['issued'] ?? '')));
             if(($in['action']??'')==='payment.create')Http::redirect('/rental/payment');
             Http::redirect('/rental/invoice?id='
             . (int)($in['id'] ?? 0));
