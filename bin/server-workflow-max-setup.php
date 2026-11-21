@@ -67,9 +67,7 @@ if ($staff || $sequence || $probe) {
             $q->execute([$m['contract_id']]);
             if ($q->fetchColumn()!==$m['isolated_probe']['contract_number'])
                 throw new RuntimeException('STAFF_HANDOFF_PROBE_DRAFT_CHANGED');
-            $lawyers=$p->query("SELECT u.id FROM users u JOIN role_profiles r ON r.role_id=u.role WHERE u.active=1 AND r.kind='lawyer'");
-            if (array_map('intval',$lawyers->fetchAll(PDO::FETCH_COLUMN))!==[$m['isolated_probe']['recipient_id']])
-                throw new RuntimeException('STAFF_HANDOFF_PROBE_RECIPIENT_CHANGED');
+            StaffHandoffProbe::reviewer($p,$m['isolated_probe']['recipient_id']);
             $q=$p->prepare("SELECT 1 FROM users u JOIN role_profiles r ON r.role_id=u.role
                 WHERE u.id=? AND u.active=1 AND r.kind='manager'");
             $q->execute([$m['actor_id']]);

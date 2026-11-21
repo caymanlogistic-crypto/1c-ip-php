@@ -25,7 +25,9 @@ final class Auth {
     }
     public static function can(string $key):bool {
         $u = self::user();
-        if (!$u)return false;
+        return $u!==null && self::canFor($u,$key);
+    }
+    public static function canFor(array $u,string $key):bool {
         $q = DB::pdo()->prepare('SELECT 1 FROM role_permissions WHERE role_id=? AND (permission_key=? OR permission_key=?) LIMIT 1');
         $q->execute([
             $u['role_id'],

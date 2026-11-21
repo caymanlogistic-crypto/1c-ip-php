@@ -52,11 +52,17 @@ deny(fn()=>ServerWorkflowMax::validateStaff(array_replace($scope,['action'=>'doc
 $wide=$scope;
 $wide['isolated_probe']['expires_at']=$now+901;
 deny(fn()=>ServerWorkflowMax::validateStaff($wide),'STAFF_HANDOFF_PROBE_ADMISSION_INVALID');
-$observed=($argv[1] ?? null)==='--observed-db';
+$named=($argv[1] ?? null)==='--named-reviewer-db';
+$observed=$named || ($argv[1] ?? null)==='--observed-db';
 if (!$observed && ($argv[1] ?? null)!=='--isolated-db') return;
 
+if ($named && (PHP_OS_FAMILY!=='Linux' || getenv('APP_STAND')!=='ui'
+    || realpath(getenv('APP_DB_CONFIG_FILE') ?: '.')!==realpath(APP_ROOT.'/.local/named-linux-database.php'))) {
+    throw new RuntimeException('The named reviewer test requires its own Linux fixture config.');
+}
 $db=DB::pdo();
-if (PHP_SAPI!=='cli' || $db->query('SELECT DATABASE()')->fetchColumn()!=='ip_ya_php_scratch_max_probe'
+$fixtureSchema=$named?'ipphp_ui':'ip_ya_php_scratch_max_probe';
+if (PHP_SAPI!=='cli' || $db->query('SELECT DATABASE()')->fetchColumn()!==$fixtureSchema
     || Config::liveAllowed() || ServerWorkflowMax::staffSettings()!==null || ServerWorkflowMax::settings()!==null) {
     throw new RuntimeException('Explicit isolated test database required.');
 }
@@ -68,6 +74,12 @@ foreach (['messaging_attempts','messaging_receipts','audit_log'] as $table) {
 foreach ([1=>['admin','Учебный владелец'],2=>['manager','Раиса Учебная'],3=>['lawyer','Наиль Учебный']] as $id=>[$role,$name]) {
     $db->prepare("INSERT INTO users(id,username,name,password_hash,role,active) VALUES(?,?,?,'fixture',?,1)
         ON DUPLICATE KEY UPDATE active=1")->execute([$id,'probe-'.$role.'@example.test',$name,$role]);
+}
+if ($named) {
+    $db->exec("INSERT INTO users(id,username,name,password_hash,role,active)
+        VALUES(37,'other-lawyer-probe@example.test','Второй Учебный Юрист','fixture','lawyer',1)
+        ON DUPLICATE KEY UPDATE active=1");
+    check(StaffHandoffProbe::reviewer($db,37)['label']==='Второй Учебный Юрист','second active lawyer has effective legal and approval page grants');
 }
 $_SESSION=['user_id'=>2,'auth_version'=>(int)$db->query('SELECT auth_version FROM users WHERE id=2')->fetchColumn()];
 $db->exec("INSERT IGNORE INTO parties(id,name,source_json) VALUES(37,'Учебный контрагент','{}')");
@@ -82,7 +94,8 @@ $db->prepare("INSERT IGNORE INTO messaging_groups(id,provider,chat_id,name) VALU
     ->execute([$scope['group_id'],$scope['chat_id']]);
 $db->prepare("INSERT IGNORE INTO integration_group_bindings(source_variant,source_group_id,local_group_id) VALUES('synthetic',?,?)")
     ->execute([$scope['group_id'],$scope['group_id']]);
-Config::saveSecrets('max',['_owner_bound_revision'=>6,'secret'=>'synthetic no network']);
+Config::saveSecrets('max',['_owner_bound_revision'=>6,'_revision'=>6,'secret'=>'synthetic no network','approved_chat_ids'=>[$scope['chat_id']]]);
+$scope['vault_sha256']=hash_file('sha256',APP_ROOT.'/private/integrations/max.enc');
 $store=Config::store();
 (new TemplateCatalog($db,$store))->installStaffHandoff();
 $scope['catalog_version']=(int)$db->query("SELECT version FROM integration_template_catalog WHERE channel='max' AND source_key='staffHandoff'")->fetchColumn();
@@ -247,6 +260,28 @@ $scope['contract_id']=$created['id'];
 $scope['isolated_probe']['contract_number']=$number;
 $scope['event_floor']=(int)$db->query('SELECT COALESCE(MAX(id),0) FROM rental_events')->fetchColumn();
 $input=['id'=>$created['id'],'version'=>1,'command_key'=>$scope['command_key']];
+if ($named) {
+    $ordinary=Service::command('contract.create',['number'=>$number.'-OTHER','command_key'=>bin2hex(random_bytes(16)),
+        'party_id'=>37,'document_date'=>date('Y-m-d'),'start_date'=>date('Y-m-d'),'end_date'=>date('Y-m-d',strtotime('+30 days')),
+        'objects'=>[37],'term_amount'=>[37=>'1000'],'amount'=>'1000','intent'=>'draft']);
+    $marker=APP_ROOT.'/.local/staff-handoff-max-admission.json';
+    $bytes=Support::json($scope);
+    $handle=fopen($marker,'xb');
+    if (!$handle) throw new RuntimeException('Fixture note already exists.');
+    register_shutdown_function(static function() use ($marker,$bytes): void {
+        if (is_file($marker) && file_get_contents($marker)===$bytes) unlink($marker);
+    });
+    fwrite($handle,$bytes);
+    fclose($handle);
+
+    $otherInput=['id'=>$ordinary['id'],'version'=>1,'command_key'=>bin2hex(random_bytes(16))];
+    Service::command('contract.submit',$otherInput,$normalEvent);
+    $q=$db->prepare('SELECT id,source_json,created_at FROM rental_events WHERE id=?');
+    $q->execute([$normalEvent]);
+    $normal=WorkflowEvents::decode($q->fetch());
+    check($normal['staff_handoff']['targets'][0]['id']===null
+        && $normal['staff_handoff']['targets'][0]['label']==='Юрист','nonselected command retains the ordinary lawyer role');
+}
 Service::command('contract.submit',$input,$fresh);
 check($fresh!==null,'actual draft submission committed a new workflow event');
 $q=$db->prepare('SELECT id,source_json,created_at FROM rental_events WHERE id=?');
@@ -255,6 +290,27 @@ $event=WorkflowEvents::decode($q->fetch());
 check(ServerWorkflowMax::staffAdmits($scope,$event),'committed handoff pins the exact recipient');
 $plan=(new CurrentContractMaxProof($db))->plan($fresh,$scope['group_id'],6,$scope['catalog_version'],true);
 $event['request_key']=$plan['request_key'];
+if ($named) {
+    foreach (['command_key'=>bin2hex(random_bytes(16)),'actor_role'=>'lawyer','from_status'=>'returned'] as $key=>$value) {
+        check($probe->namedReviewer($scope,array_replace($event,[$key=>$value]))===null,'named probe refuses mismatched '.$key);
+    }
+    $elapsed=$scope;
+    $elapsed['isolated_probe']['expires_at']=time()-1;
+    check($probe->namedReviewer($elapsed,$event)===null,'expired marker cannot assign a named reviewer');
+    $_SERVER['REQUEST_METHOD']='POST';
+    $serverPlan=(new ServerWorkflowMax($db,true))->plan($fresh,$scope['command_key'],App\Auth::user());
+    check($event['staff_handoff']['targets'][0]['label']==='Наиль Учебный'
+        && $serverPlan['request_key']===$plan['request_key']
+        && str_contains($serverPlan['text'],'Дальше действует: Наиль Учебный')
+        && !str_contains($serverPlan['text'],'Второй Учебный Юрист'),'committed event and server MAX plan name only the approved lawyer');
+    $db->beginTransaction();
+    try {
+        $db->exec("DELETE FROM role_permissions WHERE role_id='lawyer' AND permission_key='rental.approve.legal'");
+        deny(fn()=>StaffHandoffProbe::assertReviewer($db,3,$event['staff_handoff']['targets'][0]),'STAFF_HANDOFF_PROBE_RECIPIENT_CHANGED');
+    } finally {
+        $db->rollBack();
+    }
+}
 $legacy=new ReflectionMethod(ServerWorkflowMax::class,'assertSlot');
 deny(fn()=>$legacy->invoke(new ServerWorkflowMax($db),$event),ServerWorkflowMax::RECONCILIATION_REQUIRED);
 deny(fn()=>$legacy->invoke(new ServerWorkflowMax($db,true),$event),ServerWorkflowMax::RECONCILIATION_REQUIRED);
@@ -268,7 +324,7 @@ $transport=static function(string $provider,string $operation,array $config,arra
     return ['status'=>'accepted','code'=>'SIMULATION_ONLY','remote_id'=>'fixture'];
 };
 $send=new Messaging($db,$store,$transport);
-$otherConfig=require APP_ROOT.'/.local/database.php';
+$otherConfig=require (getenv('APP_DB_CONFIG_FILE') ?: APP_ROOT.'/.local/database.php');
 $other=new PDO($otherConfig['dsn'],$otherConfig['user'],$otherConfig['password'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 check((int)$db->query("SELECT GET_LOCK('ipphp-provider:max',0)")->fetchColumn()===1,'provider lock acquired');
 try {
