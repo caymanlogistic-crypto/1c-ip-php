@@ -61,7 +61,15 @@ final class ObjectFacts
         if ($eligible && !$free) $status=explode(' · ',(string)($availability['description'] ?? 'Занято'))[2] ?? 'Занято';
         $lease=$read ? $read->lease((int)$object['id']) : (Occupancy::leasesOn($today,(int)$object['id'])[$object['id']] ?? null);
         if ($free || !$eligible) $lease=null;
-        if ($lease && $lease['status']==='reconciling') $status='Финальная сверка договора '.$lease['number'].'; возврат ещё не завершён';
+        if ($lease && $lease['status']==='reconciling') {
+            $returned=false;
+            if ($lease['return_confirmed']) {
+                try {$returned=ReturnAct::confirmed(\App\DB::pdo(),$lease)!==null;}
+                catch (\RuntimeException $error) {if ($error instanceof \PDOException) throw $error;}
+            }
+            $status=$returned?'Возврат подтверждён · финальная сверка договора '.$lease['number']:
+                'Финальная сверка договора '.$lease['number'].' · возврат ещё не завершён';
+        }
         $bookings=$read ? $read->bookings((int)$object['id']) : Controller::query('SELECT r.id,r.until_date,r.comment,COALESCE(NULLIF(r.client_name,\'\'),p.name) client_name '
             .'FROM reservations r LEFT JOIN parties p ON p.id=r.party_id WHERE '.Occupancy::reservationPredicate('r')
             ." AND r.object_id=? AND r.status='active' AND r.until_date>=? ORDER BY r.id DESC",[$object['id'],$today]);

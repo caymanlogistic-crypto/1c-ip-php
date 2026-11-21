@@ -26,7 +26,8 @@ final class ReconciliationRegistry
                 || !hash_equals((string)$proof[$kind]['sha256'],hash('sha256',Importer::canonicalJson($row)))) return false;
         }
         if (($file['entity_type'] ?? '')!=='contract' || (int)($file['entity_id'] ?? 0)!==(int)$contract['id']
-            || ($file['kind'] ?? '')!=='signed-return-act' || ($file['baseline_hash'] ?? '')!==$approved) return false;
+            || ($file['kind'] ?? '')!=='signed-return-act'
+            || (($file['baseline_hash'] ?? '')!==$approved && !preg_match('/^[a-f0-9]{64}$/D',$proof['act']['physical_sha256'] ?? ''))) return false;
         foreach (['id','version','sha256','upload_order','baseline_hash'] as $key) {
             if (!array_key_exists($key,$file) || !array_key_exists($key,$proof['act'] ?? [])) return false;
             if ($file[$key]===null || $proof['act'][$key]===null) {
@@ -50,8 +51,10 @@ final class ReconciliationRegistry
         return ['open'=>$open,'closed'=>$closed,'known'=>$known,'severity'=>$contract['status']==='reconciling'?'red':'','comment'=>$comment];
     }
 
-    private static function review(array $row,bool $current,string $positive,bool $known): string
+    private static function review(array $row,bool $current,string $positive,bool $known,array $marker=[]): string
     {
+        if (($marker['state'] ?? '')==='returned') return 'На доработке у менеджера';
+        if (($marker['state'] ?? '')==='reassigned') return 'Повторная проверка · '.View::e($marker['reviewer']);
         if (!$current) return $known?'Ожидается':'Нет сведений';
         $meta=array_filter([$row['actor_name'] ?? null,isset($row['confirmed_at'])?RegistryState::date(substr($row['confirmed_at'],0,10)):null]);
         return $positive.($meta?'<div class="doc-meta">'.View::e(implode(' · ',$meta)).'</div>':'');
@@ -73,11 +76,11 @@ final class ReconciliationRegistry
             $baseline=Evidence::signature(DB::pdo(),(int)$contract['id']);
             $reviews=[];
             foreach (Controller::query('SELECT r.*,u.name actor_name FROM rental_reviews r LEFT JOIN users u ON u.id=r.actor_id WHERE r.contract_id=?',[$contract['id']]) as $review) $reviews[$review['kind']]=$review;
-            $finance=isset($reviews['finance']) && hash_equals($baseline,$reviews['finance']['baseline_hash']);
-            $legal=isset($reviews['legal']) && hash_equals($baseline,$reviews['legal']['baseline_hash']);
+            $finance=FinalReview::current(DB::pdo(),$contract,'finance',$reviews['finance'] ?? null,$baseline);
+            $legal=FinalReview::current(DB::pdo(),$contract,'legal',$reviews['legal'] ?? null,$baseline);
             $actState=ReturnAct::state(DB::pdo(),$contract,$baseline);
             $file=$actState['file'];
-            $act=$actState['confirmed'] && hash_equals($baseline,(string)$file['baseline_hash'])?$file:null;
+            $act=$actState['confirmed']?$file:null;
             $pendingAct=$contract['status']==='reconciling' && !$actState['confirmed']?$file:null;
             $proof=Controller::query("SELECT after_json FROM audit_log WHERE action='contract.completed' AND entity_type='contract' AND entity_id=? ORDER BY id DESC LIMIT 1",[(string)$contract['id']])[0]['after_json'] ?? null;
             $proof=$proof?json_decode($proof,true):null;
@@ -86,25 +89,30 @@ final class ReconciliationRegistry
                 $finance=true;$legal=true;$act=$file;
             }
             $view=self::state($contract,$closed,$finance,$legal,$act!==null);
-            $views[]=compact('contract','reviews','finance','legal','act','pendingAct','view');
+            $markers=[];
+            foreach (FinalReview::LABELS as $kind=>$label) $markers[$kind]=FinalReview::marker(DB::pdo(),(int)$contract['id'],$kind);
+            $oneSided=!empty(array_filter(ReturnAct::files(DB::pdo(),(int)$contract['id'],ReturnAct::ONE_FILE),
+                static fn(array $row)=>ReturnAct::receipt(DB::pdo(),$row['id'])));
+            $views[]=compact('contract','reviews','finance','legal','act','pendingAct','view','markers','oneSided');
         }
         $tabs=['all'=>['Все',count($views)],
             'open'=>['Требуют завершения',count(array_filter($views,fn($row)=>!$row['view']['closed'] || $row['view']['open']))],
             'closed'=>['Расчёты закрыты',count(array_filter($views,fn($row)=>$row['view']['closed'] && !$row['view']['open']))]];
         $rows=[];
         foreach ($views as $row) {
-            ['contract'=>$contract,'reviews'=>$reviews,'finance'=>$finance,'legal'=>$legal,'act'=>$act,'pendingAct'=>$pendingAct,'view'=>$view]=$row;
+            ['contract'=>$contract,'reviews'=>$reviews,'finance'=>$finance,'legal'=>$legal,'act'=>$act,'pendingAct'=>$pendingAct,
+                'view'=>$view,'markers'=>$markers,'oneSided'=>$oneSided]=$row;
             if ($flag==='open' && $view['closed'] && !$view['open'] || $flag==='closed' && (!$view['closed'] || $view['open'])) continue;
             if (!WorkRegistry::matches($query,[$contract['number'],$contract['party_name'],$view['comment'],$contract['finish_reason']])) continue;
             $status=$view['closed'] && !$view['open']?'<strong class="registry-ui-success">Расчёты закрыты</strong>':View::e(Controller::status($contract['status']));
             $rows[]=['_attrs'=>'class="'.RegistryState::rowClass($view['severity']).'" data-rental-url="/rental/contract?id='.(int)$contract['id'].'" tabindex="0"',
                 '<strong>'.View::e($contract['number']).'</strong>'.($contract['document_date']?'<div class="doc-meta">'.RegistryState::date($contract['document_date']).'</div>':''),
                 View::e($contract['party_name']),RegistryState::date($contract['finish_date'] ?: $contract['end_date']),
-                self::review($reviews['finance'] ?? [],$finance,'Подтверждено',$view['known']),
-                self::review($reviews['legal'] ?? [],$legal,'Претензий нет',$view['known']),
+                self::review($reviews['finance'] ?? [],$finance,'Подтверждено',$view['known'],$markers['finance']),
+                self::review($reviews['legal'] ?? [],$legal,'Претензий нет',$view['known'],$markers['legal']),
                 ($act?'Акт подтверждён<div class="doc-meta">'.View::e($act['filename']).'</div>':
                     ($pendingAct?'Файл загружен, ожидается подтверждение<div class="doc-meta">'.View::e($pendingAct['filename']).'</div>':
-                        ($view['known']?'Ожидается':'Нет сведений'))),
+                        ($oneSided?'Учтён односторонний акт':($view['known']?'Ожидается':'Нет сведений')))),
                 $status.'<div class="doc-meta">'.View::e($view['comment']).'</div>'];
         }
         $options='<option value="all">Все контрагенты</option>';

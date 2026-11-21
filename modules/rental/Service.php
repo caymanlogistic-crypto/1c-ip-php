@@ -264,6 +264,9 @@ final class Service {
     }
 
     private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
+        if (in_array($action,FinalReview::ACTIONS,true)) return FinalReview::execute($p,$u,$action,$in);
+        if (in_array($action,FinalSettlement::ACTIONS,true)) return FinalSettlement::execute($p,$u,$action,$in);
+        if ($action===ReturnAct::RECORD_ONE) return ReturnAct::recordOne($p,$in);
         if (in_array($action,ExpiryNotice::ACTIONS,true)) return ExpiryNotice::execute($p,$u,$action,$in);
         if ($action === UpdRegister::SAVE) return UpdRegister::save($p,$u,$in);
         if ($action === DebtFollowUp::SAVE) return DebtFollowUp::write($p,$u,$in);
@@ -613,6 +616,7 @@ final class Service {
                 $p->prepare('DELETE FROM rental_reviews WHERE contract_id=?')->execute([
                     $id
                 ]);
+                FinalSettlement::start($p,$id,$in);
                 $next = 'reconciling';
                 break;
                 case 'contract.close':self::roles([
@@ -634,9 +638,13 @@ final class Service {
                     throw new RuntimeException('Выбранный акт не относится к этому договору или был заменён. Откройте актуальную форму.', 409);
                 }
                 $returnDate = self::date($in['return_date'] ?? '');
+                $signedOn=!empty($in['signed_on'])?FinalSettlement::signedDate($in):null;
+                if ($signedOn===null && FinalSettlement::read($p,$id))
+                    throw new RuntimeException('Укажите дату подписания двустороннего акта.',422);
                 PremisesActs::recordReturn($p,$c,$file,$returnDate,$in);
                 $returnAct = ['file_id'=>$file['id'], 'version'=>(int)$file['version'], 'sha256'=>$file['sha256'],
-                    'baseline_hash'=>$file['baseline_hash'], 'return_date'=>$returnDate];
+                    'baseline_hash'=>$file['baseline_hash'], 'return_date'=>$returnDate,'signed_on'=>$signedOn];
+                ReturnAct::record($p,$c,$file,'both',$signedOn,'',$returnDate);
                 $p->prepare('UPDATE contracts SET return_confirmed=? WHERE id=?')->execute([
                     $returnDate,
                     $id

@@ -135,6 +135,8 @@ final class Documents {
         $serviceDoc=$kind===RentalServices::FILE;
         $guarantee=$kind===DebtFollowUp::FILE;
         $expiry=$kind===ExpiryNotice::FILE;
+        $closingAgreement=$kind===FinalSettlement::AGREEMENT_FILE;
+        $oneReturn=$kind===ReturnAct::ONE_FILE;
         $invoiceId=$guarantee?(int)($_POST['invoice_id']??0):0;
         $serviceKey=$serviceDoc?DirectoryDetails::text($_POST,'service_id',32):'';
         $state['entity_category']=in_array($type,['contract','document','party','object'],true)?$type:'other';
@@ -147,7 +149,7 @@ final class Documents {
         else throw new RuntimeException('Неизвестный контекст документа.', 403);
         if (($type==='party')!==($kind===PartyLegalReview::FILE) ||
             (isset(ContractRevision::KINDS[$kind]) && $type!=='contract') ||
-            (($actKind!==false || $serviceDoc || $guarantee || $expiry) && $type!=='contract') || ($photo && $type!=='object'))
+            (($actKind!==false || $serviceDoc || $guarantee || $expiry || $closingAgreement || $oneReturn) && $type!=='contract') || ($photo && $type!=='object'))
             throw new RuntimeException('Вид файла не соответствует карточке.',422);
         if (!in_array($kind, [
             'signed-contract',
@@ -161,18 +163,21 @@ final class Documents {
             RentalServices::FILE,
             DebtFollowUp::FILE,
             ExpiryNotice::FILE,
+            FinalSettlement::AGREEMENT_FILE,
+            ReturnAct::ONE_FILE,
             ...array_keys(ContractRevision::KINDS),
         ], true))throw new RuntimeException('Неизвестный вид документа.');
         if ($expiry) ExpiryNotice::access($id,2);
         else {
-            Auth::requirePermission($kind === 'lawyer-file'?'rental.approve.legal':'rental.write');
-            Service::roles($kind === 'lawyer-file'?[
+            Auth::requirePermission($kind === 'lawyer-file' || $closingAgreement?'rental.approve.legal':'rental.write');
+            Service::roles($kind === 'lawyer-file' || $closingAgreement?[
             'lawyer'
         ]:[
             'manager'
             ]);
         }
         if ($kind === ReturnAct::KIND) \App\PagePolicy::requireCommand('contract.return-act');
+        if ($closingAgreement || $oneReturn) \App\PagePolicy::requireCommand($closingAgreement?FinalSettlement::AGREEMENT:ReturnAct::RECORD_ONE);
         $state['stage']='upload_payload';
         $f = $_FILES['file'] ?? null;
         $state['upload_error']=is_array($f)&&is_int($f['error']??null)?$f['error']:null;
@@ -217,9 +222,9 @@ final class Documents {
         . '.'
         . $ext;
         try {
-            DB::transaction(function($p)use($f, $path, $fid, $ext, $mime, $kind, $type, $id, $version, $actKind, $photo, $serviceDoc, $serviceKey, $guarantee, $invoiceId, $expiry, &$state) {
+            DB::transaction(function($p)use($f, $path, $fid, $ext, $mime, $kind, $type, $id, $version, $actKind, $photo, $serviceDoc, $serviceKey, $guarantee, $invoiceId, $expiry, $closingAgreement, $oneReturn, &$state) {
                 $state['stage']='row_lock';
-                if ($actKind!==false || $photo || $serviceDoc || $guarantee || $expiry) $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
+                if ($actKind!==false || $photo || $serviceDoc || $guarantee || $expiry || $closingAgreement || $oneReturn) $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
                 FileOrder::lock($p);
                 $table=match($type){'contract'=>'contracts','party'=>'parties','object'=>'rental_objects',default=>'rental_documents'};
                 $r = Service::get($p,$table,$id);
@@ -240,11 +245,19 @@ final class Documents {
                 ], true))) || ($kind === 'signed-addendum' && ($type !== 'document' || $r['status'] !== 'sent')) || ($kind === ReturnAct::KIND && $type !== 'contract') || ($kind === 'removed-return-act' && ($type !== 'document' || $r['status'] !== 'signed' || !$r['applied'])))throw new RuntimeException('Вид файла не соответствует документу или этапу.', $kind === ReturnAct::KIND?409:0);
                 if ($kind === 'lawyer-file' && !($r['status'] === 'legal' || ($r['status'] === 'returned' && $r['return_to'] === 'lawyer')))throw new RuntimeException('Работа с файлом не назначена юристу.');
                 if ($kind === ReturnAct::KIND && $r['status'] !== 'reconciling')throw new RuntimeException('Договор не на сверке.', 409);
+                if ($closingAgreement) FinalSettlement::stage($r);
+                if ($oneReturn && $r['status']!=='reconciling') throw new RuntimeException('Договор не на сверке.',409);
                 $state['stage']='baseline';
                 $baseline = $type === 'contract' && !$serviceDoc && !$guarantee && !$expiry?Evidence::signature($p, $id):null;
                 $filename = mb_substr(basename($f['name']), 0, 250);
                 if ($photo) $filename=mb_substr(pathinfo($filename,PATHINFO_FILENAME),0,240).'.'.$ext;
                 $sha=hash_file('sha256',$f['tmp_name']);
+                if ($closingAgreement && in_array($sha,array_column(FinalSettlement::files($p,$id),'sha256'),true)) return;
+                if ($oneReturn) {
+                    foreach (ReturnAct::files($p,$id,ReturnAct::ONE_FILE) as $old) {
+                        if ($old['sha256']===$sha && ((int)$old['version']===$version || ReturnAct::receipt($p,$old['id']))) return;
+                    }
+                }
                 if ($expiry) {
                     $notice=ExpiryNotice::draftForAttachment($p,$r,$_POST);
                     $baseline=ExpiryNotice::fingerprint($notice);
@@ -326,6 +339,8 @@ final class Documents {
         if ($serviceDoc) Http::redirect('/rental/service?id='.$serviceKey);
         if ($guarantee) Http::redirect(DebtFollowUpCard::route($invoiceId));
         if ($expiry) Http::redirect(ExpiryNoticeCard::route($id,(string)$_POST['notice_end']));
+        if ($closingAgreement || $oneReturn)
+            Http::redirect('/rental/action-form?id='.$id.'&action='.($closingAgreement?FinalSettlement::AGREEMENT:ReturnAct::RECORD_ONE));
         if ($actKind!==false) Http::redirect('/rental/acts?id='.$id.'&object_id='.(int)($_POST['object_id']??0).'&kind='.$actKind);
         if ($photo) Http::redirect('/rental/object-inventory?id='.$id);
         if ($kind===PartyLegalReview::FILE) Http::redirect('/rental/party-review?id='.$id.'&action='.PartyLegalReview::SUBMIT);

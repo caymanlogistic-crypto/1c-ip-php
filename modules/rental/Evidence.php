@@ -180,6 +180,8 @@ final class Evidence {
             'ended'
         ], true) || !$c['finish_date'] || $c['finish_date']>date('Y-m-d'))throw new RuntimeException('Дата завершения ещё не наступила.');
         if (!$c['return_confirmed'])throw new RuntimeException('Менеджер должен подтвердить подписанный акт возврата.');
+        FinalSettlement::assertReview($p,$c,'finance');
+        FinalSettlement::assertReview($p,$c,'legal');
         $sig = self::signature($p, $id);
         $query = $p->prepare('SELECT * FROM rental_reviews WHERE contract_id=? ORDER BY kind FOR UPDATE');
         $query->execute([$id]);
@@ -188,13 +190,14 @@ final class Evidence {
             $reviews[$review['kind']] = $review;
         }
         foreach (['finance', 'legal'] as $kind) {
-            if (($reviews[$kind]['baseline_hash'] ?? null) !== $sig) {
+            if (!FinalReview::current($p,$c,$kind,$reviews[$kind] ?? null,$sig)) {
                 throw new RuntimeException('Нужна актуальная проверка: '.$kind);
             }
         }
         $file = $newReturnAct ?? ReturnAct::confirmed($p, $c);
         if ($file === null) throw new RuntimeException('Менеджер должен подтвердить подписанный акт возврата.', 409);
-        if ($file['baseline_hash'] !== $sig) {
+        $physical=ReturnAct::physicalProof($p,$c,$file);
+        if ($file['baseline_hash'] !== $sig && $physical===null) {
             throw new RuntimeException('Акт возврата относится к прежним данным сверки.');
         }
         $c['_closure_proof'] = [
@@ -203,7 +206,8 @@ final class Evidence {
             'record_version' => (int)$c['version'] + 1,
             'finance' => ['row' => $reviews['finance'], 'sha256' => hash('sha256', Importer::canonicalJson($reviews['finance']))],
             'legal' => ['row' => $reviews['legal'], 'sha256' => hash('sha256', Importer::canonicalJson($reviews['legal']))],
-            'act' => array_intersect_key($file, array_flip(['id', 'version', 'sha256', 'upload_order', 'baseline_hash'])),
+            'act' => array_intersect_key($file, array_flip(['id', 'version', 'sha256', 'upload_order', 'baseline_hash']))
+                +($physical===null?[]:['physical_sha256'=>$physical]),
         ];
         return $c;
     }
@@ -214,7 +218,8 @@ final class Evidence {
             !empty($raw['imported'])?$c['end_date']:$c['finish_date'],
             $c['id']
         ]);
-        $p->prepare("UPDATE invoices SET control_closed=1 WHERE contract_id=? AND status='active'")->execute([
+        $scope=FinalSettlement::scoped($p,(int)$c['id']) ? " AND COALESCE(kind,'')<>'Обеспечительный платёж'" : '';
+        $p->prepare("UPDATE invoices SET control_closed=1 WHERE contract_id=? AND status='active'".$scope)->execute([
             $c['id']
         ]);
         $actor = \App\Auth::user() ?? throw new RuntimeException('Требуется вход.', 401);
