@@ -264,6 +264,7 @@ final class Service {
     }
 
     private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
+        if (isset(SecurityDeposit::TITLES[$action])) return SecurityDeposit::execute($p,$u,$action,$in);
         if (in_array($action,FinalReview::ACTIONS,true)) return FinalReview::execute($p,$u,$action,$in);
         if (in_array($action,FinalSettlement::ACTIONS,true)) return FinalSettlement::execute($p,$u,$action,$in);
         if ($action===ReturnAct::RECORD_ONE) return ReturnAct::recordOne($p,$in);
@@ -706,7 +707,8 @@ final class Service {
                 $payment['id']
             ]);
             $available = bcsub($payment['amount'], (string)$q->fetchColumn(), 2);
-            if (bccomp($a, $available, 2)>0 || $invoice['amount'] === null || $invoice['paid'] === null || bccomp($a, bcsub($invoice['amount'], $invoice['paid'], 2), 2)>0)throw new RuntimeException('Сумма превышает доступный остаток.');
+            if ($invoice['status']==='revoked' || bccomp($a, $available, 2)>0 || $invoice['amount'] === null || $invoice['paid'] === null
+                || bccomp($a,SecurityDeposit::payable($p,$invoice,$invoice['paid']),2)>0)throw new RuntimeException('Сумма превышает доступный остаток.');
             $p->prepare('INSERT INTO payment_allocations(payment_id,invoice_id,amount) VALUES(?,?,?) ON DUPLICATE KEY UPDATE amount=amount+VALUES(amount)')->execute([
                 $payment['id'],
                 $id,

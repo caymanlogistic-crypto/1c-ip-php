@@ -113,6 +113,7 @@ final class SourceCards {
         }
         $body.=RentalUI::pairs($pairs);
         $body.=PremisesActsCard::summary($c);
+        $body.=SecurityDepositCard::section($c);
         $body.=InitialInvoiceCard::entry($c);
         if (!in_array($c['status'],['draft','cancelled'],true)) $body.=LeasePaymentTermsCard::summary($c);
         $body.=ExpiryNoticeCard::entry($c);
@@ -294,10 +295,12 @@ final class SourceCards {
             'reconcile.finance' => 'Взаиморасчёты согласованы',
             'reconcile.legal' => 'Претензий нет',
             ...FinalSettlementCard::TITLES,
+            ...SecurityDeposit::TITLES,
             ...HandoverQuestionCard::TITLES
         ];
         $title = $allowed[$action] ?? throw new RuntimeException('Действие не найдено.', 404);
         if ($action === 'contract.return-act') return ReturnAct::form($c);
+        if (isset(SecurityDeposit::TITLES[$action])) return SecurityDepositCard::action($id,$action);
         if (isset(FinalSettlementCard::TITLES[$action])) return FinalSettlementCard::action($c,$action);
         $legalFile=null;
         if ($action==='contract.legal') {

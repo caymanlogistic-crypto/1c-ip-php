@@ -40,8 +40,8 @@ final class InvoiceFacts
     public static function remaining(array $invoice): ?string
     {
         if ($invoice['amount'] === null || $invoice['paid'] === null) return null;
-        return bccomp($invoice['amount'], $invoice['paid'], 2) > 0
-            ? bcsub($invoice['amount'], $invoice['paid'], 2) : '0.00';
+        $remainder=bcsub(bcsub($invoice['amount'],$invoice['paid'],2),$invoice['_security_credit'] ?? '0',2);
+        return bccomp($remainder,'0',2)>0?$remainder:'0.00';
     }
 
     /** Same due-date predicate for the registry and its navigation counter. */
@@ -91,7 +91,8 @@ final class InvoiceFacts
             $invoice['status'] === 'frozen' => 'Заморожен',
             !empty($invoice['control_closed']) => 'Контроль закрыт по финальной сверке',
             $remaining === null => 'Не подтверждено',
-            bccomp($remaining, '0', 2) === 0 => 'Оплачен',
+            bccomp($remaining, '0', 2) === 0 => bccomp($invoice['_security_credit'] ?? '0','0',2)>0
+                ? 'Обязательство покрыто с учётом зачёта' : 'Оплачен',
             default => $control['label'] ?? 'Оплата требует сверки',
         };
         $explanation = match (true) {
@@ -109,7 +110,8 @@ final class InvoiceFacts
             $remaining === null => 'Исходные данные не подтверждают сумму или оплату.',
             $overdueDays > 0 => 'Долг '.strip_tags(Controller::money($remaining)).' · просрочка: '.$overdueDays.' календ. дн. '.($control['detail'] ?? 'Свежая выписка подтверждена.'),
             $bookUnpaid => $control['detail'] ?? 'Свежая выписка не подтверждена. Остаток указан по сохранённым данным.',
-            default => 'Оплата учтена, задолженности нет.',
+            default => bccomp($invoice['_security_credit'] ?? '0','0',2)>0
+                ? 'Перенос обеспечения учтён отдельно от банковских поступлений.' : 'Оплата учтена, задолженности нет.',
         };
         return [
             'remaining'=>$remaining, 'unpaid'=>$unpaid, 'unverified_balance'=>$unverified, 'severity'=>$severity,

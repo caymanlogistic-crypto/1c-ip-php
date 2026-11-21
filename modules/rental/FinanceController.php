@@ -32,7 +32,10 @@ final class FinanceController {
             if(bccomp($available,'0',2)<=0)continue;
             $options.='<option value="'.(int)$payment['id'].'">'.View::e('#'.$payment['id'].' · '.Documents::dateText($payment['payment_date']).' · доступно '.$available.' ₽').'</option>';
         }
-        if($options===''||$invoice['amount']===null||$invoice['paid']===null||bccomp($invoice['amount'],$invoice['paid'],2)<=0||$invoice['status']==='revoked')return null;
+        if ($options==='' || $invoice['amount']===null || $invoice['paid']===null || $invoice['status']==='revoked') return null;
+        $remaining=($invoice['kind'] ?? '')===SecurityDeposit::KIND
+            ?SecurityDeposit::payable(DB::pdo(),$invoice,$invoice['paid']):InvoiceFacts::remaining($invoice);
+        if (bccomp($remaining,'0',2)<=0) return null;
         return '<label class="field"><span class="field-label">Нераспределённый приход этого контрагента</span><select class="field-input field-select" name="payment_id" required><option value="">Выберите приход</option>'.$options.'</select></label>'
             .Controller::input('amount','Сумма распределения','','text',true)
             .'<span class="registry-ui-modal-help">Сумма не должна превышать свободный остаток прихода и долг по счёту. Остатки проверяются повторно при сохранении.</span>';
@@ -95,8 +98,7 @@ final class FinanceController {
             }
         }
         $view=InvoiceFacts::view($r,$severity);
-        $known = $r['amount'] !== null && $r['paid'] !== null;
-        $debt = $known?(bccomp($r['amount'], $r['paid'], 2)>0?bcsub($r['amount'], $r['paid'], 2):'0.00'):null;
+        $debt = $view['remaining'];
         $body = '';
         if (isset($_SESSION['rental_notice'])) {
             $body.=RentalUI::alert($_SESSION['rental_notice']);
@@ -143,6 +145,10 @@ final class FinanceController {
                 Controller::money($debt)
             ]
         ]);
+        if (bccomp($r['_security_credit'] ?? '0','0',2)>0) {
+            $body.=RentalUI::pairs([['Покрыто зачётом обеспечения',Controller::money($r['_security_credit'])]])
+                .'<div class="demo-row">'.RentalUI::button('Открыть договор и основание переноса','/rental/contract?id='.$r['contract_id']).'</div>';
+        }
         $body .= InvoiceReport::invoiceEvidence($r);
         $initialProof = $raw['separate_initial_invoice'] ?? null;
         if ($initialProof && !$r['due']) {

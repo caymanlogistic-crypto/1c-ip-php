@@ -7,7 +7,7 @@ use RuntimeException;
 
 final class PaymentDayCalendar
 {
-    public static function after(string $date, int $days, string $unit, bool $operative = false): array
+    public static function after(string $date, int $days, string $unit, bool $operative = false, bool $proof = false): array
     {
         $start = new DateTimeImmutable(Service::date($date));
         if ($unit === 'calendar') return ['date'=>$start->modify("+$days days")->format('Y-m-d')];
@@ -35,7 +35,9 @@ final class PaymentDayCalendar
         $day = $date;
         $cursor = $start;
         while ($day >= $coverage['valid_from'] && $day <= $coverage['valid_to']) {
-            if ($days === 0) return ['date'=>$day, 'source'=>$source];
+            if ($days === 0) return ['date'=>$day,'source'=>$source]+($proof
+                ? ['revision'=>hash('sha256',Importer::canonicalJson($coverage)),'valid_from'=>$coverage['valid_from'],'valid_to'=>$coverage['valid_to']]
+                : []);
             $cursor = $cursor->modify('+1 day');
             $day = $cursor->format('Y-m-d');
             if ($day <= $coverage['valid_to'] && $isDay($day)) $days--;
