@@ -380,6 +380,10 @@ final class ExtraService {
                 'manager'
             ]);
             if ($c['status'] !== 'active')throw new RuntimeException('Допсоглашение создаётся к действующему договору.');
+            $continuation=ExpiryContinuation::context($p,$d,$in,'addendum');
+            if ($continuation && !$d && $continuation['link'])
+                return ['id'=>$continuation['link']['id'],'message'=>'Связанное ДС уже подготовлено.'];
+            ExpiryContinuation::validate($continuation,$in,'addendum');
             if ($d && (!in_array($d['status'], [
                 'draft',
                 'returned'
@@ -466,6 +470,7 @@ final class ExtraService {
                 $id
             ]);
             Addenda::saveTerms($p, $id, $terms['rows']);
+            ExpiryContinuation::bind($p,$continuation,$id,'addendum');
             if ($partEdit !== null) {
                 \App\BillingPartTerms::save($p, 'document', $id, PartTerms::storageRows($terms['part_rows']),
                     PartTerms::basis($u, (string)$in['command_key'], $d?(int)$d['version']+1:1, $partEdit,

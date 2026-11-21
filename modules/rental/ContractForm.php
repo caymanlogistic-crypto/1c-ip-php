@@ -20,10 +20,11 @@ final class ContractForm {
         ], true) || $c['return_to'] === 'lawyer'))throw new RuntimeException('Проект не доступен для редактирования.', 403);
         $draft = ContractDraft::input($c);
         if ($draft !== null) foreach (['party_id','document_date','start_date','end_date'] as $field) $c[$field]=$draft[$field] ?? '';
+        $continuation=ExpiryContinuation::editorContext($c,'contract');
         $booking = !$c && !empty($_GET['booking_id'])?BookingController::record((int)$_GET['booking_id']):null;
         if ($booking && ($booking['status'] !== 'active' || $booking['contract_id'] !== null || $booking['until_date']<date('Y-m-d')))throw new RuntimeException('Резервирование уже изменено или истекло.', 409);
-        $start = $c['start_date'] ?? $booking['start_date'] ?? '';
-        $end = $c['end_date'] ?? '';
+        $start = $c['start_date'] ?? $continuation['offer']['new_start'] ?? $booking['start_date'] ?? '';
+        $end = $c['end_date'] ?? $continuation['offer']['new_end'] ?? '';
         // Undated drafts show today's availability only as a picker preview.
         // The required submitted boundaries remain empty until chosen.
         try { $availabilityStart=Service::date($start); } catch (RuntimeException) { $availabilityStart=date('Y-m-d'); }
@@ -50,7 +51,7 @@ final class ContractForm {
         . ' '
         . $party['inn'])
         . '"'
-        . ((int)($c['party_id'] ?? $booking['party_id'] ?? 0) === (int)$party['id']?' selected':'')
+        . ((int)($c['party_id'] ?? $continuation['offer']['party_id'] ?? $booking['party_id'] ?? 0) === (int)$party['id']?' selected':'')
         . '>'
         . View::e($party['search_name'] ?: $party['name'])
         . '</option>';
@@ -63,6 +64,7 @@ final class ContractForm {
         elseif($booking)$selected = Controller::query('SELECT id,name,type,area,NULL amount FROM rental_objects WHERE id=?', [
             $booking['object_id']
         ]);
+        elseif ($continuation) $selected=ExpiryContinuation::rows($continuation,'contract');
         $sum = '0.00';
         foreach ($selected as $o) {
             if ($o['amount'] !== null) {
@@ -86,6 +88,7 @@ final class ContractForm {
         . '. ':'')
         . 'Выберите или создайте карточку клиента.')
         . '</span>':'';
+        if ($continuation) $fields.=ExpiryContinuation::editorNote($continuation);
         $fields.='<div class="field"'.$section('party').'>'
         . '<label class="field-label" for="contract-party">Контрагент <span class="req">*</span>'
         . '</label>'
@@ -113,7 +116,8 @@ final class ContractForm {
         . '%')
         . '. Суммы включают НДС.</span>'
         . ContractObjectEditor::render($selected,
-            Availability::options(Availability::items($availabilityStart, $availabilityEnd, $c?(int)$c['id']:null, $booking?(int)$booking['id']:null, true), empty($draft['draft_object_id'])?null:(int)$draft['draft_object_id']),
+            Availability::options(Availability::items($availabilityStart, $availabilityEnd, $c?(int)$c['id']:null, $booking?(int)$booking['id']:null, true,
+                $continuation['contract_id'] ?? null), empty($draft['draft_object_id'])?null:(int)$draft['draft_object_id']),
             $sum, null, true)
         . ($design!==''?'</div>':'')
         . ($parts!=='' && $design!==''?'<div'.$section('parts').'>'.$parts.'</div>':$parts);
@@ -121,6 +125,7 @@ final class ContractForm {
         . ($c?'&contract_id='
         . $c['id']:($booking?'&booking_id='
         . $booking['id']:''));
+        if ($continuation) $availability.='&'.http_build_query(['expiry_contract'=>$continuation['contract_id'],'expiry_end'=>$continuation['end']]);
         $hidden = '<input type="hidden" name="_csrf" value="'
         . View::e(Http::csrf())
         . '"><input type="hidden" name="command_key" value="'
@@ -138,6 +143,7 @@ final class ContractForm {
         . $booking['version']
         . '">':'');
         if (!$booking && !empty($draft['booking_id'])) $hidden.='<input type="hidden" name="booking_id" value="'.(int)$draft['booking_id'].'"><input type="hidden" name="booking_version" value="'.(int)($draft['booking_version'] ?? 0).'">';
+        if ($continuation) $hidden.=ExpiryContinuation::fields($continuation);
         $body = '<form id="'
         . $fid
         . '" class="registry-ui-modal-grid" novalidate data-source-validation data-rental-contract-form'.($design!==''?' data-design-fields':'').' data-rental-availability-url="'

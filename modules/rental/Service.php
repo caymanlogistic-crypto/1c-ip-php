@@ -105,6 +105,7 @@ final class Service {
 
     public static function command(string $action, array $in, ?int &$freshCommittedEventId=null): array {
         $freshCommittedEventId=null;
+        if (in_array($action,ExpiryNotice::ACTIONS,true)) ExpiryNotice::access((int)($in['id'] ?? 0),2);
         if ($action === UpdRegister::SAVE) RegularInvoice::requireAccess(2);
         if ($action === DebtFollowUp::SAVE) self::roles(['manager']);
         if (in_array($action,[LeasePaymentTerms::SAVE,DebtFollowUp::SAVE,...RentalServices::ACTIONS,...InitialInvoice::ACTIONS],true)) Access::contract((int)($in['id']??0),2);
@@ -164,7 +165,7 @@ final class Service {
         return $result;
     }
 
-    public static function available(PDO $p, array $ids, string $start, string $end, ?int $except = null, ?int $partyId = null, bool $consume = false, ?int $bookingId = null, bool $sharedCustomerBookings = false): void {
+    public static function available(PDO $p, array $ids, string $start, string $end, ?int $except = null, ?int $partyId = null, bool $consume = false, ?int $bookingId = null, bool $sharedCustomerBookings = false, ?int $predecessor=null): void {
         sort($ids, SORT_NUMERIC);
         foreach ($ids as $id) {
             $o = self::get($p, 'rental_objects', (int)$id);
@@ -191,6 +192,11 @@ final class Service {
                 $except ?? 0
             ]);
             if ($q->fetchColumn())throw new RuntimeException('Объект занят договором на выбранный период.');
+            $q=$p->prepare('SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id
+                WHERE '.\App\ContractOccupancy::physicalPredicate('co').' AND co.object_id=? AND c.id<>? AND c.id<>? AND '
+                .Occupancy::expiredWithoutReturn(Occupancy::boundary('end_date'),'LEAST(CURRENT_DATE,?)','?').' LIMIT 1 FOR UPDATE');
+            $q->execute([$id,$except ?? 0,$predecessor ?? 0,$end,$start]);
+            if ($q->fetchColumn()) throw new RuntimeException('Срок прежней аренды истёк. Сначала подтвердите возврат или связанное продолжение.',409);
             $q = $p->prepare("SELECT id,party_id,document_id FROM reservations r WHERE ".Occupancy::reservationPredicate('r')." AND object_id=? AND status='active' AND (contract_id IS NULL OR contract_id<>?) AND ((document_id IS NULL AND until_date>=CURRENT_DATE) OR (document_id IS NOT NULL AND start_date<=? AND end_date>=?)) FOR UPDATE");
             $q->execute([
                 $id,
@@ -258,6 +264,7 @@ final class Service {
     }
 
     private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
+        if (in_array($action,ExpiryNotice::ACTIONS,true)) return ExpiryNotice::execute($p,$u,$action,$in);
         if ($action === UpdRegister::SAVE) return UpdRegister::save($p,$u,$in);
         if ($action === DebtFollowUp::SAVE) return DebtFollowUp::write($p,$u,$in);
         if (in_array($action,RentalServices::ACTIONS,true)) return RentalServices::execute($p,$action,$in);
@@ -278,6 +285,10 @@ final class Service {
                 'manager'
             ]);
             $old = $action === 'contract.edit'?self::get($p, 'contracts', $id):null;
+            $continuation=($old && $old['status']==='active') ? [] : ExpiryContinuation::context($p,$old,$in,'contract');
+            if ($continuation && !$old && $continuation['link'])
+                return ['id'=>$continuation['link']['id'],'message'=>'Связанный договор уже подготовлен.'];
+            ExpiryContinuation::validate($continuation,$in,'contract');
             if ($old) {
                 if(ContractDraft::deleted($old))throw new RuntimeException('Договор не найден.',404);
                 self::version($old, $in);
@@ -369,7 +380,7 @@ final class Service {
                         throw new RuntimeException('Резервирование относится к другому клиенту.',422);
                 }
                 $physicalIds=array_values(array_filter($ids,static fn($oid)=>Occupancy::physical($priorRelations[(int)$oid] ?? null)));
-                self::available($p, $physicalIds, $start, $end, $old?$id:null, $party, false, null, true);
+                self::available($p, $physicalIds, $start, $end, $old?$id:null, $party, false, null, true,$continuation['contract_id'] ?? null);
                 if ($old)$p->prepare('UPDATE contracts SET number=?,party_id=?,start_date=?,end_date=?,amount=?,version=version+1 WHERE id=?')->execute([
                     $number,
                     $party,
@@ -423,6 +434,7 @@ final class Service {
                     $id
                 ]);
             }
+            ExpiryContinuation::bind($p,$continuation,$id,'contract');
             self::event($p, $u, $eventAction ?? $action, 'Сохранён договор №'
             . $number, $id);
             return [
@@ -475,7 +487,9 @@ final class Service {
                 $q->execute([
                     $id
                 ]);
-                self::available($p, $q->fetchAll(PDO::FETCH_COLUMN), $c['start_date'], $c['end_date'], $id, null, false, null, true);
+                ExpiryContinuation::beforeActivation($p,$c);
+                self::available($p, $q->fetchAll(PDO::FETCH_COLUMN), $c['start_date'], $c['end_date'], $id, null, false, null, true,
+                    ExpiryContinuation::origin($c)['contract_id'] ?? null);
                 $next = 'legal';
                 break;
                 case 'contract.legal':self::roles([

@@ -32,6 +32,40 @@ final class Occupancy
         return $rows;
     }
 
+    public static function leasesOn(string $date,?int $object=null): array
+    {
+        $rows=Controller::query('SELECT co.object_id,c.id,c.number,c.document_date,c.status,p.name tenant,t.source_json term_source,
+            COALESCE(t.start_date,c.start_date) term_start,COALESCE(t.end_date,c.end_date) end_date
+            FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN parties p ON p.id=c.party_id
+            LEFT JOIN contract_terms t ON t.id=(SELECT MAX(t2.id) FROM contract_terms t2 WHERE t2.contract_id=c.id AND t2.object_id=co.object_id
+                AND (t2.effective_date IS NULL OR t2.effective_date<=?))
+            WHERE '.ContractOccupancy::physicalPredicate('co')." AND (? IS NULL OR co.object_id=?)
+            AND (c.status='reconciling' OR (c.status='active' AND COALESCE(t.start_date,c.start_date)<=? AND COALESCE(t.end_date,c.end_date)>=?)
+                OR ".self::expiredWithoutReturn('COALESCE(t.end_date,c.end_date)','?','?').')
+            ORDER BY c.id DESC',[$date,$object,$object,$date,$date,$date,$date]);
+        $leases=[];
+        foreach($rows as $row) {
+            $id=$row['object_id'];
+            unset($row['object_id']);
+            $leases[$id]??=$row;
+        }
+        return $leases;
+    }
+
+    /** A recorded, signed successor displaces only this predecessor and physical object from its first day. */
+    public static function expiredWithoutReturn(string $end,string $cutoff,string $requested): string
+    {
+        return "(c.status='active' AND $end<$cutoff AND c.return_confirmed IS NULL AND NOT EXISTS (
+            SELECT 1 FROM rental_facts x JOIN contracts successor
+                ON successor.id=CAST(JSON_UNQUOTE(JSON_EXTRACT(x.fact_json,'$.id')) AS UNSIGNED)
+            JOIN contract_terms successor_term ON successor_term.contract_id=successor.id AND successor_term.object_id=co.object_id
+                AND successor_term.start_date=DATE_ADD($end,INTERVAL 1 DAY)
+            WHERE x.namespace='".ExpiryContinuation::NS."' AND x.operative=1 AND x.source_key=CONCAT(c.id,':',$end)
+                AND JSON_UNQUOTE(JSON_EXTRACT(x.fact_json,'$.kind'))='contract'
+                AND successor.signed=1 AND successor.status IN ('active','reconciling','closed','ended')
+                AND successor.party_id=c.party_id AND successor_term.start_date<=$requested))";
+    }
+
     public static function physical(?array $relation): bool
     {
         return !InvoiceScope::enabled() || $relation===null || ($relation['physical_occupancy'] ?? null)===null

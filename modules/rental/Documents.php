@@ -134,6 +134,7 @@ final class Documents {
         $photo=$kind===PremisesInventory::PHOTO;
         $serviceDoc=$kind===RentalServices::FILE;
         $guarantee=$kind===DebtFollowUp::FILE;
+        $expiry=$kind===ExpiryNotice::FILE;
         $invoiceId=$guarantee?(int)($_POST['invoice_id']??0):0;
         $serviceKey=$serviceDoc?DirectoryDetails::text($_POST,'service_id',32):'';
         $state['entity_category']=in_array($type,['contract','document','party','object'],true)?$type:'other';
@@ -146,7 +147,7 @@ final class Documents {
         else throw new RuntimeException('Неизвестный контекст документа.', 403);
         if (($type==='party')!==($kind===PartyLegalReview::FILE) ||
             (isset(ContractRevision::KINDS[$kind]) && $type!=='contract') ||
-            (($actKind!==false || $serviceDoc || $guarantee) && $type!=='contract') || ($photo && $type!=='object'))
+            (($actKind!==false || $serviceDoc || $guarantee || $expiry) && $type!=='contract') || ($photo && $type!=='object'))
             throw new RuntimeException('Вид файла не соответствует карточке.',422);
         if (!in_array($kind, [
             'signed-contract',
@@ -159,14 +160,18 @@ final class Documents {
             PremisesInventory::PHOTO,
             RentalServices::FILE,
             DebtFollowUp::FILE,
+            ExpiryNotice::FILE,
             ...array_keys(ContractRevision::KINDS),
         ], true))throw new RuntimeException('Неизвестный вид документа.');
-        Auth::requirePermission($kind === 'lawyer-file'?'rental.approve.legal':'rental.write');
-        Service::roles($kind === 'lawyer-file'?[
+        if ($expiry) ExpiryNotice::access($id,2);
+        else {
+            Auth::requirePermission($kind === 'lawyer-file'?'rental.approve.legal':'rental.write');
+            Service::roles($kind === 'lawyer-file'?[
             'lawyer'
         ]:[
             'manager'
-        ]);
+            ]);
+        }
         if ($kind === ReturnAct::KIND) \App\PagePolicy::requireCommand('contract.return-act');
         $state['stage']='upload_payload';
         $f = $_FILES['file'] ?? null;
@@ -212,9 +217,9 @@ final class Documents {
         . '.'
         . $ext;
         try {
-            DB::transaction(function($p)use($f, $path, $fid, $ext, $mime, $kind, $type, $id, $version, $actKind, $photo, $serviceDoc, $serviceKey, $guarantee, $invoiceId, &$state) {
+            DB::transaction(function($p)use($f, $path, $fid, $ext, $mime, $kind, $type, $id, $version, $actKind, $photo, $serviceDoc, $serviceKey, $guarantee, $invoiceId, $expiry, &$state) {
                 $state['stage']='row_lock';
-                if ($actKind!==false || $photo || $serviceDoc || $guarantee) $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
+                if ($actKind!==false || $photo || $serviceDoc || $guarantee || $expiry) $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
                 FileOrder::lock($p);
                 $table=match($type){'contract'=>'contracts','party'=>'parties','object'=>'rental_objects',default=>'rental_documents'};
                 $r = Service::get($p,$table,$id);
@@ -236,10 +241,15 @@ final class Documents {
                 if ($kind === 'lawyer-file' && !($r['status'] === 'legal' || ($r['status'] === 'returned' && $r['return_to'] === 'lawyer')))throw new RuntimeException('Работа с файлом не назначена юристу.');
                 if ($kind === ReturnAct::KIND && $r['status'] !== 'reconciling')throw new RuntimeException('Договор не на сверке.', 409);
                 $state['stage']='baseline';
-                $baseline = $type === 'contract' && !$serviceDoc && !$guarantee?Evidence::signature($p, $id):null;
+                $baseline = $type === 'contract' && !$serviceDoc && !$guarantee && !$expiry?Evidence::signature($p, $id):null;
                 $filename = mb_substr(basename($f['name']), 0, 250);
                 if ($photo) $filename=mb_substr(pathinfo($filename,PATHINFO_FILENAME),0,240).'.'.$ext;
                 $sha=hash_file('sha256',$f['tmp_name']);
+                if ($expiry) {
+                    $notice=ExpiryNotice::draftForAttachment($p,$r,$_POST);
+                    $baseline=ExpiryNotice::fingerprint($notice);
+                    if (in_array($sha,array_column(ExpiryNotice::files($p,$notice),'sha256'),true)) return;
+                }
                 $objectId=(int)($_POST['object_id']??0);
                 if ($actKind!==false) {
                     $previous=PremisesActs::checkUpload($p,$r,$objectId,$actKind);
@@ -315,6 +325,7 @@ final class Documents {
         $state['stage']='redirect';
         if ($serviceDoc) Http::redirect('/rental/service?id='.$serviceKey);
         if ($guarantee) Http::redirect(DebtFollowUpCard::route($invoiceId));
+        if ($expiry) Http::redirect(ExpiryNoticeCard::route($id,(string)$_POST['notice_end']));
         if ($actKind!==false) Http::redirect('/rental/acts?id='.$id.'&object_id='.(int)($_POST['object_id']??0).'&kind='.$actKind);
         if ($photo) Http::redirect('/rental/object-inventory?id='.$id);
         if ($kind===PartyLegalReview::FILE) Http::redirect('/rental/party-review?id='.$id.'&action='.PartyLegalReview::SUBMIT);

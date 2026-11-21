@@ -69,6 +69,8 @@ final class AddendumController {
         $d = $id?self::record($id):null;
         $cid = (int)($d['contract_id'] ?? $_GET['contract_id'] ?? 0);
         $c = Access::contract($cid);
+        $continuation=ExpiryContinuation::editorContext($d,'addendum');
+        if ($continuation && $continuation['contract_id']!==$cid) throw new RuntimeException('Уведомление относится к другому договору.',422);
         if ($c['status'] !== 'active' || ($d && ($d['applied'] || !in_array($d['status'], [
             'draft',
             'returned'
@@ -78,8 +80,9 @@ final class AddendumController {
         $terms = Controller::query($q, [
             $d['id'] ?? $cid
         ]);
+        if ($continuation && !$d) $terms=array_map(static fn($row)=>$row+['object_id'=>$row['id']],ExpiryContinuation::rows($continuation,'addendum'));
         $start=$d['start_date'] ?? $c['start_date'] ?? '';
-        $end=$d['end_date'] ?? $c['end_date'] ?? '';
+        $end=$d['end_date'] ?? $continuation['offer']['new_end'] ?? $c['end_date'] ?? '';
         $previewStart=$start ?: date('Y-m-d');$previewEnd=$end ?: $previewStart;
         if ($previewEnd<$previewStart)$previewEnd=$previewStart;
         $party=Controller::query('SELECT name FROM parties WHERE id=?',[$c['party_id']])[0]['name'];
@@ -93,6 +96,7 @@ final class AddendumController {
             .'<input type="hidden" name="id" value="'.$id.'"><input type="hidden" name="version" value="'.($d['version'] ?? 0).'">'
             .'<input type="hidden" name="contract_id" value="'.$cid.'"><input type="hidden" name="base_version" value="'.$c['version'].'">'
             .'<input type="hidden" name="kind" value="renewal">'
+            .($continuation?ExpiryContinuation::fields($continuation).ExpiryContinuation::editorNote($continuation):'')
             .'<span class="registry-ui-modal-help">'.View::e('К договору №'.$c['number'].' от '.Documents::dateText($c['document_date']).' · '.$party).'</span>'
             .Controller::input('base_party','Контрагент',$party,'text',false);
         $body=str_replace('name="base_party"','name="base_party" readonly aria-readonly="true"',$body);
@@ -102,7 +106,7 @@ final class AddendumController {
             .Controller::input('start_date','Начало аренды',$start,'date',true)
             .Controller::input('end_date','Окончание аренды',$end,'date',true)
             .Controller::input('base_date','Дата базового договора',$d['base_date'] ?? $c['document_date'],'date',false)
-            .Controller::input('effective_date','Дата вступления в силу',$d['effective_date'] ?? date('Y-m-d'),'date',true).'</div>';
+            .Controller::input('effective_date','Дата вступления в силу',$d['effective_date'] ?? $continuation['offer']['new_start'] ?? date('Y-m-d'),'date',true).'</div>';
         $vat=Controller::query('SELECT vat FROM organization WHERE id=1')[0]['vat'] ?? null;
         $body.='<span class="registry-ui-modal-help">НДС нашей организации: '.View::e($vat===null?'не задан':rtrim(rtrim($vat,'0'),'.').'%').'. Суммы включают НДС.</span>';
         $total='0.00';
