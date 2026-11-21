@@ -310,7 +310,8 @@ final class Controller {
         ], true) && in_array($page, [
             'invoices',
             'invoice-list'
-        ], true))$headActions = RentalUI::button('Внести счёт', '/rental/edit-invoice', true);
+        ], true) && Auth::can('finance.write') && \App\PagePolicy::level('rental.invoice-list',$u)>=2)
+            $headActions = RentalUI::button('Создать счёт',RegularInvoiceCard::route((int)($_GET['contract_id'] ?? 0)),true);
         if(in_array($page,['invoices','invoice-list'],true)&&FinanceController::paymentActionsAllowed($u,Auth::can('finance.write'),\App\PagePolicy::level('rental.invoices',$u)))
             $headActions.=RentalUI::button('Внести приход','/rental/payment');
         if (in_array($u['role'], [

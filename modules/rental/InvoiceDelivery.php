@@ -37,6 +37,7 @@ final class InvoiceDelivery
     {
         $contract=Service::get($db,'contracts',(int)$invoice['contract_id']);
         $party=Service::get($db,'parties',(int)$contract['party_id']);
+        if ($question=InvoiceDeliveryPreference::emailQuestion($db,$invoice,$party)) throw new RuntimeException($question,409);
         return [$contract,$party,RecipientContext::resolve($db,$party)];
     }
 
@@ -170,6 +171,7 @@ final class InvoiceDelivery
         $invoice=$fresh;
         $raw=json_decode($invoice['source_json'],true) ?: [];
         if ($invoice['status']==='revoked' || !empty($raw['issueError'])) throw new RuntimeException('Счёт недоступен для отправки.');
+        if ($question=InvoiceDeliveryPreference::emailQuestion($db,$invoice)) throw new RuntimeException($question,409);
         if ($invoice['amount']===null || bccomp($invoice['amount'],'0',2)<=0) throw new RuntimeException('Сумма счёта не подтверждена.');
         $old=self::latest($db,(int)$invoice['id']);
         if ($old && in_array($old['status'],['claimed','unknown'],true)) return ['id'=>$old['id'],'status'=>$old['status']];

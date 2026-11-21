@@ -55,6 +55,7 @@ $routes['/rental/edit-contract']=[\Modules\Rental\SourceCards::class,'draft'];
 $routes['/rental/invoice']=[\Modules\Rental\FinanceController::class,'card'];
 $routes['/rental/payment']=[\Modules\Rental\FinanceController::class,'payment'];
 $routes['/rental/pay-invoice']=[\Modules\Rental\FinanceController::class,'pay'];
+$routes['/rental/create-invoice']=[\Modules\Rental\RegularInvoiceCard::class,'card'];
 $routes['/rental/edit-invoice']=[\Modules\Rental\FinanceController::class,'edit'];
 $routes['/rental/invoice-state']=[\Modules\Rental\FinanceController::class,'state'];
 $routes['/rental/invoice-preview']=[\Modules\Rental\FinanceController::class,'preview'];

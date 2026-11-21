@@ -184,8 +184,9 @@ final class MonthlyBilling {
             'objects' => $ids
         ];
     }
-    public static function issue(PDO $p, array $c, array $plan, string $date):?int {
-        if (isset($plan['invoice_targets']) && !$p->inTransaction())throw new RuntimeException('Явный план счёта требует общей транзакции.',409);
+    public static function issue(PDO $p, array $c, array $plan, string $date,?array $single = null):?int {
+        if ((isset($plan['invoice_targets']) || $single!==null) && !$p->inTransaction())
+            throw new RuntimeException('Явный план счёта требует общей транзакции.',409);
         if (!self::hasTargets($plan))return null;
         HandoverQuestion::assertBillingReady($p, (int)$c['id'], $plan['period']);
         if (isset($plan['invoice_targets']) && bccomp($plan['amount'],'0',2)<=0)throw new RuntimeException('Сумма ежемесячного счёта должна быть положительной.',409);
@@ -209,7 +210,7 @@ final class MonthlyBilling {
         if (isset($plan['invoice_targets'])) \App\BillingInvoiceTargets::assertSelection($p,(int)$c['id'],$plan['invoice_targets']);
         $id = \App\BusinessIds::next($p,'invoices',900000);
         $creation=NativeOperatingWriter::begin($p,'invoice',$id,'native-c-monthly','monthly.invoice.create',$date,$plan['key']);
-        $p->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,coverage_key,source_json) VALUES(?,?,?,'Аренда',?,?,0,?,?,'active',?,'{}')")->execute([
+        $p->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,coverage_key,source_json,purpose) VALUES(?,?,?,'Аренда',?,?,0,?,?,'active',?,?,?)")->execute([
             $id,
             'Д-'
             . $id,
@@ -217,8 +218,10 @@ final class MonthlyBilling {
             $plan['period'],
             $plan['amount'],
             $date,
-            InvoiceDueDate::automatic($date,$plan['period'],false),
-            $plan['key']
+            $single['due'] ?? InvoiceDueDate::automatic($date,$plan['period'],false),
+            $plan['key'],
+            $single ? Importer::json(['regular_invoice'=>$single['source']]) : '{}',
+            $single['purpose'] ?? null,
         ]);
         if (isset($plan['invoice_targets'])) foreach($plan['objects'] as $object) {
             $p->prepare('INSERT INTO invoice_objects(invoice_id,object_id) VALUES(?,?)')->execute([$id,$object]);
@@ -236,6 +239,7 @@ final class MonthlyBilling {
             ]);
         }
         Billing::snapshotInvoice($p, $id);
+        if (isset($single['vat_rate'])) $p->prepare('UPDATE invoices SET vat=? WHERE id=?')->execute([$single['vat_rate'],$id]);
         NativeInvoiceScope::record($p, $id, 'native-c-monthly',null,$plan['invoice_targets'] ?? null);
         if (isset($plan['invoice_targets'])) \App\BillingInvoiceTargets::record($p,$id,$plan['invoice_targets'],[
             'source_sha256'=>\App\BillingPartAdmission::NATIVE_SOURCE,'source_version'=>'workflow-v2:51-71','producer'=>'monthly',
