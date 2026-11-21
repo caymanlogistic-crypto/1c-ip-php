@@ -91,6 +91,9 @@ final class Service {
 
     /** Same coarse grant for command execution and its later typed workflow notification. */
     public static function commandGrant(string $action,array $actor): string {
+        if (in_array($action,RentalServices::ACTIONS,true)) {
+            return in_array($action,[RentalServices::CONFIRM,RentalServices::BOOK],true)?'finance.write':'rental.write';
+        }
         return match ($action) {
             'contract.legal', 'contract.forward', 'template.edit', 'document.legal', 'reconcile.legal' => 'rental.approve.legal', 'contract.packet', 'contract.send', 'contract.close', 'document.packet', 'document.apply', 'payment.allocate', 'payment.create', 'invoice.issue', 'organization.save', 'organization.bank.save', 'reconcile.finance' => 'finance.write', 'template.approve', 'party.unblock' => 'rental.approve.executive', default => match ($actor['role']) {
                 'lawyer' => 'rental.approve.legal', 'accountant' => 'finance.write', 'director' => 'rental.approve.executive', default => 'rental.write'
@@ -100,7 +103,8 @@ final class Service {
 
     public static function command(string $action, array $in, ?int &$freshCommittedEventId=null): array {
         $freshCommittedEventId=null;
-        \App\PagePolicy::requireCommand($action);
+        if (in_array($action,RentalServices::ACTIONS,true)) Access::contract((int)($in['id']??0),2);
+        else \App\PagePolicy::requireCommand($action);
         Auth::requirePermission('rental.read');
         $actor = Auth::user();
         $grant = self::commandGrant($action,$actor);
@@ -250,6 +254,7 @@ final class Service {
     }
 
     private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
+        if (in_array($action,RentalServices::ACTIONS,true)) return RentalServices::execute($p,$action,$in);
         if(in_array($action,['workspace.reset','workspace.undo','workspace.remove-test-object'],true))return WorkspaceReset::execute($p,$u,$action,$in);
         if ($action==='zero-point.correct') return ZeroPointCorrection::execute($p,$in);
         if ($action==='zero-point.continuity') return ZeroPointContinuity::execute($p,$in);

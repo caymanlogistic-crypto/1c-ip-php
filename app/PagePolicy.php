@@ -170,7 +170,12 @@ final class PagePolicy {
         ], true);
         $key = null;
         if ($path === '/rental/action') {
-            $key = self::commandPage((string)($_POST['action'] ?? ''));
+            $action=(string)($_POST['action']??'');
+            if (in_array($action,\Modules\Rental\RentalServices::ACTIONS,true)) {
+                Auth::requirePermission('rental.read');
+                return; // Service checks access to the lease in its current state.
+            }
+            $key = self::commandPage($action);
         }
         elseif($path === '/integrations/action' || in_array($path, [
             '/integrations/file',
@@ -284,6 +289,9 @@ final class PagePolicy {
             }
             elseif(in_array($route, [
                 'contract',
+                'services',
+                'service',
+                'service-form',
                 'acts',
                 'conditions',
                 'history',
