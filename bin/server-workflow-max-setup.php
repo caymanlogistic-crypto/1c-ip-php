@@ -47,6 +47,7 @@ if ($staff || $sequence || $probe) {
                 throw new RuntimeException('STAFF_HANDOFF_PROBE_MANIFEST_REQUIRED');
             $approved=Support::decode(file_get_contents($path));
             $keys=['contract_id','actor_id','command_key','contract_number','recipient_id','attempt_id','receipt_sha256','decision_ref','owner_id','expires_at'];
+            if (is_array($approved) && array_key_exists('observation_sha256',$approved)) $keys[]='observation_sha256';
             if (!is_array($approved) || count($approved)!==count($keys) || array_diff($keys,array_keys($approved)))
                 throw new RuntimeException('STAFF_HANDOFF_PROBE_MANIFEST_INVALID');
             $oneShot=array_intersect_key($approved,array_flip(['contract_id','actor_id','command_key']));

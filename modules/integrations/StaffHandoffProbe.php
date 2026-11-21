@@ -19,6 +19,11 @@ final class StaffHandoffProbe
     {
         $keys=['attempt_id','receipt_sha256','decision_ref','owner_id','contract_number','recipient_id','epoch','valid_from','expires_at'];
         $uuid='/\A[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\z/';
+        if (is_array($probe) && array_key_exists('observation_sha256',$probe)) {
+            $keys[]='observation_sha256';
+            if (!is_string($probe['observation_sha256']) || !preg_match('/\A[a-f0-9]{64}\z/',$probe['observation_sha256']))
+                throw new RuntimeException('STAFF_HANDOFF_OBSERVATION_INVALID');
+        }
         if (!is_array($probe) || count($probe)!==count($keys) || array_diff($keys,array_keys($probe))
             || !is_string($probe['attempt_id']) || !preg_match($uuid,$probe['attempt_id'])
             || !is_string($probe['receipt_sha256']) || !preg_match('/\A[a-f0-9]{64}\z/',$probe['receipt_sha256'])
@@ -46,17 +51,23 @@ final class StaffHandoffProbe
             && ($targets[0]['id'] ?? null)===$probe['recipient_id'];
     }
 
-    public function verifyReady(array $scope): void
+    public function verifyReady(array $scope): array
     {
         $this->verifyBasis($scope);
-        $attemptId=$scope['isolated_probe']['attempt_id'];
-        $q=$this->db->prepare("SELECT 1 FROM messaging_attempts WHERE provider='max' AND id<>?
-            AND (status='pending' OR (status='uncertain' AND (operation='send' OR request_key LIKE 'contract-workflow-%'))) LIMIT 1");
-        $q->execute([$attemptId]);
+        $probe=$scope['isolated_probe'];
+        $observation=$probe['observation_sha256'] ?? null;
+        $ids=$observation===null?[$probe['attempt_id']]
+            :(new StaffHandoffObservation($this->db,$this->store))->verify($scope,$observation,time());
+        $slots=implode(',',array_fill(0,count($ids),'?'));
+        $unknown=$observation===null?" AND (operation='send' OR request_key LIKE 'contract-workflow-%')":'';
+        $q=$this->db->prepare("SELECT 1 FROM messaging_attempts WHERE provider='max'
+            AND (status='pending' OR (status='uncertain' AND id NOT IN ($slots)$unknown)) LIMIT 1");
+        $q->execute($ids);
         if ($q->fetchColumn()) throw new RuntimeException(ServerWorkflowMax::RECONCILIATION_REQUIRED);
-        $q=$this->db->prepare('SELECT 1 FROM audit_log WHERE entity_type=? AND entity_id=? AND action=? LIMIT 1');
-        $q->execute([self::ENTITY,$attemptId,self::CLAIM]);
+        $q=$this->db->prepare("SELECT 1 FROM audit_log WHERE entity_type=? AND action=? AND entity_id IN ($slots) LIMIT 1");
+        $q->execute([self::ENTITY,self::CLAIM,...$ids]);
         if ($q->fetchColumn()) throw new RuntimeException('STAFF_HANDOFF_PROBE_ALREADY_CLAIMED');
+        return $ids;
     }
 
     private function verifyBasis(array $scope): void
@@ -115,17 +126,30 @@ final class StaffHandoffProbe
             || ($event['request_key'] ?? null)!==ServerWorkflowMax::requestKey($event,true)) {
             throw new RuntimeException('STAFF_HANDOFF_PROBE_EVENT_CHANGED');
         }
-        $this->verifyReady($scope);
+        $ids=$this->verifyReady($scope);
         $q=$this->db->prepare("SELECT 1 FROM messaging_attempts WHERE provider='max' AND actor_id=? AND request_key=? LIMIT 1");
         $q->execute([$event['actor_id'],$event['request_key']]);
         if ($q->fetchColumn()) throw new RuntimeException('STAFF_HANDOFF_PROBE_ALREADY_CLAIMED');
 
         // Write once before transport. A crash after the claim consumes this approval.
-        Audit::record(self::CLAIM,self::ENTITY,$probe['attempt_id'],['outcome'=>'uncertain',
-            'receipt_sha256'=>$probe['receipt_sha256']],[
-            'owner_id'=>$probe['owner_id'],'decision_ref'=>$probe['decision_ref'],'contract_id'=>$scope['contract_id'],
+        $observation=$probe['observation_sha256'] ?? null;
+        $decision=['owner_id'=>$probe['owner_id'],'decision_ref'=>$probe['decision_ref'],'contract_id'=>$scope['contract_id'],
             'recipient_id'=>$probe['recipient_id'],'event_id'=>$event['event_id'],'new_request_key'=>$event['request_key'],
             'profile_revision'=>$scope['revision'],'template_version'=>$scope['catalog_version'],'old_outcome'=>'uncertain',
-        ]);
+            'historical_attempts'=>$ids];
+        if ($observation!==null) $decision['primary_attempt_id']=$probe['attempt_id'];
+        $this->db->beginTransaction();
+        try {
+            foreach ($ids as $id) {
+                $evidence=['outcome'=>'uncertain'];
+                if ($observation!==null) $evidence['observation_sha256']=$observation;
+                if ($id===$probe['attempt_id']) $evidence['receipt_sha256']=$probe['receipt_sha256'];
+                Audit::record(self::CLAIM,self::ENTITY,$id,$evidence,$decision);
+            }
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
     }
 }
