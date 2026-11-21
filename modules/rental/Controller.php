@@ -117,7 +117,7 @@ final class Controller {
         return $q->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public static function table(array $headers, array $rows, ?array $columnOverride = null): string {
+    public static function table(array $headers, array $rows, ?array $columnOverride = null, array $details = []): string {
         $profile = $headers[0] === 'Кадастровый номер'?'rental-cadastre':'rental-contracts';
         $columns = $headers[0] === 'Кадастровый номер'?[
             'flex',
@@ -154,11 +154,12 @@ final class Controller {
         $h = '<div class="table-scroll"><table class="table registry-ui-table registry-ui-data" data-column-profile="'
         . $profile
         . '">';
-        if ($columns) {
+        if ($columns || $details) {
             $h.='<colgroup>';
             foreach ($columns as $size)$h.='<col class="registry-column-'
             . $size
             . '">';
+            if ($details) $h.='<col class="registry-ui-disclosure-column">';
             $h.='</colgroup>';
         }
         $h.='<thead><tr>';
@@ -167,8 +168,9 @@ final class Controller {
         . '>'
         . self::e($v)
         . '</th>';
+        if ($details) $h.='<th aria-label="Детали"></th>';
         $h.='</tr></thead><tbody>';
-        foreach ($rows as $row) {
+        foreach ($rows as $index=>$row) {
             $attrs = $row['_attrs'] ?? '';
             unset($row['_attrs']);
             $url = '';
@@ -192,7 +194,9 @@ final class Controller {
                 . $v
                 . '</td>';
             }
+            if ($details) $h.=RegistryDisclosure::cell($details[$index] ?? null);
             $h.='</tr>';
+            if (isset($details[$index])) $h.=RegistryDisclosure::row($details[$index], count($headers)+1);
         }
         if (!$rows)$h.='<tr><td colspan="'
         . count($headers)
@@ -320,6 +324,10 @@ final class Controller {
             $reportMonth = InvoicePeriods::month($_GET['rental_month'] ?? null);
             $headActions .= RentalUI::button('Отчёт по начислениям',InvoiceReport::ROUTE
                 .($reportMonth ? '?rental_month='.$reportMonth : ''));
+            if (MonthlyRentReconciliationPage::available($u)) {
+                $headActions .= '<a class="btn btn-secondary" href="'.MonthlyRentReconciliationPage::ROUTE
+                    .($reportMonth ? '?first='.$reportMonth.'&amp;last='.$reportMonth : '').'">Помесячная сверка</a>';
+            }
         }
         if(in_array($page,['invoices','invoice-list'],true)&&FinanceController::paymentActionsAllowed($u,Auth::can('finance.write'),\App\PagePolicy::level('rental.invoices',$u)))
             $headActions.=RentalUI::button('Внести приход','/rental/payment');

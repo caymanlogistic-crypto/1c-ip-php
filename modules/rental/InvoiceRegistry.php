@@ -200,7 +200,8 @@ final class InvoiceRegistry
         $cells=['party'=>$description,'state'=>View::e($status).Menu::badges(self::counts($group['items']),true)
             .($reason ? '<div class="doc-meta">'.View::e($reason).'</div>' : '')];
         foreach (['amount','paid','debt'] as $key) $cells[$key]=self::totalText($t,$key);
-        $disclosure='<td class="registry-ui-disclosure-cell"><button class="btn btn-secondary registry-ui-disclosure" type="button" data-registry-disclosure data-rental-toggle-group="'.$id.'" data-group-name="'.$name.'" aria-controls="invoice-details-'.$id.'" aria-expanded="false" aria-label="Показать счета: '.$name.'"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button></td>';
+        $disclosure='<td class="registry-ui-disclosure-cell">'.RegistryDisclosure::button('invoice-details-'.$id,
+            'Показать счета: '.$party['party_name'],'data-rental-toggle-group="'.$id.'" data-group-name="'.$name.'"').'</td>';
         return $table->row($cells,$attributes,$disclosure,true);
     }
 
