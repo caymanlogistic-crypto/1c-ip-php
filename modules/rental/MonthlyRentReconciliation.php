@@ -136,20 +136,7 @@ final class MonthlyRentReconciliation
                 }
             }
         }
-        $paymentQuery = $this->db->prepare("SELECT a.invoice_id,SUM(a.amount) paid,
-            SUM(CASE WHEN EXISTS (SELECT 1 FROM external_documents e WHERE e.provider=? AND e.account_id='bank_in'
-                AND e.status='Проведён' AND (e.source_id IN (
-                    CONCAT('bank_in:',JSON_UNQUOTE(JSON_EXTRACT(p.source_json,'$.bank_external_id'))),
-                    CONCAT('bank_in:',JSON_UNQUOTE(JSON_EXTRACT(p.source_json,'$.Ref_Key')))
-                ) OR EXISTS (
-                    SELECT 1 FROM rental_source_bindings b WHERE b.entity_type='payment' AND b.entity_id=p.id
-                    AND b.collection='Document_ПоступлениеНаРасчетныйСчет' AND b.relation_kind='allocation_no_cash_replay'
-                    AND b.source_id LIKE CONCAT(SUBSTRING(e.source_id,9),':%')
-                ))) THEN a.amount ELSE 0 END) paid_from_1c
-            FROM payment_allocations a JOIN payments p ON p.id=a.payment_id
-            WHERE p.payment_date<=? GROUP BY a.invoice_id");
-        $paymentQuery->execute([YakovlevImport::PROVIDER, $now->format('Y-m-d')]);
-        $allocations = $paymentQuery->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);
+        $allocations = $this->paymentTotals($now->format('Y-m-d'));
         $invoiceFacts = [];
         foreach ($invoices as $id => $invoice) {
             $contract = $contracts[$invoice['contract_id']];
@@ -189,6 +176,45 @@ final class MonthlyRentReconciliation
         }
         return ['months'=>$report, 'issues'=>$issues, 'archive'=>$archive, 'invoice_facts'=>$invoiceFacts,
             'generated'=>$now->format('d.m.Y H:i:s').' МСК'];
+    }
+
+    private function paymentTotals(string $date): array
+    {
+        $archive = $this->db->prepare("SELECT source_id FROM external_documents
+            WHERE provider=? AND account_id='bank_in' AND status='Проведён'");
+        $archive->execute([YakovlevImport::PROVIDER]);
+        $posted = array_fill_keys(array_map('strtolower', $archive->fetchAll(PDO::FETCH_COLUMN)), true);
+
+        $fromOnec = [];
+        $bindings = $this->db->query("SELECT entity_id,source_id FROM rental_source_bindings WHERE entity_type='payment'
+            AND collection='Document_ПоступлениеНаРасчетныйСчет' AND relation_kind='allocation_no_cash_replay'");
+        foreach ($bindings as $binding) {
+            $reference = strstr($binding['source_id'], ':', true);
+            if ($reference !== false && isset($posted['bank_in:'.strtolower($reference)])) {
+                $fromOnec[$binding['entity_id']] = true;
+            }
+        }
+
+        $query = $this->db->prepare("SELECT a.invoice_id,a.payment_id,a.amount,
+            JSON_UNQUOTE(JSON_EXTRACT(p.source_json,'$.bank_external_id')) bank_ref,
+            JSON_UNQUOTE(JSON_EXTRACT(p.source_json,'$.Ref_Key')) source_ref
+            FROM payment_allocations a JOIN payments p ON p.id=a.payment_id JOIN invoices i ON i.id=a.invoice_id
+            WHERE p.payment_date<=? AND i.status='active' AND i.kind IN ('Аренда','Первый период')");
+        $query->execute([$date]);
+        $totals = [];
+        foreach ($query as $allocation) {
+            $id = $allocation['invoice_id'];
+            $payment = $allocation['payment_id'];
+            $amount = $allocation['amount'];
+            $fromOnec[$payment] ??= isset($posted['bank_in:'.strtolower($allocation['bank_ref'] ?? '')])
+                || isset($posted['bank_in:'.strtolower($allocation['source_ref'] ?? '')]);
+            $totals[$id] ??= ['paid'=>self::ZERO,'paid_from_1c'=>self::ZERO];
+            $totals[$id]['paid'] = bcadd($totals[$id]['paid'], $amount, 2);
+            if ($fromOnec[$payment]) {
+                $totals[$id]['paid_from_1c'] = bcadd($totals[$id]['paid_from_1c'], $amount, 2);
+            }
+        }
+        return $totals;
     }
 
     /** Totals from the priced lines of the original, independent of ERP tariff matching. */
