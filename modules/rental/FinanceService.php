@@ -227,6 +227,7 @@ final class FinanceService {
             if ($action === 'invoice.edit-payment') {
                 SecurityDeposit::protectInvoice($p,$i);
                 $payment = Service::get($p, 'payments', (int)$in['payment_id']);
+                SavedReceipt408::rejectManualChange($payment);
                 $q = $p->prepare('SELECT amount FROM payment_allocations WHERE payment_id=? AND invoice_id=? FOR UPDATE');
                 $q->execute([
                     $payment['id'],
