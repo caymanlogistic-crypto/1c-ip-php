@@ -57,6 +57,9 @@ final class MaxTemplateAdmin
     public static function usage(array $entry): array
     {
         $key=(string)($entry['source_key']??'');
+        if ($key==='staffHandoff') {
+            return ['active'=>true,'text'=>'Используется при включённой отправке MAX.'];
+        }
         if ($key===\Modules\Rental\HandoverQuestion::EVENT) {
             return ['active'=>true,'text'=>'Вопрос по дате передачи объекта. Отправка зависит от отдельного допуска события и версии шаблона.'];
         }
