@@ -20,9 +20,11 @@ final class CustomerBookings
 
     public static function checkActivation(PDO $pdo,array $contract): void
     {
+        ExpiryContinuation::beforeActivation($pdo,$contract);
         $q=$pdo->prepare('SELECT co.object_id,'.Occupancy::boundary('start_date').' start_date,'.Occupancy::boundary('end_date').' end_date FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE co.contract_id=? AND '.\App\ContractOccupancy::physicalPredicate('co').' ORDER BY co.object_id');
         $q->execute([$contract['id']]);
-        foreach($q->fetchAll() as $term)Service::available($pdo,[(int)$term['object_id']],$term['start_date'],$term['end_date'],(int)$contract['id'],null,false,null,true);
+        $predecessor=ExpiryContinuation::origin($contract)['contract_id'] ?? null;
+        foreach($q->fetchAll() as $term)Service::available($pdo,[(int)$term['object_id']],$term['start_date'],$term['end_date'],(int)$contract['id'],null,false,null,true,$predecessor);
     }
 
     public static function cancelOthers(PDO $pdo,int $contractId): void

@@ -22,6 +22,7 @@ $routes['/rental/object-plan']=[\Modules\Rental\ObjectDirectory::class,'plan'];
 $routes['/rental/object-inventory']=[\Modules\Rental\PremisesInventoryCard::class,'card'];
 $routes['/rental/initial-invoice']=[\Modules\Rental\InitialInvoiceCard::class,'card'];
 $routes['/rental/payment-terms']=[\Modules\Rental\LeasePaymentTermsCard::class,'card'];
+$routes['/rental/expiry-notice']=[\Modules\Rental\ExpiryNoticeCard::class,'page'];
 $routes['/rental/acts']=[\Modules\Rental\PremisesActsCard::class,'card'];
 $routes['/rental/services']=[\Modules\Rental\RentalServicesCard::class,'listing'];
 $routes['/rental/service']=[\Modules\Rental\RentalServicesCard::class,'card'];
