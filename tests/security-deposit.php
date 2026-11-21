@@ -18,6 +18,17 @@ check(!SecurityDepositEvidence::refundPurpose('Оплата клининга п�
 check(!SecurityDepositEvidence::refundPurpose('Возврат обеспечительного платежа по договору № D20-56 и договору № D20-62','D20-56'),
     'A payment for several contracts requires reconciliation.');
 
+$act=['act_id'=>'old-act','act_sha256'=>hash('sha256','old act'),'act_signed_on'=>'2026-11-02'];
+$agreement=hash('sha256','signed agreement');
+$deadline=['date'=>'2026-11-23','source'=>'Confirmed test calendar','revision'=>hash('sha256','calendar')];
+$plan=['evidence'=>$act+['agreement_id'=>'saved closing attachment','agreement_sha256'=>$agreement],'deadline'=>$deadline];
+check(SecurityDepositEvidence::returnDeadline($act,$agreement,$plan)===['deadline'=>$deadline,'saved'=>true],
+    'Reuse the saved deadline for the same signature and signed original.');
+check(!SecurityDepositEvidence::returnDeadline($act,hash('sha256','other agreement'),$plan)['saved'],
+    'A different agreement must not inherit the saved deadline.');
+check(!SecurityDepositEvidence::returnDeadline(array_replace($act,['act_id'=>'new-act']),$agreement,$plan)['saved'],
+    'A different act must not inherit the saved deadline.');
+
 $db=DB::pdo();
 $connection=$db->query('SELECT DATABASE() db, CURRENT_USER() account')->fetch();
 $receipt=json_decode(file_get_contents(APP_ROOT.'/.local/copy-verification.json'),true,32,JSON_THROW_ON_ERROR);

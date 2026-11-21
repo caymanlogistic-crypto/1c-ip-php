@@ -73,21 +73,16 @@ final class LeasePaymentTermsCard
         $body .= self::calculation($contract,$facts,$month,$transfer);
         if (isset($facts['return-rule'])) {
             $rule = $facts['return-rule'];
-            $return = LeasePaymentTerms::actDate($acts,'return');
-            if (!$return && !empty($contract['return_confirmed'])) {
-                try {
-                    if (ReturnAct::confirmed($db,$contract)) $return = $contract['return_confirmed'];
-                } catch (RuntimeException) {
-                    // A legacy date without checked evidence cannot start the working-day clock.
-                }
-            }
+            $signature = SecurityDepositEvidence::returnSignature($db,$contract);
+            $signedOn = $signature['act_signed_on'] ?? null;
             $body .= self::heading('Возврат обеспечения').RentalUI::pairs([
                 ['Подписанное соглашение',$rule['number']],
                 ['Правило','15 рабочих дней от подписания акта возврата'],
-                ['Дата акта',Documents::dateText($return)],
+                ['Дата подписания акта',Documents::dateText($signedOn)],
             ]).self::download($rule['file_id'],'Скачать соглашение');
-            $body .= self::due($return ? PaymentDayCalendar::after($return,15,'working')
-                : ['question'=>'Ожидается подтверждённый акт возврата.'],'Срок возврата');
+            $deadline=$signedOn ? SecurityDepositEvidence::returnDeadline(
+                $signature,(string)($rule['file_sha256'] ?? ''),SecurityDeposit::savedPlan($db,$id))['deadline'] : $signature;
+            $body .= self::due($deadline,'Срок возврата');
         }
         $body .= self::invoices($db,$id);
         $action = (string)($_GET['fact'] ?? '');
