@@ -59,6 +59,7 @@ $routes['/rental/create-invoice']=[\Modules\Rental\RegularInvoiceCard::class,'ca
 $routes['/rental/month-invoices']=[\Modules\Rental\InvoiceBatchCard::class,'page'];
 $routes['/rental/invoice-report']=[\Modules\Rental\InvoiceReport::class,'page'];
 $routes['/rental/payment-review']=[\Modules\Rental\DebtFollowUpCard::class,'page'];
+$routes['/rental/upd']=[\Modules\Rental\UpdCard::class,'page'];
 $routes['/rental/edit-invoice']=[\Modules\Rental\FinanceController::class,'edit'];
 $routes['/rental/invoice-state']=[\Modules\Rental\FinanceController::class,'state'];
 $routes['/rental/invoice-preview']=[\Modules\Rental\FinanceController::class,'preview'];

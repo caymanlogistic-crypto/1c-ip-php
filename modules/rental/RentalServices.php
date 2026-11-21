@@ -101,6 +101,7 @@ final class RentalServices
             if ($regular) $closed[$charge['agreement_id']] = true;
             $agreement = $agreements[$charge['agreement_id']] ?? null;
             $rows[] = [
+                'charge_id'=>$key,
                 'lease_id'=>$charge['lease_id'],'service_id'=>$agreement ? $charge['agreement_id'] : null,
                 'number'=>$agreement['number'] ?? null,
                 'kind'=>$regular ? 'Регулярный клининг' : self::ORDERS[$charge['kind']],

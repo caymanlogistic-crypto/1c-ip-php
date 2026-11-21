@@ -312,7 +312,8 @@ final class Controller {
             'invoice-list'
         ], true) && Auth::can('finance.write') && \App\PagePolicy::level('rental.invoice-list',$u)>=2)
             $headActions = RentalUI::button('Создать счёт',RegularInvoiceCard::route((int)($_GET['contract_id'] ?? 0)),true)
-                .RentalUI::button('Сформировать за месяц',InvoiceBatchCard::ROUTE);
+                .RentalUI::button('Сформировать за месяц',InvoiceBatchCard::ROUTE)
+                .RentalUI::button('УПД',UpdCard::ROUTE);
         if ($page === 'invoice-list' && in_array($u['role'],['accountant','admin'],true))
             $headActions .= RentalUI::button('Сверка банковских оплат',DebtFollowUpCard::route());
         if ($page === 'invoice-list') {
