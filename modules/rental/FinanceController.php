@@ -143,6 +143,7 @@ final class FinanceController {
                 Controller::money($debt)
             ]
         ]);
+        $body .= InvoiceReport::invoiceEvidence($r);
         $initialProof = $raw['separate_initial_invoice'] ?? null;
         if ($initialProof && !$r['due']) {
             $body.=RentalUI::alert('Срок оплаты требует подтверждения',$initialProof['due_basis'],'warning');
@@ -300,46 +301,38 @@ final class FinanceController {
             [$body,$actions]=self::form('payment.create',[],$fields,'Сохранить приход');
             return RentalUI::modal('Внести отдельный приход',$body,$actions,'invoices');
         }
-        $p = Controller::query('SELECT * FROM payments WHERE id=?', [
-            $id
-        ])[0] ?? throw new RuntimeException('Платёж не найден.', 404);
-        $a = Controller::query('SELECT a.*,i.number FROM payment_allocations a JOIN invoices i ON i.id=a.invoice_id WHERE a.payment_id=?', [
-            $id
+        $p = Controller::query('SELECT p.*,b.name party_name FROM payments p LEFT JOIN parties b ON b.id=p.party_id WHERE p.id=?',[$id])[0]
+            ?? throw new RuntimeException('Платёж не найден.',404);
+        $a = PaymentRecords::allocations($id);
+        $allocated = '0.00';
+        $rows = [];
+        foreach ($a as $allocation) {
+            $allocated = bcadd($allocated,$allocation['amount'],2);
+            $rows[] = [
+                RentalUI::button($allocation['number'],'/rental/invoice?id='.$allocation['invoice_id']),
+                View::e($allocation['contract_number']),Documents::dateText($allocation['issued']),
+                View::e($allocation['period'] ?? '—'),Controller::money($allocation['amount']),
+            ];
+        }
+        $body = RentalUI::notice().RentalUI::pairs([
+            ['Контрагент',$p['party_name'] ?? 'Не указан'],
+            ['Дата оплаты',Documents::dateText($p['payment_date'])],
+            ['Поступило',Controller::money($p['amount'])],
+            ['Распределено',Controller::money($allocated)],
+            ['Не распределено',$p['amount'] === null ? 'Не указано' : Controller::money(bcsub($p['amount'],$allocated,2))],
+            ['Источник оплаты',$p['source'] ?: 'Не подтверждён'],
+            ['Банковское назначение',PaymentRecords::purpose($p) ?? 'В сохранённых данных оплаты не указано'],
+            ['Автор',$p['entered_by'] ?: 'Нет сведений'],
+            ['Текущая версия',(string)$p['version']],
         ]);
-        $body = RentalUI::pairs([
-            [
-                'Дата оплаты',
-                Documents::dateText($p['payment_date'])
-            ],
-            [
-                'Сумма',
-                Controller::money($p['amount'])
-            ],
-            [
-                'Источник',
-                $p['source']?:'—'
-            ],
-            [
-                'Автор',
-                $p['entered_by']?:'Нет сведений'
-            ],
-            [
-                'Платёжный документ',
-                $p['source_filename']?:'Не загружен'
-            ]
-        ]);
-        $actions = '';
-        $allocated='0.00';foreach($a as $allocation)$allocated=bcadd($allocated,$allocation['amount'],2);
-        $body.=RentalUI::pairs([['Распределено',Controller::money($allocated)],['Не распределено',$p['amount']===null?'Не указано':Controller::money(bcsub($p['amount'],$allocated,2))]]);
-        if(isset($_SESSION['rental_notice'])){$body=RentalUI::alert($_SESSION['rental_notice']).$body;unset($_SESSION['rental_notice']);}
+        $body .= PaymentRecords::orders($id,$a !== []);
+        $body .= '<h3 class="registry-ui-modal-summary">Распределение по счетам</h3>'
+            .($rows ? Controller::table(['Счёт','Договор','Дата счёта','Период аренды','Распределено'],$rows,
+                ['text','code','date','code','money'])
+                : '<p class="registry-ui-secondary">Распределений по счетам нет.</p>');
+        $body .= PaymentRecords::history($id);
         if(self::canPaymentWrite())$body.='<span class="registry-ui-modal-help">Для распределения откройте счёт этого контрагента и выберите «Распределить приход».</span>';
-        foreach (Controller::query("SELECT * FROM rental_files WHERE entity_type='payment' AND entity_id=? ORDER BY created_at DESC", [
-            $id
-        ]) as $f)$body.='<div class="demo-row">'
-        . Controller::link('/rental/download?id='
-        . $f['id'], 'Скачать '
-        . $f['filename'])
-        . '</div>';
+        $actions = '';
         if (count($a) === 1 && in_array(Auth::user()['role'], [
             'admin',
             'accountant'
@@ -347,8 +340,7 @@ final class FinanceController {
         . $a[0]['invoice_id']
         . '&payment_id='
         . $id, true);
-        return RentalUI::modal('Оплата по счёту '
-        . ($a[0]['number'] ?? '—'), $body, $actions, 'invoices');
+        return RentalUI::modal('Оплата № '.$id,$body,$actions,'invoices');
     }
     public static function pay():string {
         Auth::requirePermission('rental.read');
@@ -671,7 +663,7 @@ final class FinanceController {
         if (!in_array($path,$pages,true)) return $fallback;
         parse_str($url['query'] ?? '',$input);
         $query=[];
-        foreach (['q','flag','party','contract_id','floor','type','inactive','filter','color','hide_rented','employee','role'] as $key) {
+        foreach (['q','flag','party','contract_id','floor','type','inactive','filter','color','hide_rented','employee','role','issued_month','rental_month','payment_month'] as $key) {
             if (isset($input[$key]) && is_scalar($input[$key]) && strlen((string)$input[$key])<=1000) $query[$key]=(string)$input[$key];
         }
         return $path.($query ? '?'.http_build_query($query) : '');

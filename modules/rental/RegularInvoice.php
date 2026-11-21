@@ -196,6 +196,8 @@ final class RegularInvoice
         if ($batch) $quote['vat_amount'] = $terms['vat'];
         if (!$quote['questions']) {
             $quote['billing'] = $billing;
+            $category = ['D17'=>'office','D03'=>'apartment','D09'=>'parking'][$form];
+            $quote['report_charges'] = [['period'=>$period,'category'=>$category,'gross'=>$quote['amount'],'tax'=>$terms['vat']]];
             $quote['token'] = hash('sha256',Importer::canonicalJson([$contract['version'],$quote]));
         }
         return $quote;
@@ -272,7 +274,8 @@ final class RegularInvoice
         if (isset($quote['cycle'])) $source['cycle'] = $quote['cycle'];
         if (isset($quote['rates'])) $source['rates'] = $quote['rates'];
         $invoice = MonthlyBilling::issue($db,$contract,$quote['billing'],$quote['issued'],
-            ['due'=>$quote['due'],'purpose'=>$quote['purpose'],'vat_rate'=>$quote['vat_rate'],'source'=>$source]);
+            ['due'=>$quote['due'],'purpose'=>$quote['purpose'],'vat_rate'=>$quote['vat_rate'],'source'=>$source,
+                'report_charges'=>$quote['report_charges']]);
         if (!$invoice) throw new RuntimeException('Покрытие изменилось. Откройте предпросмотр заново.',409);
         $record = $db->prepare('INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,1)');
         foreach ($periods as $period) {
