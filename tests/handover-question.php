@@ -92,12 +92,13 @@ $answer = inputFor(802, ['question_key'=>$case['key'], 'resolution'=>'Первы
 deny(fn()=>Service::command(HandoverQuestion::RESOLVE, $answer),403,'manager cannot record accounting decision');
 become(802);
 expect(HandoverQuestion::delivery($db,802,$case)['status']==='failed', 'recorded provider failure is visible');
+$db->exec("UPDATE contracts SET document_date='2026-11-02' WHERE id=802");
 $manual = [
     'contract_id'=>802, 'number'=>'ТЕСТ-НОВЫЙ-СЧЁТ', 'title'=>'Аренда',
-    'purpose'=>'Аренда', 'amount'=>'26000', 'issued'=>'2026-11-20',
+    'purpose'=>'Аренда', 'amount'=>'26000', 'issued'=>'2026-11-20', 'version'=>$contract(802)['version'],
 ];
 deny(fn()=>Service::command('invoice.issue', inputFor(0, $manual+['period'=>'2026-11'])),409,'manual rent invoice for affected month is paused before write','ожидает решения бухгалтера');
-deny(fn()=>Service::command('invoice.issue', inputFor(0, $manual+['period'=>'2026-12'])),409,'manual rent invoice for unaffected month reaches the usual write checks','отсутствует ожидаемый идентификатор');
+deny(fn()=>Service::command('invoice.issue', inputFor(0, $manual+['period'=>'2026-12'])),409,'manual rent invoice for unaffected month still requires known historical coverage','Сверьте покрытие ранее выставленных счетов');
 Service::command(HandoverQuestion::RETRY, $retry, $eventId);
 expect(is_int($eventId), 'accountant explicitly retries failed notification');
 $simulate($eventId, 'accepted');

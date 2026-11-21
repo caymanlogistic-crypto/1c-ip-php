@@ -29,6 +29,10 @@ final class FinanceService {
     }
     public static function execute(PDO $p, array $u, string $action, array $in):array {
         if (in_array($action,RegularInvoice::ACTIONS,true)) return RegularInvoice::execute($p,$u,$action,$in);
+        if ($action === 'invoice.issue') {
+            RegularInvoice::requireAccess(2);
+            RegularInvoice::contract((int)($in['contract_id'] ?? 0));
+        }
         $id = (int)($in['id'] ?? 0);
         $i = $action === 'invoice.issue'?null:Service::get($p, 'invoices', $id);
         if ($i)Service::version($i, $in);
@@ -44,6 +48,7 @@ final class FinanceService {
         }
         $initialProof = $i ? (json_decode($i['source_json'],true)['separate_initial_invoice'] ?? null) : null;
         $periodProof = $i ? (json_decode($i['source_json'],true)['regular_invoice'] ?? null) : null;
+        $manualProof = $i ? (json_decode($i['source_json'],true)['manual_regular_invoice'] ?? null) : null;
         if ($action === 'invoice.send') {
             if ($initialProof && !$i['due']) throw new RuntimeException('Подтвердите срок оплаты первого счёта перед отправкой.',409);
             $intent=InvoiceDelivery::prepare($p,$u,$i);
@@ -102,12 +107,7 @@ final class FinanceService {
             ]);
             if ($initialProof) throw new RuntimeException('Исходный первый счёт сохранён. Срок оплаты уточняется отдельным действием.',409);
             if ($periodProof) throw new RuntimeException('Сохранённый счёт связан с подтверждёнными условиями. Корректировка оформляется отдельно.',409);
-            if (!$i && !in_array($c['status'], [
-                'approved',
-                'sent',
-                'active',
-                'reconciling'
-            ], true))throw new RuntimeException('Новый счёт доступен после согласования договора.');
+            if ($manualProof) throw new RuntimeException('Сохранённый счёт связан с подтверждённым основанием и периодом. Корректировка оформляется отдельно.',409);
             $number = trim($in['number'] ?? '');
             $title = trim($in['title'] ?? '');
             $purpose = trim($in['purpose'] ?? '');
@@ -121,25 +121,22 @@ final class FinanceService {
                 'Обеспечительный платёж',
                 'Первый период'
             ], true);
-            if (!$i && $initial) throw new RuntimeException('Первый период и обеспечение выпускаются из карточки договора действием «Выставить первый счёт».',409);
+            if (!$i && $kind !== 'Аренда')
+                throw new RuntimeException('Первый период и обеспечение выпускаются из карточки договора действием «Выставить первый счёт».',409);
             $period = $kind === 'Обеспечительный платёж'?'Обеспечение':($in['period'] ?? substr($issued, 0, 7));
             if ($kind !== 'Обеспечительный платёж')Service::date($period
             . '-01');
-            if (!$i && ($error=InitialInvoice::dateError($c,$issued))) throw new RuntimeException($error,422);
             if (!$i) {
-                $facts = LeasePaymentTerms::facts($p,(int)$c['id']);
-                $accrual = $facts['accrual']['date'] ?? $c['start_date'];
-                if (($facts['base']['form'] ?? '') === 'D09') {
-                    $handover = LeasePaymentTerms::actDate(PremisesActs::history($p,(int)$c['id']),'transfer');
-                    if ($handover && (!$accrual || $handover > $accrual)) $accrual = $handover;
-                }
-                if ($accrual && $period <= substr($accrual,0,7))
-                    throw new RuntimeException('Первый период оформляется из карточки договора действием «Выставить первый счёт».',409);
+                Service::version($c,$in);
+                $period = RegularInvoice::period((string)($in['period'] ?? ''));
+                $plan = ManualInvoice::coverage($p,$c,$period,$issued);
+                $reason = DirectoryDetails::text($in,'manual_reason',600);
+                if ($reason === '' || ($in['manual_confirmed'] ?? '') !== '1')
+                    throw new RuntimeException('Укажите документ и подтвердите основание суммы и срока оплаты.',422);
+                if (($in['intent'] ?? '') === 'send')
+                    throw new RuntimeException('Ручное внесение счёта доступно только для сохранения.',422);
             }
-            if (!$i && in_array($kind, ['Аренда', 'Первый период'], true)) {
-                HandoverQuestion::assertBillingReady($p, (int)$c['id'], $period);
-            }
-            $due = Service::date($in['due'] ?? InvoiceDueDate::automatic($issued,$period,$initial));
+            $due = Service::date($in['due'] ?? ($i ? InvoiceDueDate::automatic($issued,$period,$initial) : ''));
             if ($i) {
                 self::remember($p, $i, (int)$u['id']);
                 $write=static function() use($p,$number,$title,$purpose,$issued,$amount,$kind,$initial,$period,$due,$id): void {
@@ -176,7 +173,9 @@ final class FinanceService {
                 $id = $expected;
                 $creation=NativeOperatingWriter::begin($p,'invoice',$id,'native-c-manual','finance.invoice.create',
                     $issued,(string)($in['command_key'] ?? 'manual:'.$id),(int)$u['id']);
-                $p->prepare("INSERT INTO invoices(id,number,contract_id,title,purpose,kind,period,amount,paid,issued,due,status,initial_invoice,coverage_key,source_json) VALUES(?,?,?,?,?,?,?,?,0,?,?,'active',?,?,'{}')")->execute([
+                $proof = ['reason'=>$reason,'amount'=>$amount,'due'=>$due,'document_date'=>$issued,
+                    'created_at'=>date(DATE_ATOM),'actor_id'=>(int)$u['id'],'command_key'=>$in['command_key']];
+                $p->prepare("INSERT INTO invoices(id,number,contract_id,title,purpose,kind,period,amount,paid,issued,due,status,initial_invoice,coverage_key,source_json) VALUES(?,?,?,?,?,?,?,?,0,?,?,'active',?,?,?)")->execute([
                     $id,
                     $number,
                     $c['id'],
@@ -188,9 +187,10 @@ final class FinanceService {
                     $issued,
                     $due,
                     (int)$initial,
-                    'manual:'
-                    . $id
+                    'manual:'.$id,
+                    Importer::json(['manual_regular_invoice'=>$proof])
                 ]);
+                InitialBilling::links($p,$id,$plan);
                 Billing::snapshotInvoice($p, $id);
                 NativeInvoiceScope::record($p,$id,'native-c-manual',$in['command_key'] ?? null);
                 NativeOperatingWriter::finish($p,'invoice',$id,'native-c-manual',$creation);
@@ -201,7 +201,7 @@ final class FinanceService {
             Audit::record($action, 'invoice', $id, $i, [
                 'amount' => $amount,
                 'number' => $number
-            ]);
+            ] + (isset($proof) ? ['manual_regular_invoice'=>$proof] : []));
             return [
                 'id' => $id,
                 'invoice_id' => $id,

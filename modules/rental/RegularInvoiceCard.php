@@ -59,11 +59,21 @@ final class RegularInvoiceCard
             }
             $body .= self::saveForm(RegularInvoice::CREATE,(int)$contract['version'],
                 $fields.self::check('confirmed','Подтверждаю реквизиты счёта'),'Сохранить счёт');
+        } elseif (!$payment && $quote['questions'] && empty($quote['initial_only']) && !$quote['existing']
+            && !isset($quote['previously_issued'])) {
+            try {
+                ManualInvoice::coverage($db,$contract,$period,$issued,$quote);
+                $body .= '<div class="demo-row">'.RentalUI::button('Внести счёт вручную',ManualInvoice::route($id,$period,$issued)).'</div>';
+            } catch (RuntimeException $error) {
+                if ($error instanceof \PDOException || !in_array($error->getCode(),[409,422],true)) throw $error;
+                if (!in_array($error->getMessage(),$quote['questions'],true))
+                    $body .= RentalUI::alert($error->getMessage(),'','warning');
+            }
         }
         return RentalUI::modal('Создать счёт',$body,'','invoice-list',wide:true,extractForms:false);
     }
 
-    private static function contractSelect(int $selected): string
+    public static function contractSelect(int $selected): string
     {
         $contracts = Controller::query("SELECT c.id,c.number,p.name FROM contracts c JOIN parties p ON p.id=c.party_id
             WHERE c.status IN ('active','reconciling') AND ".ContractDraft::visibleSql()." ORDER BY c.number,c.id");
