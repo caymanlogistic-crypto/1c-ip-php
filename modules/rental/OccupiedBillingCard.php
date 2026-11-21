@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental;
 
-use App\{ContractOccupancy, DB, View};
+use App\{DB, View};
 use RuntimeException;
 
 final class OccupiedBillingCard
@@ -37,17 +37,6 @@ final class OccupiedBillingCard
                 .(!empty($row['reason'])?' · '.$row['reason']:'');
         }
         return $description?RentalUI::alert('Есть исключение по объекту',implode(' / ',$description),'info'):'';
-    }
-
-    public static function forObject(int $id): array
-    {
-        $path='CONCAT(\'$.'.ContractOccupancy::EXCEPTIONS.'."\',co.object_id,\'"\')';
-        $rows=Controller::query("SELECT c.number,p.name,JSON_UNQUOTE(JSON_EXTRACT(c.source_json,CONCAT($path,'.until'))) until_date
-            FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN parties p ON p.id=c.party_id
-            WHERE co.object_id=? AND c.status='active' AND ".ContractOccupancy::exceptionAt('c','co')."
-            AND JSON_UNQUOTE(JSON_EXTRACT(c.source_json,CONCAT($path,'.until')))>=CURRENT_DATE ORDER BY c.id",[$id]);
-        return array_map(static fn(array $row): array=>['Начисления по исключению',$row['name'].', №'.$row['number']
-            .' · до '.Documents::dateText($row['until_date'])],$rows);
     }
 
     public static function editor(): string

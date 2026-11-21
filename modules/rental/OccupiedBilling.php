@@ -11,6 +11,26 @@ final class OccupiedBilling
 {
     public const SAVE = 'contract.occupied-billing';
     public const LABEL = 'Разрешить начисления по занятому объекту';
+    public const OBJECT_LABEL = 'Начисления по исключению';
+
+    public static function byObject(string $day,?int $objectId=null): array
+    {
+        $path='CONCAT(\'$.'.ContractOccupancy::EXCEPTIONS.'."\',co.object_id,\'"\')';
+        $until="JSON_UNQUOTE(JSON_EXTRACT(c.source_json,CONCAT($path,'.until')))";
+        $rows=Controller::query("SELECT co.object_id,c.number,p.name,$until until_date
+            FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN parties p ON p.id=c.party_id
+            WHERE c.status='active' AND ".ContractOccupancy::exceptionAt('c','co')." AND $until>=?"
+            .($objectId===null?'':' AND co.object_id=?').' ORDER BY c.id',
+            $objectId===null?[$day]:[$day,$objectId]);
+        $groups=[];
+        foreach ($rows as $row) $groups[(int)$row['object_id']][]=$row;
+        return $groups;
+    }
+
+    public static function contractLabel(array $row): string
+    {
+        return $row['name'].', №'.$row['number'];
+    }
 
     public static function exceptions(array $contract): array
     {

@@ -3,7 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\{DB,View};
-use Modules\Rental\{Availability,DirectoryScope,ObjectDirectory,ObjectFacts,ObjectReadModel};
+use Modules\Rental\{Availability,DirectoryScope,ObjectDirectory,ObjectFacts,ObjectReadModel,OccupiedBilling};
 
 $p=DB::pdo();
 if (!preg_match('/^ipphp_task_[a-z0-9_]+$/D',(string)$p->query('SELECT DATABASE()')->fetchColumn())) throw new RuntimeException('ISOLATED_TASK_DATABASE_REQUIRED');
@@ -61,6 +61,25 @@ try {
     $body=static function(string $html):string {$d=new DOMDocument();$d->loadHTML('<?xml encoding="utf-8" ?>'.$html,LIBXML_NOERROR|LIBXML_NOWARNING);$x=new DOMXPath($d);$node=$x->query('//*[@id="workspace"]')->item(0);$out='';foreach($node->childNodes as $child)$out.=$d->saveHTML($child);return $out;};
     // Auto-generated command form IDs do not appear in this read-only tab.
     $check($body($fragment)===$body($full),'Full and fragment workspaces must match');
+
+    $party=(int)$p->query('SELECT COALESCE(MAX(id),0)+1 FROM parties')->fetchColumn();
+    $p->prepare("INSERT INTO parties(id,name,source_json) VALUES(?,'Object registry training party','{}')")->execute([$party]);
+    $lease=(int)$p->query('SELECT COALESCE(MAX(id),0)+1 FROM contracts')->fetchColumn();
+    $billing=$lease+1;
+    foreach ([$lease=>'TEST-PHYSICAL-'.$lease,$billing=>'TEST-BILLING-'.$billing] as $contract=>$number) {
+        $p->prepare("INSERT INTO contracts(id,number,party_id,start_date,end_date,status,source_json)
+            VALUES(?,?,?,?,?,'active','{}')")->execute([$contract,$number,$party,$today,$today]);
+        $p->prepare('INSERT INTO contract_objects(contract_id,object_id) VALUES(?,?)')->execute([$contract,$id]);
+    }
+    OccupiedBilling::store($p,$billing,[$id=>['reason'=>'Учебное основание','until'=>$today,'occupier_id'=>$lease]]);
+    $_GET=['q'=>'TEST-BILLING-'.$billing,'floor'=>'2'];
+    $_SERVER['HTTP_X_RENTAL_OBJECTS_FRAGMENT']='1';
+    $result=ObjectDirectory::page();
+    $check(substr_count($result,'data-rental-url="/rental/object?id='.$id.'"')===1,'Billing search must return the object once');
+    $check(str_contains($result,'№TEST-PHYSICAL-'.$lease)
+        && str_contains($result,OccupiedBilling::OBJECT_LABEL.': Object registry training party, №TEST-BILLING-'.$billing),
+        'Search result must keep physical and billing links separate');
+
     $_SESSION=[];$_SERVER['HTTP_X_RENTAL_OBJECTS_FRAGMENT']='1';$denied=false;
     try {ObjectDirectory::page();} catch (RuntimeException $e) {$denied=in_array($e->getCode(),[401,403],true);}
     $check($denied,'Fragment must not bypass the page access check');
