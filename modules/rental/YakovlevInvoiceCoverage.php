@@ -109,7 +109,7 @@ final class YakovlevInvoiceCoverage
             'vatRate'=>$vat[1],'vatAmount'=>$tax,'rentalCategory'=>$term['category'],'rentalPeriod'=>$period];
     }
 
-    private static function period(string $text): array
+    public static function period(string $text): array
     {
         foreach (self::MONTHS as $stem=>$month) {
             if (!preg_match('/\bза\s+(?:(?:период\s+)?с\s+(?<first>\d{1,2})\s+по\s+(?<last>\d{1,2})\s+)?'.$stem.'\p{L}*\s+(?<year>20\d\d)\s*г?\.?\s*$/iu',$text,$m)) continue;
