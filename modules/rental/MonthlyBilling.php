@@ -240,6 +240,7 @@ final class MonthlyBilling {
         }
         Billing::snapshotInvoice($p, $id);
         if (isset($single['vat_rate'])) $p->prepare('UPDATE invoices SET vat=? WHERE id=?')->execute([$single['vat_rate'],$id]);
+        if (isset($single['report_charges'])) InvoiceReport::capture($p,$id,$single['report_charges']);
         NativeInvoiceScope::record($p, $id, 'native-c-monthly',null,$plan['invoice_targets'] ?? null);
         if (isset($plan['invoice_targets'])) \App\BillingInvoiceTargets::record($p,$id,$plan['invoice_targets'],[
             'source_sha256'=>\App\BillingPartAdmission::NATIVE_SOURCE,'source_version'=>'workflow-v2:51-71','producer'=>'monthly',

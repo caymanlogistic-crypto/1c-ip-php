@@ -111,6 +111,9 @@
       // Invoice tabs preserve the values currently typed, before debounce refresh.
       for (const [name,value] of Object.entries(latestFilters)) data.set(name, value);
     }
+    if (data.get('reset') === '1' && ['/rental/invoices','/rental/invoice-list','/rental/payments'].includes(url.pathname)) {
+      for (const name of ['q','party','issued_month','rental_month','payment_month']) data.delete(name);
+    }
     for (const [key,value] of data) if (key!=='_csrf' && typeof value==='string') url.searchParams.append(key,value);
     load(url, {preserve:true}).catch(error=>{
       if (error.name!=='AbortError') window.PlanexNotifications?.show({tone:'danger',message:error.message});
@@ -165,7 +168,7 @@
   });
   document.addEventListener('change', event=>{
     const form = event.target.closest('form[data-rental-registry-filter]');
-    if (form && !form.closest('dialog') && event.target.matches('select,input[type=checkbox]')) fromForm(form);
+    if (form && !form.closest('dialog') && event.target.matches('select,input[type=checkbox],input[type=month]')) fromForm(form);
   });
   document.addEventListener('submit', event=>{
     const form = event.target;
@@ -175,10 +178,12 @@
       if (filters) {
         event.preventDefault();
         clearTimeout(searchTimer);
-        fromForm(form, event.submitter, {
+        const latest = {
           q: filters.querySelector('input.registry-ui-search[name="q"]')?.value || '',
           party: filters.querySelector('select[name="party"]')?.value || 'all'
-        });
+        };
+        for (const month of filters.querySelectorAll('input[type="month"][name]')) latest[month.name] = month.value;
+        fromForm(form, event.submitter, latest);
         return;
       }
     }

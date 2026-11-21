@@ -177,6 +177,7 @@ final class InvoiceBatch
         if ($vat !== null && $first['vat_rate'] !== null)
             $first['purpose'] .= ' В том числе НДС '.$first['vat_rate'].' % — '.Documents::amountText($vat).' ₽.';
         $first['rates'] = array_column($quotes,'source');
+        $first['report_charges'] = array_merge(...array_column($quotes,'report_charges'));
         return $first;
     }
 

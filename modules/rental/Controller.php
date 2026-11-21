@@ -313,6 +313,11 @@ final class Controller {
         ], true) && Auth::can('finance.write') && \App\PagePolicy::level('rental.invoice-list',$u)>=2)
             $headActions = RentalUI::button('Создать счёт',RegularInvoiceCard::route((int)($_GET['contract_id'] ?? 0)),true)
                 .RentalUI::button('Сформировать за месяц',InvoiceBatchCard::ROUTE);
+        if ($page === 'invoice-list') {
+            $reportMonth = InvoicePeriods::month($_GET['rental_month'] ?? null);
+            $headActions .= RentalUI::button('Отчёт по начислениям',InvoiceReport::ROUTE
+                .($reportMonth ? '?rental_month='.$reportMonth : ''));
+        }
         if(in_array($page,['invoices','invoice-list'],true)&&FinanceController::paymentActionsAllowed($u,Auth::can('finance.write'),\App\PagePolicy::level('rental.invoices',$u)))
             $headActions.=RentalUI::button('Внести приход','/rental/payment');
         if (in_array($u['role'], [
@@ -323,7 +328,7 @@ final class Controller {
         if ($page==='templates' && in_array($u['role'],['admin','lawyer'],true) && Auth::can('rental.approve.legal')
             && \App\PagePolicy::level('rental.templates',$u)>=2) $headActions=RentalUI::button('Создать шаблон','/rental/template-editor',true);
         $sub = match ($page) {
-            'contracts' => 'Двойной щелчок открывает редактор черновика или карточку резервирования.', 'contracts-active' => 'Действующие условия аренды, сроки и назначенные действия.', 'contracts-completed' => 'История завершённой аренды и подтверждений расчётов.', 'approvals' => 'Назначенные проверки, ожидание подписания и история решений.', 'invoices', 'payments' => 'Счета сгруппированы по контрагентам. Раскройте строку, чтобы открыть нужный счёт.', 'invoice-list' => 'Счета, оплаты и остатки по каждому документу.', 'templates'=>'Юрист готовит новую версию, руководитель утверждает.', 'objects' => 'Помещения и машиноместа: занятость, резервирование и контроль простоя', 'cadastre' => 'Кадастровая площадь и доступность для сдачи.', default => ''
+            'contracts' => 'Двойной щелчок открывает редактор черновика или карточку резервирования.', 'contracts-active' => 'Действующие условия аренды, сроки и назначенные действия.', 'contracts-completed' => 'История завершённой аренды и подтверждений расчётов.', 'approvals' => 'Назначенные проверки, ожидание подписания и история решений.', 'invoices', 'payments' => 'Поступления и связанные счета. Раскройте строку контрагента, чтобы открыть счёт.', 'invoice-list' => 'Счета, оплаты и остатки по каждому документу.', 'templates'=>'Юрист готовит новую версию, руководитель утверждает.', 'objects' => 'Помещения и машиноместа: занятость, резервирование и контроль простоя', 'cadastre' => 'Кадастровая площадь и доступность для сдачи.', default => ''
         };
         $h = self::heading($title, $sub, $headActions);
         if (isset($_SESSION['rental_notice'])) {

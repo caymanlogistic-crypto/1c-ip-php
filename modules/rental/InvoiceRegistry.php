@@ -209,11 +209,14 @@ final class InvoiceRegistry
         return $table->row(array_combine($table->keys(),self::row($row)),$attributes);
     }
 
-    private static function controls(array $all,string $query,string $party,string $flag,int $cid,bool $grouped): string
+    private static function controls(array $all,string $query,string $party,string $flag,int $cid,bool $grouped,array $months): string
     {
         $html='<form method="get" class="registry-ui-tabs" role="group" aria-label="Разделы списка"><input type="hidden" name="party" value="'.View::e($party).'">';
         if ($cid) $html.='<input type="hidden" name="contract_id" value="'.$cid.'">';
         if ($query !== '') $html.='<input type="hidden" name="q" value="'.View::e($query).'">';
+        foreach ($months as $field=>$value) {
+            if ($value !== '') $html .= PremisesActsCard::hidden($field,$value);
+        }
         foreach (($grouped ? self::GROUP_FLAGS : self::PAYMENT_FLAGS) as $key=>$label) {
             $items=array_values(array_filter($all,static fn($r)=>self::selected($r,$key)));
             if ($grouped) $counts=$key === 'overdue' ? InvoiceFacts::overdueCounts($items) : [0,0,0,0];
@@ -234,15 +237,28 @@ final class InvoiceRegistry
         if (!$grouped && $flag === 'unpaid') $flag='waiting';
         if (!isset(($grouped ? self::GROUP_FLAGS : self::PAYMENT_FLAGS)[$flag])) $flag='all';
         $cid=(int)($_GET['contract_id'] ?? 0);
+        $fields = $grouped ? ['payment_month'=>'Месяц оплаты'] : ['issued_month'=>'Месяц выставления','rental_month'=>'Период аренды'];
+        $months = [];
+        foreach ($fields as $field=>$label) $months[$field] = $reset ? '' : InvoicePeriods::month($_GET[$field] ?? null);
+        $rentalMonth = $months['rental_month'] ?? '';
+        $issueMonth = $months['issued_month'] ?? '';
+        $matchesRent = $rentalMonth === '' ? null : array_fill_keys(array_column(Controller::query(
+            'SELECT i.id FROM invoices i WHERE '.InvoicePeriods::rentalPredicate(),InvoicePeriods::rentalParameters($rentalMonth)),'id'),true);
         $records=self::records($cid);
         $parties=[];
         foreach ($records as $row) $parties[$row['party_id']]=$row['party_name'];
+        if ($grouped && !$cid) {
+            foreach (Controller::query('SELECT DISTINCT b.id,b.name FROM payments p JOIN parties b ON b.id=p.party_id') as $paymentParty)
+                $parties[$paymentParty['id']] = $paymentParty['name'];
+        }
         asort($parties,SORT_NATURAL|SORT_FLAG_CASE);
         $tokens=array_filter(explode(' ',self::normalized($query)));
-        $all=array_values(array_filter($records,static fn($r)=>($party === 'all' || (string)$r['party_id'] === $party) && self::matches($r,$tokens)));
+        $all=array_values(array_filter($records,static fn($r)=>($party === 'all' || (string)$r['party_id'] === $party)
+            && ($issueMonth === '' || substr($r['issued'] ?? '',0,7) === $issueMonth)
+            && ($matchesRent === null || isset($matchesRent[$r['id']])) && self::matches($r,$tokens)));
         $chosen=array_values(array_filter($all,static fn($r)=>self::selected($r,$flag)));
         $groups=self::groups($chosen);
-        $html=self::controls($all,$query,$party,$flag,$cid,$grouped);
+        $html=self::controls($all,$query,$party,$flag,$cid,$grouped,$months);
         $t=self::totals($chosen);
         $registryId=$grouped ? 'rental-invoices-grouped' : 'rental-invoices-flat';
         $designId=$grouped ? 'rental.invoices' : 'rental.invoice-list';
@@ -256,10 +272,17 @@ final class InvoiceRegistry
         $html.='</span></div><div class="toolbar-right">';
         if ($cid) $html.='<input type="hidden" name="contract_id" value="'.$cid.'">';
         $html.='<input type="hidden" name="flag" value="'.View::e($flag).'">';
-        $html.='<button class="registry-ui-reset" type="submit" name="reset" value="1"'.($query === '' && $party === 'all' ? ' hidden' : '').'>Сбросить фильтры</button>';
+        $html.='<button class="registry-ui-reset" type="submit" name="reset" value="1"'.($query === '' && $party === 'all'
+            && !array_filter($months) ? ' hidden' : '').'>Сбросить фильтры</button>';
+        foreach ($fields as $field=>$label) $html .= Controller::input($field,$label,$months[$field],'month',false);
         $html.='<select id="party-filter" class="toolbar-select" name="party" aria-label="Контрагент"><option value="all">Все контрагенты</option>';
         foreach ($parties as $id=>$name) $html.='<option value="'.(int)$id.'"'.((string)$id === $party ? ' selected' : '').'>'.View::e($name).'</option>';
-        $html.='</select>'.DirectoryUi::search($query,true).'</div></form><div class="table-scroll">'.$table->start($grouped);
+        $html.='</select>'.DirectoryUi::search($query,true).'</div></form>';
+        if ($grouped) {
+            $html .= '<section class="registry-ui-nested-table-scroll" aria-label="Поступления">'.PaymentRecords::listing($party,$months['payment_month'],$query,$cid,
+                $flag === 'overdue' ? array_column($chosen,'id') : null).'</section>';
+        }
+        $html .= '<div class="table-scroll">'.$table->start($grouped);
         foreach ($groups as $group) {
             if ($grouped) {
                 $html.=self::groupHeader($group,$table).'<tr id="invoice-details-'.(int)$group['id'].'" data-rental-invoice-group="'.(int)$group['id'].'" hidden><td colspan="10" class="registry-ui-disclosure-content"><div class="registry-ui-nested-table-scroll">'

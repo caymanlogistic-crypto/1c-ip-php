@@ -114,6 +114,26 @@ final class InvoiceDocument
         return $lines;
     }
 
+    public static function capturedPrint(array $invoice): ?array
+    {
+        $print = self::json($invoice['source_json'] ?? null)['printDetails'] ?? null;
+        return is_array($print) && ($print['number'] ?? null) === $invoice['number']
+            && ($print['issued'] ?? null) === $invoice['issued'] ? $print : null;
+    }
+
+    public static function nativeBreakdown(string $gross,?string $rate): ?array
+    {
+        $amount = self::decimal($gross,2);
+        $vat = self::decimal($rate,4);
+        if ($amount === null || $vat === null || bccomp($vat,'100',4)>0) return null;
+        return self::lines(null,'Аренда',$amount,$vat)[0];
+    }
+
+    public static function capturedLines(array $print): ?array
+    {
+        return self::lines($print['lines'] ?? [], '', null, null);
+    }
+
     public static function data(PDO $db, array $invoice): array
     {
         $query = $db->prepare('SELECT number,document_date FROM contracts WHERE id=?');
@@ -136,11 +156,10 @@ final class InvoiceDocument
         $lines = null;
         if (!$historical) {
             $lines = self::lines(null, $description, $gross, $vat);
-        } elseif (is_array($print) && ($print['number'] ?? null) === $invoice['number']
-            && ($print['issued'] ?? null) === $invoice['issued']) {
+        } elseif ($print = self::capturedPrint($invoice)) {
             $purpose = self::text($print['purpose'] ?? null) ?: $purpose;
             $basis = self::text($print['basis'] ?? null) ?: $basis;
-            $lines = self::lines($print['lines'] ?? [], $description, $gross, $vat);
+            $lines = self::capturedLines($print);
         }
         $net = '0.00';
         $taxes = [];
