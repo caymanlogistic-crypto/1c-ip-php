@@ -6,6 +6,7 @@ namespace Modules\Rental;
 use App\{Auth, DB, View};
 use DateTimeImmutable;
 use DateTimeZone;
+use IntlDateFormatter;
 use Modules\Integrations\Config;
 use RuntimeException;
 
@@ -68,9 +69,13 @@ final class MonthlyRentReconciliationPage
     private static function reviewTable(array $issues): string
     {
         if (!$issues) return '<section class="panel-section">'.RentalUI::alert('За выбранный период вопросов на сверку нет.').'</section>';
+        $rows = [];
+        foreach ($issues as [$periods,$client,$document,$reason]) {
+            $months = array_map(self::monthLabel(...), explode(', ', $periods));
+            $rows[] = array_map(View::e(...), [implode(', ', $months),$client,$document,$reason]);
+        }
         return Controller::table(['Месяц аренды','Клиент','Документ','Что уточнить'],
-            array_map(static fn(array $row): array => array_map(View::e(...), $row), $issues),
-            ['code','flex','code','flex']);
+            $rows, ['text','flex','code','flex']);
     }
 
     private static function monthlyTable(array $months, array $invoiceFacts): string
@@ -84,13 +89,14 @@ final class MonthlyRentReconciliationPage
                 array_push($due, ...$client['due']);
             }
             $index = count($rows);
-            $rows[] = ['<strong>'.View::e($month).'</strong>', ...self::summary($plans, $billed, $due)];
+            $label = self::monthLabel($month);
+            $rows[] = ['<strong>'.View::e($label).'</strong>', ...self::summary($plans, $billed, $due)];
             if ($clients) {
-                $details[$index] = self::details('reconciliation-'.$month, 'Клиенты за '.$month, self::clients($month, $clients, $invoiceFacts));
+                $details[$index] = self::details('reconciliation-'.$month, 'Клиенты · '.$label, self::clients($month, $clients, $invoiceFacts));
             }
         }
         return Controller::table(['Месяц','По договорам','Счета 1С','Разница','Счета к сроку','Остаток'],
-            $rows, ['short','money','money','money','money','money'], $details);
+            $rows, ['text','money','money','money','money','money'], $details);
     }
 
     private static function clients(string $month, array $clients, array $invoiceFacts): string
@@ -177,6 +183,13 @@ final class MonthlyRentReconciliationPage
     private static function archiveTime(?string $value, string $empty): string
     {
         return $value ? (new DateTimeImmutable($value))->format('d.m.Y H:i') : $empty;
+    }
+
+    private static function monthLabel(string $month): string
+    {
+        if (!InvoicePeriods::month($month)) return $month;
+        $label = IntlDateFormatter::formatObject(new DateTimeImmutable($month.'-01'), 'LLLL yyyy', 'ru_RU');
+        return $label ? mb_strtoupper(mb_substr($label,0,1)).mb_substr($label,1) : $month;
     }
 
     private static function details(string $id, string $label, string $body): array
