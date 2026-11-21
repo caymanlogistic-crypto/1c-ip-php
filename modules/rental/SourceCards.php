@@ -145,6 +145,7 @@ final class SourceCards {
         }
         $body.=RentalUI::pairs($pairs);
         $body.=PremisesActsCard::summary($c);
+        if (!in_array($c['status'],['draft','cancelled'],true)) $body.=LeasePaymentTermsCard::summary($c);
         $body.='<div class="demo-row">'.RentalUI::button('Клининг и допуслуги','/rental/services?contract_id='.$id).'</div>';
         $body.=HandoverQuestionCard::section($c);
         $add = function(string $label, string $action, bool $primary = false)use(&$actions, $id) {
@@ -384,6 +385,7 @@ final class SourceCards {
         }
         if ($action === 'contract.sign') {
             $fields.='<label class="registry-ui-checkbox"><input type="checkbox" name="both_signed" value="1" required><span>Подписано обеими сторонами</span></label>';
+            $fields.=Controller::input('actual_signature_date','Фактическая дата подписания','','date',false);
             $extra = AuxController::uploadForm($c, 'signed-contract', 'Подписанный файл');
         }
         if (in_array($action, [
