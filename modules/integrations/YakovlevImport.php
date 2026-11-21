@@ -15,7 +15,7 @@ final class YakovlevImport
         'bank' => 'Банковские выписки',
         'invoices' => 'Выставленные счета',
     ];
-    private const ORGANIZATION = '5b2b76f9-0ae3-11ea-80e4-005056953851';
+    public const ORGANIZATION = '5b2b76f9-0ae3-11ea-80e4-005056953851';
     private const INN = '390613939405';
     private const LABELS = [
         'parties' => 'Контрагент', 'bank_in' => 'Поступление',

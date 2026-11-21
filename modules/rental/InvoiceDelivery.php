@@ -170,6 +170,7 @@ final class InvoiceDelivery
         Service::version($fresh,['version'=>$invoice['version']]);
         $invoice=$fresh;
         $raw=json_decode($invoice['source_json'],true) ?: [];
+        if (!empty($raw['yakovlev_archive'])) throw new RuntimeException('Счёт уже выставлен в 1С.',409);
         if ($invoice['status']==='revoked' || !empty($raw['issueError'])) throw new RuntimeException('Счёт недоступен для отправки.');
         if ($question=InvoiceDeliveryPreference::emailQuestion($db,$invoice)) throw new RuntimeException($question,409);
         if ($invoice['amount']===null || bccomp($invoice['amount'],'0',2)<=0) throw new RuntimeException('Сумма счёта не подтверждена.');

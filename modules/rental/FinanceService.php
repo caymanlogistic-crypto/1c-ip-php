@@ -5,7 +5,7 @@ use PDO;
 use RuntimeException;
 use App\Audit;
 final class FinanceService {
-    public static function remember(PDO $p, array $invoice, int $actor):void {
+    public static function remember(PDO $p, array $invoice, ?int $actor):void {
         $p->prepare('INSERT IGNORE INTO rental_invoice_versions(invoice_id,version,snapshot_json,actor_id) VALUES(?,?,?,?)')->execute([
             $invoice['id'],
             $invoice['version'],
@@ -107,6 +107,8 @@ final class FinanceService {
             Service::roles([
                 'accountant'
             ]);
+            if ($i && !empty(Importer::decodeExact($i['source_json'])['yakovlev_archive']))
+                throw new RuntimeException('Реквизиты выставленного счёта сохранены из 1С. Нужна сверка оригинала.',409);
             if ($initialProof) throw new RuntimeException('Исходный первый счёт сохранён. Срок оплаты уточняется отдельным действием.',409);
             if ($i) SecurityDeposit::protectInvoice($p,$i);
             if ($periodProof) throw new RuntimeException('Сохранённый счёт связан с подтверждёнными условиями. Корректировка оформляется отдельно.',409);
