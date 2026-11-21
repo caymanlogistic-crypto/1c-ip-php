@@ -140,6 +140,10 @@ final class FinanceController {
                 Controller::money($debt)
             ]
         ]);
+        $initialProof = $raw['separate_initial_invoice'] ?? null;
+        if ($initialProof && !$r['due']) {
+            $body.=RentalUI::alert('Срок оплаты требует подтверждения',$initialProof['due_basis'],'warning');
+        }
         $review = $r['_calculation_review'];
         if ($review) {
             $x = $review;
@@ -230,7 +234,11 @@ final class FinanceController {
             'admin',
             'accountant'
         ], true) && Auth::can('finance.write') && \App\PagePolicy::level('rental.invoice-list',$user)>=2) {
-            $actions.=RentalUI::button(!empty($raw['issueError'])?'Заполнить реквизиты':'Редактировать', '/rental/edit-invoice?id='.$id,!empty($raw['issueError']));
+            if ($initialProof && $r['status'] !== 'revoked') {
+                $actions.=RentalUI::button('Уточнить срок оплаты','/rental/invoice-state?id='.$id.'&action=invoice.edit-due',!$r['due']);
+            } elseif (!$initialProof) {
+                $actions.=RentalUI::button(!empty($raw['issueError'])?'Заполнить реквизиты':'Редактировать', '/rental/edit-invoice?id='.$id,!empty($raw['issueError']));
+            }
             if ($debt!==null && bccomp($debt,'0',2)>0 && empty($raw['issueError']) && $r['status']!=='revoked') {
                 $actions.=RentalUI::button('Внести оплату','/rental/pay-invoice?id='.$id,true);
             }
@@ -238,7 +246,7 @@ final class FinanceController {
             . $id
             . '&action=invoice.confirm-review', true);
         }
-        if (in_array($role,['admin','manager','accountant'],true) && empty($raw['issueError']) && $r['status']!=='revoked'
+        if (in_array($role,['admin','manager','accountant'],true) && empty($raw['issueError']) && $r['status']!=='revoked' && (!$initialProof || $r['due'])
             && Auth::can($role==='manager'?'rental.write':'finance.write') && \App\PagePolicy::level('rental.invoice-list',$user)>=2) {
             [$sendForm,$sendButton]=self::form('invoice.send',$r,'',$sendError?'Повторить отправку':'Отправить клиенту');
             $body.=$sendForm;
@@ -446,6 +454,7 @@ final class FinanceController {
             'invoice.resume',
             'invoice.revoke',
             'invoice.confirm-review',
+            'invoice.edit-due',
             'invoice.send',
             'invoice.handed',
             'payment.allocate'
@@ -468,6 +477,7 @@ final class FinanceController {
             'invoice.confirm-review'=>'<label class="registry-ui-checkbox"><input type="checkbox" name="confirmed" value="1" required><span>Финансовые данные проверены</span></label>',
             'invoice.handed'=>'<label class="registry-ui-checkbox"><input type="checkbox" name="confirmed" value="1" required><span>Документы переданы клиенту</span></label>',
             'invoice.send'=>'',
+            'invoice.edit-due'=>self::dueFields($i),
             default=>Controller::input('reason','Причина','','text',true),
         });
         [
@@ -477,6 +487,30 @@ final class FinanceController {
         return RentalUI::modal('Контроль счёта '
         . $i['number'], $body, $actions, 'invoice-list');
     }
+    private static function dueFields(array $invoice): string
+    {
+        Service::roles(['accountant']);
+        Auth::requirePermission('finance.write');
+        Access::finance(2);
+        $proof = json_decode($invoice['source_json'],true)['separate_initial_invoice'] ?? null;
+        $date = $invoice['due'];
+        $body = '';
+        if ($proof) {
+            $contract = Controller::query('SELECT * FROM contracts WHERE id=?',[$invoice['contract_id']])[0];
+            $deadline = InitialInvoice::issuedDeadline(DB::pdo(),$contract,$proof);
+            $date ??= $deadline['date'] ?? null;
+            $body .= RentalUI::alert($deadline['rule'] ?? 'Срок оплаты',$deadline['question'] ?? $deadline['source'] ?? '');
+            $body .= '<label class="field"><span class="field-label">Основание</span><select name="deadline_basis" required>'
+                .'<option value="">Выберите</option>';
+            if (isset($deadline['date'])) $body .= '<option value="rule">Расчёт по подтверждённым фактам</option>';
+            $body .= '<option value="individual">Индивидуальное условие для этого счёта</option></select></label>'
+                .'<label class="registry-ui-checkbox"><input type="checkbox" name="confirmed" value="1" required>'
+                .'<span>Срок подтверждён для этого счёта</span></label>';
+        }
+        return $body.Controller::input('due','Подтверждённый срок оплаты',$date ?? '','date')
+            .Controller::input('reason','Документ или основание расчёта срока');
+    }
+
     public static function html(): never {
         $invoice=self::invoice((int)($_GET['id'] ?? 0));
         $body = InvoiceDocument::html(DB::pdo(), $invoice);

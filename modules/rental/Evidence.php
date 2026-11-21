@@ -172,9 +172,6 @@ final class Evidence {
         Service::event($p,\App\Auth::user(),'contract.activated','Договор '.$c['number'].' действует: оплачены обеспечение и первый период',$id);
         return true;
     }
-    public static function initialInvoices(PDO $p, array $c):array {
-        return InitialBilling::issue($p, $c);
-    }
     private static function closure(PDO $p, int $id, ?array $newReturnAct = null):array {
         FileOrder::lock($p);
         $c = Service::get($p, 'contracts', $id);

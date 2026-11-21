@@ -91,6 +91,7 @@ final class Service {
 
     /** Same coarse grant for command execution and its later typed workflow notification. */
     public static function commandGrant(string $action,array $actor): string {
+        if (in_array($action,InitialInvoice::ACTIONS,true)) return InitialInvoice::grant($action);
         if (in_array($action,RentalServices::ACTIONS,true)) {
             return in_array($action,[RentalServices::CONFIRM,RentalServices::BOOK],true)?'finance.write':'rental.write';
         }
@@ -103,7 +104,7 @@ final class Service {
 
     public static function command(string $action, array $in, ?int &$freshCommittedEventId=null): array {
         $freshCommittedEventId=null;
-        if ($action===LeasePaymentTerms::SAVE || in_array($action,RentalServices::ACTIONS,true)) Access::contract((int)($in['id']??0),2);
+        if ($action===LeasePaymentTerms::SAVE || in_array($action,[...RentalServices::ACTIONS,...InitialInvoice::ACTIONS],true)) Access::contract((int)($in['id']??0),2);
         else \App\PagePolicy::requireCommand($action);
         Auth::requirePermission('rental.read');
         $actor = Auth::user();
@@ -428,6 +429,7 @@ final class Service {
             $c = self::get($p, 'contracts', $id);
             if(ContractDraft::deleted($c))throw new RuntimeException('Договор не найден.',404);
             self::version($c, $in);
+            if (in_array($action,InitialInvoice::ACTIONS,true)) return InitialInvoice::execute($p,$u,$action,$c,$in);
             if ($action===LeasePaymentTerms::SAVE) return LeasePaymentTerms::execute($p,$u,$c,$in);
             if ($action===ContractRevision::ACTION) return ContractRevision::submit($p,$u,$c,$in);
             if($action==='contract.delete'){self::roles(['manager']);return ContractDraft::delete($p,$c,$u,(string)$in['command_key']);}
@@ -519,8 +521,8 @@ final class Service {
                 ]);
                 if (!in_array($status,['accounting','approved'],true))throw new RuntimeException('Договор не у бухгалтера.');
                 PartyLegalReview::assertCurrent($p,(int)$c['party_id']);
-                if (empty($in['packet_confirmed']) && ContractRevision::state($p,$id))
-                    throw new RuntimeException('Откройте и проверьте пакет новой редакции договора.',409);
+                if (empty($in['packet_confirmed']))
+                    throw new RuntimeException('Откройте и проверьте актуальный пакет договора.',409);
                 foreach ([
                     'counterparty_confirmed',
                     'financial_confirmed',
@@ -532,7 +534,6 @@ final class Service {
                 ]);
                 $legal = $q->fetch();
                 if (!$legal || $legal['baseline_hash'] !== Evidence::approvalSignature($p, $id, $legal['file_id']))throw new RuntimeException('Юрист должен подтвердить актуальный файл и условия.');
-                if ($status==='accounting') Evidence::initialInvoices($p, $c);
                 $next = 'approved';
                 break;
                 case 'contract.sign':self::roles([

@@ -145,6 +145,7 @@ final class SourceCards {
         }
         $body.=RentalUI::pairs($pairs);
         $body.=PremisesActsCard::summary($c);
+        $body.=InitialInvoiceCard::entry($c);
         if (!in_array($c['status'],['draft','cancelled'],true)) $body.=LeasePaymentTermsCard::summary($c);
         $body.='<div class="demo-row">'.RentalUI::button('Клининг и допуслуги','/rental/services?contract_id='.$id).'</div>';
         $body.=HandoverQuestionCard::section($c);
