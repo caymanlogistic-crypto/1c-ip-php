@@ -251,7 +251,8 @@ final class DeliveryRetry
                 'actor_id'=>$actor['id'],'delivery_order'=>$order,'packet_intent_id'=>$selected['id'],
             ]);
         }
-        if (!$hasManual) return ['workflow_completed'=>true];
+        $handoff=WorkflowEvents::packetCompleted($db,$actor,$selected);
+        if (!$hasManual) return ['workflow_completed'=>true,'staff_handoff'=>$handoff];
         $fact=[
             'status'=>'sent','record_version'=>(int)$selected['entity_version']+1,
             'sent_at'=>$handedTime,'handed_at'=>$handedTime,'delivery_mode'=>'manual','accepted'=>false,
@@ -262,11 +263,11 @@ final class DeliveryRetry
         $contractId=$kind==='contract'?(int)$selected['entity_id']
             :(int)$db->query('SELECT contract_id FROM rental_documents WHERE id='.(int)$selected['entity_id'])->fetchColumn();
         Service::event($db,$actor,$kind.'.handed','Документы переданы клиенту. Электронная доставка не подтверждена.',$contractId);
-        return ['workflow_completed'=>true];
+        return ['workflow_completed'=>true,'staff_handoff'=>$handoff];
     }
 
     /** Caller has validated the strict initial B sender and stored the accepted result. */
-    public static function completeInitialAccepted(PDO $db,array $intent,array $payload): void
+    public static function completeInitialAccepted(PDO $db,array $intent,array $payload): ?array
     {
         if (!$db->inTransaction()) throw new RuntimeException('Завершение пакета требует предметной транзакции.');
         [$frozen]=self::envelope($intent);
@@ -287,11 +288,12 @@ final class DeliveryRetry
             || self::sender($actor)!==$context) throw new RuntimeException('Права отправителя изменились.',403);
         self::currentProof($db,$stored);
         $actor['id']=(int)$actor['id'];$actor['auth_version']=(int)$actor['auth_version'];
-        self::completePacket($db,$stored,$frozen,$actor,(new DateTimeImmutable('now',new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z'));
+        $completion=self::completePacket($db,$stored,$frozen,$actor,(new DateTimeImmutable('now',new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z'));
+        return $completion['staff_handoff']??null;
     }
 
     /** Worker settlement only; manual annotations never change transport status. */
-    public static function settle(PDO $db,string $id,string $status,array $receipt): void
+    public static function settle(PDO $db,string $id,string $status,array $receipt): ?array
     {
         if (!$db->inTransaction() || !in_array($status,['accepted','failed','unknown'],true)) throw new RuntimeException('Недопустимый результат отправки.');
         FileOrder::lock($db);$intent=self::intent($db,$id);self::authorizeStored($db,$intent);
@@ -303,10 +305,11 @@ final class DeliveryRetry
             self::validate($db,$intent);[$payload]=self::envelope($intent);
             $actor=self::operator($db,$payload['sender_context']);
             $db->prepare('UPDATE rental_delivery_intents SET status=?,receipt_json=? WHERE id=?')->execute([$status,Importer::json($receipt),$id]);
-            self::completePacket($db,$intent,$payload,$actor,(new DateTimeImmutable('now',new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z'));
-            return;
+            $completion=self::completePacket($db,$intent,$payload,$actor,(new DateTimeImmutable('now',new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z'));
+            return $completion['staff_handoff']??null;
         }
         $db->prepare('UPDATE rental_delivery_intents SET status=?,receipt_json=? WHERE id=?')->execute([$status,Importer::json($receipt),$id]);
+        return null;
     }
 
     private static function sender(array $sender): array

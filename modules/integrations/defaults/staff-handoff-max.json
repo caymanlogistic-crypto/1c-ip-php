@@ -1,0 +1,9 @@
+{
+    "id": "staffHandoff",
+    "name": "Передача рабочей задачи",
+    "format": "plain",
+    "version": 1,
+    "recipientsPolicy": "selected-test-group-only",
+    "attachmentPolicy": "none",
+    "body": "{documentLabel}\nПередал: {actor}\nДальше действует: {recipientNames}\nЗадача: {text}"
+}

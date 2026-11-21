@@ -99,6 +99,7 @@ final class OperationActionController
             } elseif (($_POST['action'] ?? '')==='operation.manual') {
                 self::continuePending($worker,$result['pending_intents'] ?? []);
             }
+            self::notifyHandoff($result);
         } catch (\Throwable $error) {
             if (in_array($error->getCode(),[401,403],true)) {
                 if (preg_match('/^[A-Z][A-Z0-9_]+$/D',$error->getMessage())) {
@@ -143,8 +144,16 @@ final class OperationActionController
             $sender=$payload['sender_context'] ?? $payload['actor_context'] ?? [];
             if ((int)($sender['id'] ?? 0)!==(int)$actor['id'] || ($sender['role_id'] ?? null)!==$actor['role_id']
                 || (int)($sender['auth_version'] ?? 0)!==(int)$actor['auth_version']) continue;
-            $worker->runForCurrentActor($id);
+            self::notifyHandoff($worker->runForCurrentActor($id));
         }
+    }
+
+    private static function notifyHandoff(array $result): void
+    {
+        if (empty($result['staff_handoff'])) return;
+        $event=$result['staff_handoff'];
+        $notice=Controller::workflowMaxNotice($event['event_id'],$event['command_key'],$event['action']);
+        if ($notice!=='') $_SESSION['rental_notice']=trim($notice);
     }
 
     private static function workspace(): string

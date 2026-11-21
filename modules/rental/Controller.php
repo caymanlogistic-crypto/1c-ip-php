@@ -1118,12 +1118,16 @@ final class Controller {
         return null;
     }
 
-    private static function workflowMaxNotice(?int $freshEventId,string $commandKey):string {
+    public static function workflowMaxNotice(?int $freshEventId,string $commandKey,string $action):string {
         if($freshEventId===null)return '';
         try{
             $actor=Auth::user();
             if(!$actor)return '';
-            $delivery=(new \Modules\Integrations\ObjectActivityMax(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+            if (StaffHandoff::managed($action) && \Modules\Integrations\ServerWorkflowMax::selectedStaffEvent(DB::pdo(),$freshEventId)) {
+                $delivery=(new \Modules\Integrations\ServerWorkflowMax(DB::pdo(),true))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+            } else {
+                $delivery=(new \Modules\Integrations\ObjectActivityMax(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+            }
             if ($delivery===null) {
                 if(\Modules\Integrations\ServerWorkflowMax::settings()!==null){
                     $delivery=(new \Modules\Integrations\ServerWorkflowMax(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
@@ -1140,10 +1144,17 @@ final class Controller {
                 'unavailable'=>' Уведомление MAX не отправлено: в этой среде отправка не разрешена.',
                 default=>' Результат уведомления MAX не подтверждён; автоматического повтора нет.',
             };
-        }catch(\Throwable){
+        }catch(\Throwable $error){
             // The domain transaction is already committed. Delivery failure is never a command failure.
-            return ' Данные сохранены. Уведомление MAX не подтверждено; автоматического повтора нет.';
+            return self::workflowMaxFailure($error);
         }
+    }
+
+    private static function workflowMaxFailure(\Throwable $error):string
+    {
+        if ($error->getMessage()===\Modules\Integrations\ServerWorkflowMax::RECONCILIATION_REQUIRED)
+            return ' Уведомление MAX не отправлено. Сверьте результат предыдущей попытки. Это событие автоматически повторено не будет.';
+        return ' Данные сохранены. Уведомление MAX не подтверждено; автоматического повтора нет.';
     }
 
     public static function action(): never {
@@ -1173,7 +1184,7 @@ final class Controller {
             $result = Service::command($action, $in, $freshCommittedEventId);
             if (in_array($action,RentalServices::ACTIONS,true) && !empty($result['service_id'])) $target='/rental/service?id='.$result['service_id'];
             if ($action===PremisesInventory::MOVE) $target='/rental/object-inventory?id='.(int)$result['id'];
-            $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''));
+            $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''),$action);
             if ($action === 'party.save' && empty($in['id']) && ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'ERP-Fetch') {
                 $party = self::query('SELECT id,name,inn FROM parties WHERE id=?', [
                     $result['id']

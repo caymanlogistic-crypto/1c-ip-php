@@ -49,7 +49,7 @@ final class HandoverQuestion
     {
         $planned = self::plannedDate($contract,$invoice);
         return ['key'=>$key,'planned'=>$planned,'actual'=>$actual,'invoice_id'=>(int)$invoice['id'],
-            'invoice_number'=>$invoice['number'],'notification_command'=>$local ? null : $key,'local_only'=>$local,
+            'invoice_number'=>$invoice['number'],'notification_command'=>$key,'local_only'=>$local,
             'question'=>sprintf(
                 'Объект передан %s вместо %s по договору. Счёт за первый период № %s уже выставлен. Как учесть сдвиг даты в начислениях?',
                 self::displayDate($actual),self::displayDate($planned),$invoice['number'])];
@@ -154,17 +154,21 @@ final class HandoverQuestion
 
     public static function delivery(PDO $db, int $id, array $case): array
     {
-        if (!empty($case['local_only'])) return ['status'=>'local','attempt_id'=>null];
-        $q = $db->prepare("SELECT id,source_json,created_at FROM rental_events WHERE contract_id=? AND action IN (?,?) AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.command_key'))=? ORDER BY id DESC LIMIT 1");
-        $q->execute([$id, self::OPEN, self::RETRY, $case['notification_command']]);
+        $q = $db->prepare("SELECT id,source_json,created_at FROM rental_events WHERE contract_id=? AND action IN (?,?,?) AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.command_key'))=? ORDER BY id DESC LIMIT 1");
+        $q->execute([$id, self::OPEN, self::RETRY, PremisesActs::CONFIRM, $case['notification_command']]);
         $row = $q->fetch();
         $event = $row ? WorkflowEvents::decode($row) : null;
-        if (!$event) return ['status'=>'unavailable', 'attempt_id'=>null];
+        if (!$event) return ['status'=>!empty($case['local_only'])?'local':'unavailable', 'attempt_id'=>null];
         $q = $db->prepare("SELECT a.id,a.status,g.name FROM messaging_attempts a LEFT JOIN messaging_groups g ON g.provider=a.provider AND g.chat_id=a.target WHERE a.provider='max' AND a.operation='send' AND a.actor_id=? AND a.request_key=?");
-        $q->execute([$event['actor_id'], ServerWorkflowMax::requestKey($event)]);
+        $q->execute([$event['actor_id'], ServerWorkflowMax::requestKey($event,true)]);
         $attempt = $q->fetch();
+        $staff = (bool)$attempt;
+        if (!$attempt && $event['event_kind'] === self::EVENT) {
+            $q->execute([$event['actor_id'], ServerWorkflowMax::requestKey($event)]);
+            $attempt=$q->fetch();
+        }
         $review = $case['delivery_reconciliation'] ?? null;
-        $status = $attempt['status'] ?? 'unavailable';
+        $status = $attempt['status'] ?? (!empty($case['local_only'])?'local':'unavailable');
         if ($status === 'uncertain' && $review && $review['attempt_id'] === $attempt['id']) {
             $status = 'reconciled_'.$review['outcome'];
         }
@@ -172,12 +176,13 @@ final class HandoverQuestion
             'status'=>$status,
             'attempt_id'=>$attempt['id'] ?? null,
             'group'=>$attempt['name'] ?? null,
+            'staff_handoff'=>$staff,
         ];
     }
 
     public static function canRetry(array $delivery): bool
     {
-        return in_array($delivery['status'], ['failed', 'reconciled_failed'], true);
+        return empty($delivery['staff_handoff']) && in_array($delivery['status'], ['failed', 'reconciled_failed'], true);
     }
 
     public static function affectedMonths(array $case): array
