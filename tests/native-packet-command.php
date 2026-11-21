@@ -61,9 +61,8 @@ try {
         'counterparty_confirmed' => '1', 'financial_confirmed' => '1', 'document_confirmed' => '1'];
     $before = effects($db, $id);
     $result = Service::command($action, $input);
-    $expectedNewInvoices = count(array_filter($preview['view']['invoices'], static fn(array $invoice) => !$invoice['existing']));
     $after = effects($db, $id);
-    check($after === [$before[0]+$expectedNewInvoices, $before[1]+1, $before[2]+1], 'Wrong initial billing or history.');
+    check($after === [$before[0], $before[1]+1, $before[2]+1], 'Contract approval must create a receipt and zero invoices.');
     check(Service::get($db, 'contracts', $id)['version'] === $preview['record']['version']+1, 'Contract version did not advance.');
 
     $query = $db->prepare('SELECT fingerprint FROM rental_commands WHERE command_key=?');
@@ -74,7 +73,7 @@ try {
         'Saved packet proof is unreadable.');
     check(Service::command($action, $input) === $result && effects($db, $id) === $after,
         'Retry wrote effects or returned a different receipt.');
-    echo "PASS: epoch-bound command receipt, initial invoices, history and retry\n";
+    echo "PASS: epoch-bound command receipt, zero issued invoices, history and retry\n";
 } finally {
     $db->rollBack();
 }

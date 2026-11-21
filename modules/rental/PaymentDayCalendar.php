@@ -7,11 +7,11 @@ use RuntimeException;
 
 final class PaymentDayCalendar
 {
-    public static function after(string $date, int $days, string $unit): array
+    public static function after(string $date, int $days, string $unit, bool $operative = false): array
     {
         $start = new DateTimeImmutable(Service::date($date));
         if ($unit === 'calendar') return ['date'=>$start->modify("+$days days")->format('Y-m-d')];
-        if ($unit === 'working') {
+        if ($unit === 'working' && !$operative) {
             try {
                 $calendar = SourceCalendar::registered();
             } catch (RuntimeException) {
@@ -21,9 +21,10 @@ final class PaymentDayCalendar
             $coverage = $calendar->metadata();
             $isDay = $calendar->isWorkingDate(...);
             $source = 'Локальный эталон рабочего календаря 2026 года';
-        } elseif ($unit === 'banking') {
-            $calendar = self::banking();
-            if (!$calendar) return ['question'=>'Нужен подтверждённый банковский календарь.'];
+        } elseif (in_array($unit,['banking','working'],true)) {
+            $calendar = self::approved($unit);
+            if (!$calendar) return ['question'=>$unit === 'banking'
+                ? 'Нужен подтверждённый банковский календарь.' : 'Нужен подтверждённый рабочий календарь.'];
             $coverage = $calendar;
             $bankDays = array_fill_keys($calendar['days'], true);
             $isDay = static fn(string $day): bool => isset($bankDays[$day]);
@@ -42,16 +43,17 @@ final class PaymentDayCalendar
         return ['question'=>'Срок выходит за подтверждённый охват календаря. Нужна сверка сотрудника.'];
     }
 
-    private static function banking(): ?array
+    private static function approved(string $unit): ?array
     {
         // The operator supplies an admitted source with explicit daily coverage. No weekday fallback.
-        $path = getenv('APP_RENTAL_BANKING_CALENDAR_FILE');
-        $pin = getenv('APP_RENTAL_BANKING_CALENDAR_SHA256');
+        $prefix = 'APP_RENTAL_'.strtoupper($unit).'_CALENDAR_';
+        $path = getenv($prefix.'FILE');
+        $pin = getenv($prefix.'SHA256');
         if (!$path || !$pin || !is_file($path) || !is_readable($path)) return null;
         $bytes = file_get_contents($path);
         if ($bytes === false || !hash_equals($pin, hash('sha256', $bytes))) return null;
         $data = json_decode($bytes, true);
-        if (($data['unit'] ?? '') !== 'banking' || ($data['admitted'] ?? false) !== true
+        if (($data['unit'] ?? '') !== $unit || ($data['admitted'] ?? false) !== true
             || !is_string($data['source'] ?? null) || trim($data['source']) === ''
             || !is_array($data['days'] ?? null) || !array_is_list($data['days'])) return null;
         if (!empty($data['test_only'])

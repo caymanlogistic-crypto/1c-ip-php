@@ -7,7 +7,7 @@ use DateTimeImmutable;
 use PDO;
 use RuntimeException;
 
-/** Source workflow.js initialInvoices: financial amounts use the contract header. */
+/** Preserves historical initial coverage keys and records the approved invoice plan. */
 final class InitialBilling
 {
     public static function calculate(array $contract): array
@@ -24,23 +24,25 @@ final class InitialBilling
             'coverage_key'=>'initial:'.$contract['id'].':'.$row[0].':'.$row[1]],$rows);
     }
 
-    public static function planned(PDO $db,array $contract): array
+    public static function planned(PDO $db,array $contract,?array $explicit=null): array
     {
-        $plans=self::calculate($contract);
+        $plans=$explicit ?? self::calculate($contract);
         $query=$db->prepare('SELECT object_id FROM contract_objects WHERE contract_id=? ORDER BY object_id');$query->execute([$contract['id']]);
         $objects=array_map('intval',$query->fetchAll(PDO::FETCH_COLUMN));
         $state=BillingPartTerms::state($db,'contract',(int)$contract['id']);
         if($state!==null && $state['state']!=='KNOWN')throw new RuntimeException('Не подтверждены условия частей договора.',409);
-        $terms=$state!==null?BillableTerms::forContract($db,(int)$contract['id']):null;
+        $terms=$state!==null || $explicit!==null ? BillableTerms::forContract($db,(int)$contract['id']) : null;
         foreach($plans as &$plan){
             $security=$plan['kind']==='Обеспечительный платёж';
-            $plan+=['objects'=>$objects,'coverage'=>[]];
+            $plan+=['objects'=>$objects,'coverage'=>[],
+                'coverage_key'=>'initial:'.$contract['id'].':'.$plan['kind'].':'.$plan['period']];
             if($terms!==null){
-                $from=$security?$contract['start_date']:max($contract['start_date'],$plan['period'].'-01');
-                $to=$security?$contract['end_date']:min($contract['end_date'],(new DateTimeImmutable($plan['period'].'-01'))->modify('last day of this month')->format('Y-m-d'));
-                $plan['invoice_targets']=self::targets($terms,$from,$to,$security,'initial:'.$contract['id'].':'.$plan['kind'].':'.$plan['period']);
-                $plan['objects']=$plan['invoice_targets']['physical_objects'];
-                $plan['coverage']=$plan['invoice_targets']['physical_coverage'];
+                $from=$plan['from'] ?? ($security?$contract['start_date']:max($contract['start_date'],$plan['period'].'-01'));
+                $to=$plan['to'] ?? ($security?$contract['end_date']:min($contract['end_date'],(new DateTimeImmutable($plan['period'].'-01'))->modify('last day of this month')->format('Y-m-d')));
+                $targets=self::targets($terms,$from,$to,$security,$plan['coverage_key']);
+                if($state!==null)$plan['invoice_targets']=$targets;
+                $plan['objects']=$targets['physical_objects'];
+                $plan['coverage']=$targets['physical_coverage'];
             }
         }
         unset($plan);return $plans;
@@ -92,7 +94,13 @@ final class InitialBilling
 
     public static function issue(PDO $db,array $contract): array
     {
-        $plans=self::planned($db,$contract);$ids=[];
+        return self::write($db,$contract,self::planned($db,$contract),NativeOperatingWriter::today($db));
+    }
+
+    public static function write(PDO $db,array $contract,array $plans,string $issued,?array $proof=null): array
+    {
+        if($proof!==null && !$db->inTransaction())throw new RuntimeException('Выпуск первых счетов требует транзакции.',409);
+        $ids=[];
         foreach($plans as $plan){
             $typed=isset($plan['invoice_targets']);
             if($typed&&!$db->inTransaction())throw new RuntimeException('Явный план счёта требует общей транзакции.',409);
@@ -103,13 +111,15 @@ final class InitialBilling
             }
             if($typed)BillingInvoiceTargets::assertSelection($db,(int)$contract['id'],$plan['invoice_targets']);
             $id=\App\BusinessIds::next($db,'invoices',900000);
-            $issued=NativeOperatingWriter::today($db);
             $creation=NativeOperatingWriter::begin($db,'invoice',$id,'native-c-initial','evidence.initial-invoice',$issued,$plan['coverage_key']);
-            $source=$typed?['native_invoice_targets'=>BillingInvoiceTargets::producerMarker($plan['invoice_targets'],'initial','contract',(int)$contract['id'])]:new \stdClass();
+            $source=[];
+            if($typed)$source['native_invoice_targets']=BillingInvoiceTargets::producerMarker($plan['invoice_targets'],'initial','contract',(int)$contract['id']);
+            if($proof!==null)$source['separate_initial_invoice']=$proof+['from'=>$plan['from'],'to'=>$plan['to'],'due_basis'=>$plan['due_basis'],'due_part'=>$plan['due_part']];
+            $due=$proof!==null ? $plan['due'] : InvoiceDueDate::automatic($issued,$plan['period'],(bool)$plan['initial']);
             $db->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,initial_invoice,coverage_key,source_json) VALUES(?,?,?,?,?,?,0,?,?,'active',?,?,?)")
-                ->execute([$id,'Д-'.$id,$contract['id'],$plan['kind'],$plan['period'],$plan['amount'],$issued,InvoiceDueDate::automatic($issued,$plan['period'],(bool)$plan['initial']),$plan['initial'],$plan['coverage_key'],Importer::json($source)]);
+                ->execute([$id,'Д-'.$id,$contract['id'],$plan['kind'],$plan['period'],$plan['amount'],$issued,$due,$plan['initial'],$plan['coverage_key'],Importer::json($source ?: new \stdClass())]);
             // Preserve the physical fallback at creation, before a later addendum changes it.
-            if(!$typed)$plan['coverage']=MonthlyBilling::sourceCoverage($db,$contract,Service::get($db,'invoices',$id));
+            if(!$typed && $proof===null)$plan['coverage']=MonthlyBilling::sourceCoverage($db,$contract,Service::get($db,'invoices',$id));
             self::links($db,$id,$plan);
             Billing::snapshotInvoice($db,$id);
             NativeInvoiceScope::record($db,$id,'native-c-initial',null,$plan['invoice_targets']??null);

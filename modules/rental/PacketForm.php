@@ -35,7 +35,7 @@ final class PacketForm
         $sections = [
             'details' => ['Реквизиты', [$context['party'], $context['organization']]],
             'billing' => ['Финансовые условия', [$context['terms'], $context['financial_state'], $view['invoices'],
-                $context['organization']['vat']]],
+                $context['organization']['vat'], $context['initial_terms'] ?? null]],
             'documents' => ['Договор и документы', [$record, $context['contract'], $context['file'],
                 $context['legal'], $context['template'], $context['word_pack'] ?? null]],
         ];
@@ -56,6 +56,35 @@ final class PacketForm
             ['Файл', $context['file']['filename']],
             ['Контрагент', $context['party']['name']],
         ]);
+        if ($kind === 'contract') {
+            $body .= RentalUI::pairs([
+                ['Срок аренды',Documents::dateText($record['start_date']).' — '.Documents::dateText($record['end_date'])],
+                ['Месячная ставка с НДС',Controller::money($record['amount'])],
+            ]);
+            $body .= RentalUI::alert('Подтверждение пакета не создаёт счета',
+                $view['invoices'] ? 'В пакет входят показанные ранее выставленные счета с подтверждённым сроком.'
+                    : 'Пакет договора доступен отдельно. Для выпуска откройте «Выставить первый счёт».');
+            if ($context['initial_terms']) {
+                $body .= RentalUI::pairs([
+                    ['Условия первого начисления',$context['initial_terms']['reason']],
+                    ['Кратность обеспечения',(string)$context['initial_terms']['multiple']],
+                ]);
+            }
+            $separate = InitialInvoice::separateIds(DB::pdo(),$id);
+            $attached = array_map('intval',array_column($view['invoices'],'id'));
+            $held = array_diff($separate,$attached);
+            if ($held) {
+                $body .= RentalUI::alert('Отдельные счета ждут проверки перед включением в пакет',
+                    'Сверьте срок оплаты и актуальность условий перед включением этих счетов.','warning');
+                $rows = [];
+                foreach ($context['financial_state'] as $invoice) {
+                    if (!in_array((int)$invoice['id'],$held,true)) continue;
+                    $rows[] = [View::e($invoice['kind']),View::e($invoice['period']),Controller::money($invoice['amount']),
+                        View::e($invoice['due'] ? Documents::dateText($invoice['due']) : 'Требует подтверждения')];
+                }
+                if ($rows) $body .= Controller::table(['Счёт','Период','Сумма с НДС','Срок оплаты'],$rows);
+            }
+        }
         if ($view['invoices']) {
             $vat = $context['organization']['vat'];
             $vatText = $vat === null ? 'Не указан' : rtrim(rtrim($vat, '0'), '.').'%';

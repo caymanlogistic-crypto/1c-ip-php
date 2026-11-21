@@ -102,7 +102,7 @@ final class NativePacket
     }
 
     /** The rows whose exact values the accountant sees before committing B. */
-    private static function context(PDO $p, string $kind, int $id): array
+    private static function context(PDO $p, string $kind, int $id, bool $separatePolicy = false): array
     {
         self::kind($kind);
         $record = self::row($p, 'SELECT * FROM '.($kind === 'contract' ? 'contracts' : 'rental_documents').' WHERE id=?', [$id]);
@@ -147,6 +147,7 @@ final class NativePacket
         $context=compact('record', 'contract', 'party', 'organization', 'legal', 'file', 'terms', 'objects', 'template', 'financial_state');
         if($pack=WordPack::evidence($p,$file['id']))$context['word_pack']=$pack;
         if($partState!==null)$context['part_state']=$partState;
+        if ($kind === 'contract' && $separatePolicy) $context['initial_terms'] = InitialInvoice::approvalTerms($p,$id);
         return $context;
     }
 
@@ -177,18 +178,20 @@ final class NativePacket
     {
         $c = $context['contract'];
         $d = $context['record'];
-        $planned = [];
         if ($kind === 'contract') {
-            foreach(InitialBilling::planned($p,$c) as $plan){
-                // Keep the old OFF/legacy packet shape. Producer-only fields
-                // still feed the actual issuer; relevant target evidence is additive.
-                $invoice=['kind'=>$plan['kind'],'period'=>$plan['period'],'amount'=>$plan['amount'],'coverage_key'=>$plan['coverage_key']];
-                if(isset($plan['invoice_targets']))$invoice['invoice_targets']=$plan['invoice_targets'];
-                $planned[]=$invoice;
+            $existing = [];
+            $receipt = InitialInvoice::receipt($p,(int)$c['id']);
+            $exclude = $receipt && !InitialInvoice::stillCoversIssue($p,$c,$receipt) ? $receipt['invoice_ids'] : [];
+            foreach (InitialInvoice::issuedFor($p,(int)$c['id']) as $invoice) {
+                if (in_array((int)$invoice['id'],$exclude,true)) continue;
+                // Pending deadlines remain visible to B as financial facts. They grant no attachment authority.
+                if ($invoice['status'] !== 'active' || !$invoice['issued'] || !$invoice['due']
+                    || $invoice['amount'] === null || bccomp($invoice['amount'],'0',2)<=0) continue;
+                $existing[] = $invoice;
             }
-        } else {
-            $planned = AddendumBilling::planned($p, $c, $d);
+            return $existing;
         }
+        $planned = AddendumBilling::planned($p, $c, $d);
         foreach ($planned as &$invoice) {
             $invoice['amount'] = Service::money($invoice['amount']);
             if (bccomp($invoice['amount'], '0', 2) <= 0) throw new RuntimeException('NATIVE_PACKET_AMOUNT_INVALID');
@@ -199,7 +202,7 @@ final class NativePacket
                 // A fresh human confirmation of an approved packet must use its real existing
                 // invoice membership and amounts. It never creates or recalculates financials.
                 if (count($existing) !== 1 || (int)$existing[0]['contract_id'] !== (int)$c['id']
-                    || $kind === 'document' && !self::documentMember($existing[0], $invoice, (int)$d['id'])
+                    || !self::documentMember($existing[0], $invoice, (int)$d['id'])
                     || $existing[0]['status'] === 'revoked' || $existing[0]['kind'] !== $invoice['kind']
                     || $existing[0]['period'] !== $invoice['period'] || $existing[0]['amount'] === null
                     || bccomp((string)$existing[0]['amount'], '0', 2) <= 0 || !$existing[0]['issued']) {
@@ -234,12 +237,13 @@ final class NativePacket
     public static function preview(PDO $p, string $kind, int $id, array $actor): array
     {
         $user = self::actor($p, $actor);
-        $context = self::context($p, $kind, $id);
+        $context = self::context($p, $kind, $id, true);
         if (!in_array($context['record']['status'], ['accounting', 'approved'], true)) throw new RuntimeException('NATIVE_PACKET_NOT_AT_ACCOUNTANT');
         self::validateLegalTerms($kind,$context);
         $runtime = self::row($p, 'SELECT epoch,revision,source_pair_sha256 FROM rental_runtime_context WHERE id=1');
         $view = ['record_kind' => $kind, 'record_id' => $id, 'actor' => $user, 'context' => $context,
             'invoices' => self::plannedInvoices($p, $kind, $context), 'workflow' => $runtime];
+        if ($kind === 'contract') $view['initial_invoice_policy'] = InitialInvoice::POLICY;
         return ['expected_packet_hash' => self::hash($view), 'record' => ['kind' => $kind, 'id' => $id, 'version' => (int)$context['record']['version']], 'view' => $view];
     }
 
@@ -286,20 +290,21 @@ final class NativePacket
         if ($command['action'] !== $action || !hash_equals($command['fingerprint'], $fingerprint)) {
             throw new RuntimeException('NATIVE_PACKET_COMMAND_RECEIPT_CHANGED');
         }
-        $context = self::context($p, $kind, $id);
+        $context = self::context($p, $kind, $id, true);
         if ($context['record']['status'] !== 'approved' || (int)$context['record']['version'] !== $validated['record']['version'] + 1) throw new RuntimeException('NATIVE_PACKET_POST_B_VERSION_CHANGED');
         $before = $validated['view']['context'];
         $after = $context;
-        // B legitimately creates planned invoices and review flags. Its precondition already
-        // checked the complete pre-B financial state; retain the complete post-B state below.
-        unset($before['financial_state'], $after['financial_state']);
+        // Only the addendum command still books invoices during B.
+        if ($kind === 'document') unset($before['financial_state'], $after['financial_state']);
         foreach ($kind === 'contract' ? ['record', 'contract'] : ['record'] as $key) {
             unset($before[$key]['status'], $before[$key]['version'], $after[$key]['status'], $after[$key]['version']);
         }
         if (!hash_equals(self::hash($before), self::hash($after))) throw new RuntimeException('NATIVE_PACKET_POST_B_CONTENT_CHANGED');
         $invoices = [];
         foreach ($validated['view']['invoices'] as $planned) {
-            $invoice = self::row($p, 'SELECT * FROM invoices WHERE coverage_key=?', [$planned['coverage_key']]);
+            $invoice = $kind === 'contract'
+                ? self::row($p,'SELECT * FROM invoices WHERE id=?',[$planned['id']])
+                : self::row($p,'SELECT * FROM invoices WHERE coverage_key=?',[$planned['coverage_key']]);
             if ((int)$invoice['contract_id'] !== (int)$context['contract']['id'] || $invoice['kind'] !== $planned['kind'] || $invoice['period'] !== $planned['period']
                 || bccomp((string)$invoice['amount'], $planned['amount'], 2) !== 0
                 || ($kind === 'document' && !self::documentMember($invoice, $planned, $id))) throw new RuntimeException('NATIVE_PACKET_INVOICE_MISMATCH');
@@ -319,6 +324,7 @@ final class NativePacket
             'preview' => ['terms' => self::previewTerms($context),
                 'vat' => $context['organization']['vat'], 'vatIncluded' => true],
             'invoices' => $invoices, 'invoice_ids' => array_column($invoices, 'id'), 'native_steps' => $steps];
+        if ($kind === 'contract') $snapshot['initial_invoice_policy'] = InitialInvoice::POLICY;
         $raw = Importer::canonicalJson($snapshot);
         $sha = hash('sha256', $raw);
         $packetSignature = $validated['expected_packet_hash'];
@@ -338,7 +344,7 @@ final class NativePacket
         $original=PacketApprovalRecord::read($p,$kind,$id,$binding);
         $latest=self::row($p,'SELECT id FROM rental_packet_confirmations WHERE record_kind=? AND record_id=? ORDER BY workflow_revision DESC LIMIT 1',[$kind,$id]);
         if($latest['id']!==$binding['binding_id'])throw new RuntimeException('PACKET_APPROVAL_SUPERSEDED',409);
-        $snapshot=$original['snapshot'];$context=self::context($p,$kind,$id);
+        $snapshot=$original['snapshot'];$context=self::boundContext($p,$kind,$id,$snapshot);
         if(!hash_equals(self::hash($snapshot['context']),self::hash($context))
             ||(int)$snapshot['record']['version']!==(int)$context['record']['version'])throw new RuntimeException('NATIVE_PACKET_STALE',409);
         foreach($snapshot['invoices']as$frozen){
@@ -349,6 +355,20 @@ final class NativePacket
         $snapshot['confirmation']['snapshot_sha256']=$original['raw_sha256'];
         $snapshot['confirmation']['approved_at']=$original['confirmed_at'];
         return $snapshot;
+    }
+
+    private static function boundContext(PDO $p,string $kind,int $id,array $snapshot): array
+    {
+        $separate = $kind === 'contract' && ($snapshot['initial_invoice_policy'] ?? null) === InitialInvoice::POLICY;
+        $context = self::context($p,$kind,$id,$separate);
+        if (!$separate) return $context;
+        $prior = array_map('intval',array_column($snapshot['context']['financial_state'],'id'));
+        $later = array_diff(InitialInvoice::separateIds($p,$id),$prior);
+        // Keep the original packet's membership. Issuing separately cannot add a new attachment,
+        // excuse any change to a reviewed invoice or bypass the delivery checks.
+        $context['financial_state'] = array_values(array_filter($context['financial_state'],
+            static fn(array $invoice): bool => !in_array((int)$invoice['id'],$later,true)));
+        return $context;
     }
 
     public static function current(PDO $p, string $kind, int $id, array $actor, string $phase): array
@@ -364,7 +384,7 @@ final class NativePacket
             throw new RuntimeException('NATIVE_PACKET_RAW_AUTHORITY_INVALID');
         }
         $snapshot = json_decode($raw, true, 128, JSON_THROW_ON_ERROR);
-        $context = self::context($p, $kind, $id);
+        $context = self::boundContext($p,$kind,$id,$snapshot);
         if (!hash_equals(self::hash($snapshot['context']), self::hash($context)) || (int)$saved['record_version'] !== (int)$context['record']['version']) throw new RuntimeException('NATIVE_PACKET_STALE', 409);
         if ((int)$saved['actor_id'] !== $user['id'] || $saved['role_id'] !== $user['role_id'] || (int)$saved['auth_version'] !== $user['auth_version']) throw new RuntimeException('NATIVE_PACKET_CONFIRMATION_ACTOR_CHANGED', 403);
         $runtime = self::row($p, 'SELECT * FROM rental_runtime_context WHERE id=1');

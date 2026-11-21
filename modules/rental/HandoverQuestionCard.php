@@ -31,6 +31,7 @@ final class HandoverQuestionCard
         if ($case) {
             $delivery = HandoverQuestion::delivery($db, $id, $case);
             $status = match ($delivery['status']) {
+                'local'=>'Вопрос сохранён в карточке для бухгалтера',
                 'accepted'=>'MAX принял уведомление',
                 'failed'=>'Уведомление MAX не доставлено',
                 'reconciled_accepted'=>'Доставка MAX подтверждена сотрудником',
@@ -78,7 +79,7 @@ final class HandoverQuestionCard
             $invoice = HandoverQuestion::initialInvoice($db, $contract);
             if (!$invoice) throw new RuntimeException('Для вопроса нужен выставленный счёт за первый период аренды.', 409);
             return RentalUI::pairs([
-                ['Начало по договору', HandoverQuestion::displayDate($contract['start_date'])],
+                ['Начало по договору', HandoverQuestion::displayDate(HandoverQuestion::plannedDate($contract,$invoice))],
                 ['Счёт за первый период', $invoice['number']],
             ]).Controller::input('handover_date', 'Фактическая дата передачи', '', 'date', true);
         }

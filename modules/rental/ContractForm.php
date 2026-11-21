@@ -153,7 +153,10 @@ final class ContractForm {
         . '" name="intent"'.$section('submit').' value="submit">'
         . ($c && $c['status'] === 'returned'?'Повторно согласовать':'Отправить на согласование')
         . '</button>';
-        return RentalUI::modal($c?'Изменить проект договора':'Новый договор', $body, $actions, 'contracts', true, $c && ContractDraft::deletable(\App\DB::pdo(),$c)?RentalUI::button('Удалить черновик','/rental/action-form?id='.$id.'&action=contract.delete',false,true):'',design:$design);
+        $leading = $c ? InitialInvoiceCard::entry($c) : '';
+        if ($c && ContractDraft::deletable(\App\DB::pdo(),$c))
+            $leading.=RentalUI::button('Удалить черновик','/rental/action-form?id='.$id.'&action=contract.delete',false,true);
+        return RentalUI::modal($c?'Изменить проект договора':'Новый договор', $body, $actions, 'contracts', true, $leading,design:$design);
     }
 
 }

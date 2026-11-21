@@ -34,9 +34,42 @@ final class HandoverQuestion
     public static function initialInvoice(PDO $db, array $contract): ?array
     {
         if (!in_array($contract['status'], self::STATUSES, true) || empty($contract['start_date'])) return null;
-        $q = $db->prepare("SELECT id,number FROM invoices WHERE contract_id=? AND initial_invoice=1 AND kind='Первый период' AND issued<=CURRENT_DATE AND status='active' ORDER BY issued,id LIMIT 1");
+        $q = $db->prepare("SELECT id,number,source_json FROM invoices WHERE contract_id=? AND initial_invoice=1 AND kind='Первый период' AND (issued<=CURRENT_DATE OR JSON_CONTAINS_PATH(source_json,'one','$.separate_initial_invoice')=1) AND status='active' ORDER BY issued,id LIMIT 1");
         $q->execute([$contract['id']]);
         return $q->fetch() ?: null;
+    }
+
+    public static function plannedDate(array $contract,array $invoice): string
+    {
+        $source = Importer::decodeExact($invoice['source_json']);
+        return $source['separate_initial_invoice']['lease_start'] ?? $contract['start_date'];
+    }
+
+    private static function createCase(array $contract,array $invoice,string $actual,string $key,bool $local): array
+    {
+        $planned = self::plannedDate($contract,$invoice);
+        return ['key'=>$key,'planned'=>$planned,'actual'=>$actual,'invoice_id'=>(int)$invoice['id'],
+            'invoice_number'=>$invoice['number'],'notification_command'=>$local ? null : $key,'local_only'=>$local,
+            'question'=>sprintf(
+                'Объект передан %s вместо %s по договору. Счёт за первый период № %s уже выставлен. Как учесть сдвиг даты в начислениях?',
+                self::displayDate($actual),self::displayDate($planned),$invoice['number'])];
+    }
+
+    private static function store(PDO $db,int $id,array $case): void
+    {
+        $db->prepare('INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,1)
+            ON DUPLICATE KEY UPDATE fact_json=VALUES(fact_json)')->execute([self::NAMESPACE,self::factKey($db,$id),Importer::json($case)]);
+    }
+
+    public static function fromSignedTransfer(PDO $db,array $actor,array $contract,string $actual,string $key): bool
+    {
+        $id = (int)$contract['id'];
+        $invoice = self::initialInvoice($db,$contract);
+        if (!$invoice || $actual === self::plannedDate($contract,$invoice) || self::read($db,$id)) return false;
+        $case = self::createCase($contract,$invoice,$actual,$key,true);
+        self::store($db,$id,$case);
+        Service::event($db,$actor,self::OPEN,$case['question'],$id);
+        return true;
     }
 
     public static function can(string $action, array $actor, array $contract): bool
@@ -64,26 +97,19 @@ final class HandoverQuestion
             $invoice = self::initialInvoice($db, $contract);
             if ($invoice === null) throw new RuntimeException('Для вопроса нужен выставленный счёт за первый период аренды.', 409);
             $actual = Service::date((string)($input['handover_date'] ?? ''));
-            if ($actual === $contract['start_date'] || $actual > date('Y-m-d')) {
+            $planned = self::plannedDate($contract,$invoice);
+            if ($actual === $planned || $actual > date('Y-m-d')) {
                 throw new RuntimeException('Укажите фактическую дату передачи, отличную от даты начала по договору и не позже сегодняшнего дня.', 422);
             }
-            if ($case && $case['actual'] === $actual && $case['planned'] === $contract['start_date'] && $case['invoice_id'] === (int)$invoice['id']) {
+            if ($case && $case['actual'] === $actual && $case['planned'] === $planned && $case['invoice_id'] === (int)$invoice['id']) {
                 return ['id'=>$id, 'message'=>empty($case['resolution']) ? 'Этот вопрос уже ждёт решения.' : 'По этой дате решение уже сохранено.'];
             }
             if ($case && empty($case['resolution'])) {
                 throw new RuntimeException('Сначала зафиксируйте решение по открытому вопросу.', 409);
             }
-            $case = [
-                'key'=>$commandKey, 'planned'=>$contract['start_date'], 'actual'=>$actual,
-                'invoice_id'=>(int)$invoice['id'], 'invoice_number'=>$invoice['number'],
-                'notification_command'=>$commandKey,
-            ];
-            $description = sprintf(
-                'Объект передан %s вместо %s по договору. Счёт за первый период № %s уже выставлен. Как учесть сдвиг даты в начислениях?',
-                self::displayDate($case['actual']), self::displayDate($case['planned']), $case['invoice_number']
-            );
+            $case = self::createCase($contract,$invoice,$actual,$commandKey,false);
+            $description = $case['question'];
             $message = 'Вопрос передан на рассмотрение бухгалтеру. Начисление за затронутый период ждёт решения.';
-            $case['question'] = $description;
             $notify = true;
         } else {
             if (!$case || ($input['question_key'] ?? null) !== $case['key']
@@ -121,14 +147,14 @@ final class HandoverQuestion
                 $message = 'Решение сохранено. Начисление за затронутый период можно продолжить.';
             }
         }
-        $q = $db->prepare('INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,1) ON DUPLICATE KEY UPDATE fact_json=VALUES(fact_json)');
-        $q->execute([self::NAMESPACE, self::factKey($db, $id), Importer::json($case)]);
+        self::store($db,$id,$case);
         Service::event($db, $actor, $action, 'Договор № '.$contract['number'].'. '.$description, $id);
         return ['id'=>$id, 'message'=>$message, 'question_notification'=>$notify];
     }
 
     public static function delivery(PDO $db, int $id, array $case): array
     {
+        if (!empty($case['local_only'])) return ['status'=>'local','attempt_id'=>null];
         $q = $db->prepare("SELECT id,source_json,created_at FROM rental_events WHERE contract_id=? AND action IN (?,?) AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.command_key'))=? ORDER BY id DESC LIMIT 1");
         $q->execute([$id, self::OPEN, self::RETRY, $case['notification_command']]);
         $row = $q->fetch();

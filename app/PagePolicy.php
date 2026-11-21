@@ -171,7 +171,7 @@ final class PagePolicy {
         $key = null;
         if ($path === '/rental/action') {
             $action=(string)($_POST['action']??'');
-            if (in_array($action,\Modules\Rental\RentalServices::ACTIONS,true)) {
+            if (in_array($action,[...\Modules\Rental\RentalServices::ACTIONS,...\Modules\Rental\InitialInvoice::ACTIONS],true)) {
                 Auth::requirePermission('rental.read');
                 return; // Service checks access to the lease in its current state.
             }

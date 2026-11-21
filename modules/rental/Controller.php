@@ -1142,6 +1142,7 @@ final class Controller {
         unset($in['_csrf']);
         $action = (string)($in['action'] ?? '');
         $target = match (true) {
+            in_array($action,InitialInvoice::ACTIONS,true) => InitialInvoiceCard::route((int)($in['id']??0)),
             $action===LeasePaymentTerms::SAVE => LeasePaymentTermsCard::route((int)($in['id']??0),(string)($in['month']??'')),
             in_array($action,RentalServices::ACTIONS,true) => '/rental/services?contract_id='.(int)($in['id']??0),
             in_array($action,[PremisesInventory::SAVE,PremisesInventory::MOVE],true) => '/rental/object-inventory?id='.(int)($in['id']??0),

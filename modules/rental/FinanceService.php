@@ -41,7 +41,9 @@ final class FinanceService {
             }
             if (!$allowed) throw new RuntimeException('Исторический счёт доступен только для просмотра.');
         }
+        $initialProof = $i ? (json_decode($i['source_json'],true)['separate_initial_invoice'] ?? null) : null;
         if ($action === 'invoice.send') {
+            if ($initialProof && !$i['due']) throw new RuntimeException('Подтвердите срок оплаты первого счёта перед отправкой.',409);
             $intent=InvoiceDelivery::prepare($p,$u,$i);
             $error=$intent['send_error'] ?? ($intent['status']==='unknown'
                 ? 'Результат предыдущей отправки не подтверждён. Нужна сверка; повторная отправка не создана.' : null);
@@ -71,6 +73,17 @@ final class FinanceService {
             $due=Service::date((string)($in['due'] ?? ''));
             $reason=trim((string)($in['reason'] ?? ''));
             if($reason==='')throw new RuntimeException('Укажите основание изменения срока оплаты.',422);
+            if ($initialProof) {
+                $mode = $in['deadline_basis'] ?? null;
+                if (($in['confirmed'] ?? null) !== '1' || !in_array($mode,['rule','individual'],true))
+                    throw new RuntimeException('Подтвердите основание срока именно для этого счёта.',422);
+                if ($mode === 'rule') {
+                    $deadline = InitialInvoice::issuedDeadline($p,$c,$initialProof);
+                    if (($deadline['date'] ?? null) !== $due)
+                        throw new RuntimeException($deadline['question'] ?? 'Подтверждённая дата изменилась. Откройте счёт заново.',409);
+                    $reason = trim(($deadline['rule'] ?? '').' '.($deadline['source'] ?? '')).' '.$reason;
+                }
+            }
             self::remember($p,$i,(int)$u['id']);
             $p->prepare('UPDATE invoices SET due=?,version=version+1 WHERE id=?')->execute([$due,$id]);
             Audit::record($action,'invoice',$id,['due'=>$i['due'],'version'=>$i['version']],['due'=>$due,'version'=>(int)$i['version']+1,'reason'=>$reason]);
@@ -84,6 +97,7 @@ final class FinanceService {
             Service::roles([
                 'accountant'
             ]);
+            if ($initialProof) throw new RuntimeException('Исходный первый счёт сохранён. Срок оплаты уточняется отдельным действием.',409);
             if (!$i && !in_array($c['status'], [
                 'approved',
                 'sent',
@@ -103,6 +117,7 @@ final class FinanceService {
                 'Обеспечительный платёж',
                 'Первый период'
             ], true);
+            if (!$i && $initial) throw new RuntimeException('Первый период и обеспечение выпускаются из карточки договора действием «Выставить первый счёт».',409);
             $period = $kind === 'Обеспечительный платёж'?'Обеспечение':($in['period'] ?? substr($issued, 0, 7));
             if ($kind !== 'Обеспечительный платёж')Service::date($period
             . '-01');

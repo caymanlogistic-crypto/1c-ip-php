@@ -186,7 +186,9 @@ final class PremisesActs
             throw new RuntimeException('Опись изменилась. Сверьте её и откройте форму заново.',409);
         }
         self::saveAct($db,$contract,$object,$kind,$date,$file,$items,$details);
-        return ['id'=>$id,'message'=>'Подписанный акт подтверждён.'];
+        $question = $kind === 'transfer'
+            && HandoverQuestion::fromSignedTransfer($db,Auth::user(),$contract,$date,(string)$input['command_key']);
+        return ['id'=>$id,'message'=>$question ? 'Акт подтверждён. Сдвиг даты ждёт решения бухгалтера.' : 'Подписанный акт подтверждён.'];
     }
 
     private static function saveAct(PDO $db,array $contract,array $object,string $kind,string $date,array $file,array $items,array $details): void
