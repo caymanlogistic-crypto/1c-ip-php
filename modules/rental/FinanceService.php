@@ -29,6 +29,8 @@ final class FinanceService {
     }
     public static function execute(PDO $p, array $u, string $action, array $in):array {
         if (in_array($action,RegularInvoice::ACTIONS,true)) return RegularInvoice::execute($p,$u,$action,$in);
+        if ($action === InvoiceCycle::SAVE) return InvoiceCycle::save($p,$u,$in);
+        if ($action === InvoiceBatch::SAVE) return InvoiceBatch::save($p,$u,$in);
         if ($action === 'invoice.issue') {
             RegularInvoice::requireAccess(2);
             RegularInvoice::contract((int)($in['contract_id'] ?? 0));

@@ -109,6 +109,24 @@ final class InitialInvoice
         return $issued < $contract['document_date'] ? 'Дата первого счёта не может быть раньше даты договора.' : null;
     }
 
+    public static function assertBeyondInitial(PDO $db,array $contract,string $period,array $facts): array
+    {
+        if (!$contract['start_date'] || !$contract['end_date'])
+            throw new RuntimeException('Сверьте даты начала и окончания аренды.',409);
+        $id = (int)$contract['id'];
+        $transfer = ($facts['base']['form'] ?? '') === 'D09'
+            ? LeasePaymentTerms::actDate(PremisesActs::history($db,$id),'transfer') : null;
+        $starts = array_unique(array_filter([$contract['start_date'],$facts['accrual']['date'] ?? null,$transfer]));
+        $firstAlreadyIssued = array_filter(self::issuedFor($db,$id),
+            static fn(array $invoice): bool => $invoice['kind'] === 'Первый период' && $invoice['status'] !== 'revoked');
+        foreach ($starts as $start) {
+            $next = (new DateTimeImmutable($start))->modify('first day of next month')->format('Y-m');
+            if ($period <= substr($start,0,7) || (!$firstAlreadyIssued && substr($start,8,2) >= '16' && $period === $next))
+                throw new RuntimeException('Проверьте начисление в карточке договора действием «Выставить первый счёт».',409);
+        }
+        return $starts;
+    }
+
     /** Source threshold and inclusive calendar periods, independent of the payment clock. */
     public static function periods(string $start, string $end): array
     {

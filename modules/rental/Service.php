@@ -96,7 +96,7 @@ final class Service {
             return in_array($action,[RentalServices::CONFIRM,RentalServices::BOOK],true)?'finance.write':'rental.write';
         }
         return match ($action) {
-            'contract.legal', 'contract.forward', 'template.edit', 'document.legal', 'reconcile.legal' => 'rental.approve.legal', 'contract.packet', 'contract.send', 'contract.close', 'document.packet', 'document.apply', 'payment.allocate', 'payment.create', 'invoice.issue', 'organization.save', 'organization.bank.save', 'reconcile.finance' => 'finance.write', 'template.approve', 'party.unblock' => 'rental.approve.executive', default => match ($actor['role']) {
+            'contract.legal', 'contract.forward', 'template.edit', 'document.legal', 'reconcile.legal' => 'rental.approve.legal', 'contract.packet', 'contract.send', 'contract.close', 'document.packet', 'document.apply', 'payment.allocate', 'payment.create', 'invoice.issue', InvoiceBatch::SAVE, InvoiceCycle::SAVE, 'organization.save', 'organization.bank.save', 'reconcile.finance' => 'finance.write', 'template.approve', 'party.unblock' => 'rental.approve.executive', default => match ($actor['role']) {
                 'lawyer' => 'rental.approve.legal', 'accountant' => 'finance.write', 'director' => 'rental.approve.executive', default => 'rental.write'
             }
         };

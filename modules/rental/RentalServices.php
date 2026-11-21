@@ -38,7 +38,7 @@ final class RentalServices
 
     private static function entries(PDO $db,string $namespace,string $field='',string|int $value=''): array
     {
-        $allowed=['lease_id','agreement_id'];
+        $allowed=['lease_id','agreement_id','period'];
         if ($field!=='' && !in_array($field,$allowed,true)) throw new RuntimeException('Неизвестный контекст услуг.');
         $sql="SELECT source_key,fact_json FROM rental_facts WHERE namespace=? AND operative=1";
         if ($field!=='') $sql.=" AND JSON_UNQUOTE(JSON_EXTRACT(fact_json,'$.".$field."'))=?";
@@ -87,6 +87,51 @@ final class RentalServices
     public static function charges(PDO $db,int $leaseId): array
     {
         return self::entries($db,self::CHARGE,'lease_id',$leaseId);
+    }
+
+    public static function monthRows(PDO $db,string $period): array
+    {
+        [$from,$until] = CleaningTerms::month($period);
+        $charges = self::entries($db,self::CHARGE,'period',$period);
+        $agreements = self::agreements($db);
+        $rows = [];
+        $closed = [];
+        foreach ($charges as $key=>$charge) {
+            $regular = $charge['kind'] === 'regular';
+            if ($regular) $closed[$charge['agreement_id']] = true;
+            $agreement = $agreements[$charge['agreement_id']] ?? null;
+            $rows[] = [
+                'lease_id'=>$charge['lease_id'],'service_id'=>$agreement ? $charge['agreement_id'] : null,
+                'number'=>$agreement['number'] ?? null,
+                'kind'=>$regular ? 'Регулярный клининг' : self::ORDERS[$charge['kind']],
+                'amount'=>$charge['amount'],'basis'=>$regular ? 'Закрытый месяц' : $charge['details'],
+                'question'=>'Согласуйте выпуск счёта по этой услуге.',
+            ];
+        }
+        foreach ($agreements as $key=>$agreement) {
+            if (isset($closed[$key]) || $agreement['status'] !== 'active') continue;
+            $history = self::amendments($db,$key);
+            $terms = CleaningTerms::monthTerms($agreement,$history,$period);
+            if (!$terms) {
+                $active = false;
+                for ($day = new DateTimeImmutable($from); $day->format('Y-m-d') <= $until; $day=$day->modify('+1 day')) {
+                    if (CleaningTerms::resolve($agreement,$history,$day->format('Y-m-d'))) {
+                        $active = true;
+                        break;
+                    }
+                }
+                if (!$active) continue;
+            }
+            $amount = $terms['monthly'] ?? null;
+            $rows[] = [
+                'lease_id'=>$agreement['lease_id'],'service_id'=>$key,'number'=>$agreement['number'],
+                'kind'=>'Регулярный клининг','amount'=>$amount,
+                'basis'=>$amount === null ? 'Подписанные условия' : 'Расчёт по подписанным условиям',
+                'question'=>$amount === null ? 'Согласуйте расчёт неполного месяца или смены тарифа и порядок выпуска счёта.'
+                    : 'Согласуйте выпуск счёта по договору клининга.',
+            ];
+        }
+        return $rows;
     }
 
     public static function document(PDO $db,string $key): array

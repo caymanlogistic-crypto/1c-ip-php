@@ -59,7 +59,7 @@ final class RegularInvoiceCard
             }
             $body .= self::saveForm(RegularInvoice::CREATE,(int)$contract['version'],
                 $fields.self::check('confirmed','Подтверждаю реквизиты счёта'),'Сохранить счёт');
-        } elseif (!$payment && $quote['questions'] && empty($quote['initial_only']) && !$quote['existing']
+        } elseif (!$payment && $quote['questions'] && empty($quote['initial_only']) && empty($quote['cycle_only']) && !$quote['existing']
             && !isset($quote['previously_issued'])) {
             try {
                 ManualInvoice::coverage($db,$contract,$period,$issued,$quote);
@@ -187,6 +187,18 @@ final class RegularInvoiceCard
             ['Источник суммы',$source['rate']['label']],
             ['Состояние доставки',InvoiceDeliveryPreference::status($invoice,$intent)],
         ]).self::fileLink($source['rate']['file_id']);
+        if (isset($source['preparation'])) {
+            $body .= RentalUI::pairs([
+                ['Дата подготовки',Documents::dateText($source['preparation']['date'])],
+                ['Рабочий календарь',$source['preparation']['source']],
+                ['Месяцы начисления',implode(' / ',$source['cycle']['periods'])],
+            ]);
+        }
+        foreach (array_slice($source['rates'] ?? [],1) as $rate) {
+            $body .= RentalUI::pairs([['Основание ставки',$rate['label']],
+                ['Покрытие ставки',Documents::dateText($rate['from']).' — '.Documents::dateText($rate['to'])]])
+                .self::fileLink($rate['file_id']);
+        }
         if ($source['payment']) {
             $body .= self::payment($source['payment'])
                 .RentalUI::alert('Приход указан как основание даты документа. Распределение выполняется отдельно.');

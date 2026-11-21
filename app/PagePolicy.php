@@ -273,6 +273,7 @@ final class PagePolicy {
                 'invoice-pdf',
                 'edit-invoice',
                 'create-invoice',
+                'month-invoices',
                 'invoice-html',
                 'invoice-compare',
                 'payment',

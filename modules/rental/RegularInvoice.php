@@ -48,6 +48,14 @@ final class RegularInvoice
         return $data === false ? null : Importer::decodeExact($data);
     }
 
+    public static function existing(PDO $db,int $id,string $period): array
+    {
+        $q = $db->prepare("SELECT id,number,kind,amount,issued,due FROM invoices WHERE contract_id=? AND
+            ((period=? AND status<>'revoked' AND kind IN ('Аренда','Первый период')) OR id=?) ORDER BY id");
+        $q->execute([$id,$period,self::result($db,$id,$period)['invoice_id'] ?? 0]);
+        return $q->fetchAll();
+    }
+
     public static function paymentChoices(PDO $db,array $contract): array
     {
         $query = $db->prepare('SELECT p.id,p.amount,p.payment_date FROM payments p WHERE p.party_id=? AND p.payment_date<=CURRENT_DATE
@@ -83,7 +91,7 @@ final class RegularInvoice
         return ['question'=>'Уточните договорный срок оплаты аренды.'];
     }
 
-    public static function preview(PDO $db,array $contract,string $period,string $issued,int $paymentId): array
+    public static function preview(PDO $db,array $contract,string $period,string $issued,int $paymentId,bool $batch = false,?string $quarterDue = null): array
     {
         $id = (int)$contract['id'];
         $period = self::period($period);
@@ -96,6 +104,16 @@ final class RegularInvoice
         $quote['existing'] = $q->fetchAll();
         if ($receipt = self::result($db,$id,$period)) $quote['previously_issued'] = $receipt['invoice_id'];
         if ($quote['existing'] || isset($quote['previously_issued'])) return $quote;
+        if (!$batch) {
+            try {
+                InvoiceCycle::assertIndividual($db,$id,$period);
+            } catch (RuntimeException $error) {
+                if ($error instanceof \PDOException || $error->getCode() !== 409) throw $error;
+                $quote['questions'][] = $error->getMessage();
+                $quote['cycle_only'] = true;
+                return $quote;
+            }
+        }
         if ($question = InitialInvoice::dateError($contract,$issued)) array_push($quote['questions'],$question);
         if ($paymentId) {
             try {
@@ -143,7 +161,9 @@ final class RegularInvoice
         if ($form === 'D09' && ($facts['decision']['decision'] ?? '') !== 'invoice') {
             $quote['questions'][] = 'Уточните необходимость счёта по парковочному договору с самостоятельной оплатой.';
         }
-        $deadline = self::due($form,$period,$terms);
+        $deadline = $batch && $quarterDue !== null
+            ? ['date'=>Service::date($quarterDue)]
+            : self::due($form,$period,$terms);
         $quote['due'] = $deadline['date'] ?? null;
         if (!$quote['due']) $quote['questions'][] = $deadline['question'] ?? 'Подтвердите срок платежа.';
         $quote['number'] = 'Д-'.BusinessIds::next($db,'invoices',900000);
@@ -173,6 +193,7 @@ final class RegularInvoice
         if (bccomp($quote['amount'],'0',2)<=0) $quote['questions'][] = 'Сумма счёта должна быть положительной.';
         $billing['amount'] = $quote['amount'];
         $quote['vat_rate'] = $source['vat_rate'] ?? null;
+        if ($batch) $quote['vat_amount'] = $terms['vat'];
         if (!$quote['questions']) {
             $quote['billing'] = $billing;
             $quote['token'] = hash('sha256',Importer::canonicalJson([$contract['version'],$quote]));
@@ -238,14 +259,26 @@ final class RegularInvoice
                 throw new RuntimeException('Подтвердите основание для даты счёта до полученной оплаты.',422);
             $payment['reason'] = $reason;
         }
+        $invoice = self::issue($db,$actor,$contract,$quote,[$period],$input['command_key'],$payment);
+        return ['invoice_id'=>$invoice,'message'=>'Счёт сохранён. Отправка не подтверждена.'];
+    }
+
+    public static function issue(PDO $db,array $actor,array $contract,array $quote,array $periods,string $commandKey,?array $payment = null): int
+    {
+        $id = (int)$contract['id'];
         $source = ['created_at'=>date(DATE_ATOM),'document_date'=>$quote['issued'],'rate'=>$quote['source'],
-            'payment'=>$payment,'delivery'=>$quote['delivery'],'actor_id'=>(int)$actor['id'],'command_key'=>$input['command_key']];
+            'payment'=>$payment,'delivery'=>$quote['delivery'],'actor_id'=>(int)$actor['id'],'command_key'=>$commandKey];
+        if (isset($quote['preparation'])) $source['preparation'] = $quote['preparation'];
+        if (isset($quote['cycle'])) $source['cycle'] = $quote['cycle'];
+        if (isset($quote['rates'])) $source['rates'] = $quote['rates'];
         $invoice = MonthlyBilling::issue($db,$contract,$quote['billing'],$quote['issued'],
             ['due'=>$quote['due'],'purpose'=>$quote['purpose'],'vat_rate'=>$quote['vat_rate'],'source'=>$source]);
         if (!$invoice) throw new RuntimeException('Покрытие изменилось. Откройте предпросмотр заново.',409);
-        $db->prepare('INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,1)')
-            ->execute([self::NS,$id.':'.$period,Importer::json(['invoice_id'=>$invoice,'command_key'=>$input['command_key']])]);
-        Service::event($db,$actor,self::CREATE,'Сохранён счёт за '.$period.'.',$id,['invoice_id'=>$invoice]);
-        return ['invoice_id'=>$invoice,'message'=>'Счёт сохранён. Отправка не подтверждена.'];
+        $record = $db->prepare('INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,1)');
+        foreach ($periods as $period) {
+            $record->execute([self::NS,$id.':'.$period,Importer::json(['invoice_id'=>$invoice,'command_key'=>$commandKey])]);
+        }
+        Service::event($db,$actor,self::CREATE,'Сохранён счёт за '.implode(', ',$periods).'.',$id,['invoice_id'=>$invoice]);
+        return $invoice;
     }
 }
