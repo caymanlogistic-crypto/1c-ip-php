@@ -91,6 +91,7 @@ final class Service {
 
     /** Same coarse grant for command execution and its later typed workflow notification. */
     public static function commandGrant(string $action,array $actor): string {
+        if ($action === UpdRegister::SAVE) return 'finance.write';
         if (in_array($action,InitialInvoice::ACTIONS,true)) return InitialInvoice::grant($action);
         if (in_array($action,RentalServices::ACTIONS,true)) {
             return in_array($action,[RentalServices::CONFIRM,RentalServices::BOOK],true)?'finance.write':'rental.write';
@@ -104,6 +105,7 @@ final class Service {
 
     public static function command(string $action, array $in, ?int &$freshCommittedEventId=null): array {
         $freshCommittedEventId=null;
+        if ($action === UpdRegister::SAVE) RegularInvoice::requireAccess(2);
         if ($action === DebtFollowUp::SAVE) self::roles(['manager']);
         if (in_array($action,[LeasePaymentTerms::SAVE,DebtFollowUp::SAVE,...RentalServices::ACTIONS,...InitialInvoice::ACTIONS],true)) Access::contract((int)($in['id']??0),2);
         else \App\PagePolicy::requireCommand($action);
@@ -256,6 +258,7 @@ final class Service {
     }
 
     private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
+        if ($action === UpdRegister::SAVE) return UpdRegister::save($p,$u,$in);
         if ($action === DebtFollowUp::SAVE) return DebtFollowUp::write($p,$u,$in);
         if (in_array($action,RentalServices::ACTIONS,true)) return RentalServices::execute($p,$action,$in);
         if(in_array($action,['workspace.reset','workspace.undo','workspace.remove-test-object'],true))return WorkspaceReset::execute($p,$u,$action,$in);

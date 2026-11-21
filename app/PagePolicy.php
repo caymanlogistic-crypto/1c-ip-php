@@ -130,6 +130,7 @@ final class PagePolicy {
         if(str_starts_with($action,'workspace.'))return 'core.zero-point';
         if (in_array($action, ['operation.retry', 'operation.manual'], true))return 'rental.operations';
         if (str_starts_with($action, 'payment.'))return 'rental.invoices';
+        if ($action === \Modules\Rental\UpdRegister::SAVE)return 'rental.invoice-list';
         if (str_starts_with($action, 'invoice.'))return 'rental.invoice-list';
         if (str_starts_with($action, 'party.'))return 'rental.parties';
         if (str_starts_with($action, 'organization.'))return 'rental.organization';
@@ -282,6 +283,7 @@ final class PagePolicy {
                 'invoice-preview',
                 'invoice-report',
                 'payment-review',
+                'upd',
                 'finance-save'
             ], true)) {
                 Auth::requirePermission('rental.read');
