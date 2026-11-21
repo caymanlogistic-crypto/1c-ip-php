@@ -71,7 +71,9 @@ final class OperationsRegistry
             $rows[]=['_attrs'=>'class="'.($step['status']==='error'?'registry-ui-soft-error':'').'" data-operation-group="'.View::e($group['id']).'" data-operation-step="'.View::e($step['id']).'"',
                 $description,View::e($step['label']),$step['attempts'],self::actions($group,$step,$write)];
         }
-        $body=RentalUI::pairs([
+        $notice=(string)($_SESSION['rental_notice']??'');
+        unset($_SESSION['rental_notice']);
+        $body=($notice===''?'':RentalUI::alert($notice)).RentalUI::pairs([
             ['Операция',$selected['description']],
             ['Проект',$selected['document_id']?'ДС '.$selected['document_id']:'Договор '.$selected['contract_number']],
             ['Операций',(string)count($related)],

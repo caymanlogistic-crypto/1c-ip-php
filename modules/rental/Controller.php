@@ -1144,10 +1144,17 @@ final class Controller {
                 'unavailable'=>' Уведомление MAX не отправлено: в этой среде отправка не разрешена.',
                 default=>' Результат уведомления MAX не подтверждён; автоматического повтора нет.',
             };
-        }catch(\Throwable){
+        }catch(\Throwable $error){
             // The domain transaction is already committed. Delivery failure is never a command failure.
-            return ' Данные сохранены. Уведомление MAX не подтверждено; автоматического повтора нет.';
+            return self::workflowMaxFailure($error);
         }
+    }
+
+    private static function workflowMaxFailure(\Throwable $error):string
+    {
+        if ($error->getMessage()===\Modules\Integrations\ServerWorkflowMax::RECONCILIATION_REQUIRED)
+            return ' Уведомление MAX не отправлено. Сверьте результат предыдущей попытки. Это событие автоматически повторено не будет.';
+        return ' Данные сохранены. Уведомление MAX не подтверждено; автоматического повтора нет.';
     }
 
     public static function action(): never {

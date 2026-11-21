@@ -4,7 +4,12 @@ require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\DB;
 use Modules\Integrations\{Config,CurrentContractMaxProof,Messaging,ServerWorkflowMax,Support,TemplateCatalog};
-use Modules\Rental\{FinalReview,Service,WorkflowEvents};
+use Modules\Rental\{Controller,FinalReview,Service,SourceCards,WorkflowEvents};
+
+set_exception_handler(static function(Throwable $error): void {
+    fwrite(STDERR,$error->getMessage().PHP_EOL);
+    exit(1);
+});
 
 function verify(bool $ok,string $label): void {
     if (!$ok) throw new RuntimeException($label);
@@ -79,8 +84,16 @@ $secretPath=APP_ROOT.'/private/integrations/max.enc';
 if (file_exists($secretPath)) throw new RuntimeException('Fixture must not have a MAX vault');
 $group=$scope['group_id'];
 $calls=[];
+$transportStatus='accepted';
 $clock=$now;
 try {
+    // Shadow only the receipt tables on this connection. Prior synthetic
+    // uncertainty stays intact in the copy and cannot contaminate the clean run.
+    foreach (['messaging_attempts','messaging_receipts'] as $table) {
+        $ddl=$db->query('SHOW CREATE TABLE '.$table)->fetch(PDO::FETCH_NUM)[1];
+        $ddl=preg_replace('/,\R +CONSTRAINT [^\r\n]+/','',$ddl); // MySQL does not allow temporary-table foreign keys.
+        $db->exec(preg_replace('/^CREATE TABLE /','CREATE TEMPORARY TABLE ',$ddl));
+    }
     $db->exec("INSERT INTO integration_connections(provider,enabled,revision,display_name,config_json) VALUES('max',1,37,'Local series simulation','{}')
         ON DUPLICATE KEY UPDATE enabled=1,revision=37");
     $db->exec("INSERT INTO integration_configuration_sources(provider,variant,source_receipt_sha256,source_revision,metadata_json)
@@ -96,12 +109,12 @@ try {
     $server=new ServerWorkflowMax($db,true);
     $assertSlot=new ReflectionMethod($server,'assertSlot');
     $waitForTarget=new ReflectionMethod($server,'waitForTarget');
-    $transport=static function(string $provider,string $operation,array $config,array $secret,string $chat,string $raw) use(&$calls,$scope):array {
+    $transport=static function(string $provider,string $operation,array $config,array $secret,string $chat,string $raw) use(&$calls,&$transportStatus,$scope):array {
         if ($provider!=='max' || $operation!=='send' || $chat!==$scope['chat_id']) throw new LogicException('Unapproved fixture operation');
         $text=Support::decode($raw)['text'];
         ServerWorkflowMax::assertPath(0,'POST','https://platform-api2.max.ru/messages?chat_id='.rawurlencode($chat),$raw,$chat,$text);
         $calls[]=$text;
-        return ['status'=>count($calls)===1?'uncertain':'accepted','code'=>'LOCAL_SIMULATION_ONLY'];
+        return ['status'=>$transportStatus,'code'=>'LOCAL_SIMULATION_ONLY'];
     };
     $messaging=new Messaging($db,Config::store(),$transport);
     $deliver=static function(array $scope,array $event) use($db,&$clock,$proof,$server,$assertSlot,$waitForTarget,$messaging):?array {
@@ -111,7 +124,7 @@ try {
         $actual=$event+['request_key'=>$plan['request_key']];
         if ((int)$db->query("SELECT GET_LOCK('ipphp-provider:max',0)")->fetchColumn()!==1) throw new RuntimeException('Fixture MAX lock busy');
         try {
-            $assertSlot->invoke($server,$actual,true);
+            $assertSlot->invoke($server,$actual);
             $waitForTarget->invoke($server,$scope['chat_id'],$plan['request_key']);
             return $messaging->dispatch('max',$event['actor_id'],$plan['request_key'],'send',[$scope['group_id']],$plan['catalog']['body'])[0];
         } finally {$db->query("SELECT RELEASE_LOCK('ipphp-provider:max')");}
@@ -120,14 +133,8 @@ try {
     [$first,$firstInput]=$command(900006,'accountant',FinalReview::RETURN_FINANCE);
     $a=$deliver($scope,$first);
     Service::command(FinalReview::RETURN_FINANCE,$firstInput,$fresh);
-    verify($a['status']==='uncertain' && $deliver($scope,$first)['id']===$a['id'] && $fresh===null && count($calls)===1,
-        'return by accountant: one simulated attempt despite replay and uncertain outcome');
-    try {
-        ServerWorkflowMax::assertLane($db,$first,false);
-        throw new LogicException('Legacy fallback unexpectedly permitted');
-    } catch (RuntimeException $error) {
-        verify($error->getMessage()==='STAFF_HANDOFF_ROUTE_ALREADY_CLAIMED','uncertain result fences legacy fallback for the same event');
-    }
+    verify($a['status']==='accepted' && $deliver($scope,$first)['id']===$a['id'] && $fresh===null && count($calls)===1,
+        'return by accountant: confirmed acceptance and one call despite replay');
 
     [$second,$secondInput]=$command(900006,'manager',FinalReview::RESUBMIT,$resubmit);
     $b=$deliver($scope,$second);
@@ -148,6 +155,67 @@ try {
     $q=$db->prepare("SELECT COUNT(*) FROM messaging_attempts WHERE provider='max' AND request_key IN (?,?)");
     $q->execute([ServerWorkflowMax::requestKey($first,true),ServerWorkflowMax::requestKey($second,true)]);
     verify((int)$q->fetchColumn()===2,'two separate durable attempts and one target');
+
+    $clock=$now;
+    $transportStatus='uncertain';
+    [$uncertain]=$command(900006,'manager',FinalReview::RESUBMIT,$resubmit);
+    $attempt=$deliver($scope,$uncertain);
+    verify($attempt['status']==='uncertain' && $deliver($scope,$uncertain)['id']===$attempt['id'] && count($calls)===3,
+        'unknown result remains a single attempt');
+    try {
+        ServerWorkflowMax::assertLane($db,$uncertain,false);
+        throw new LogicException('Legacy fallback unexpectedly permitted');
+    } catch (RuntimeException $error) {
+        verify($error->getMessage()==='STAFF_HANDOFF_ROUTE_ALREADY_CLAIMED','uncertain result fences legacy fallback for the same event');
+    }
+
+    [$stopped,$stoppedInput]=$command(900006,'accountant',FinalReview::RETURN_FINANCE);
+    $blocked=static function(callable $send): RuntimeException {
+        try {$send();}
+        catch (RuntimeException $error) {
+            verify($error->getMessage()===ServerWorkflowMax::RECONCILIATION_REQUIRED,'new transport blocked pending reconciliation');
+            return $error;
+        }
+        throw new LogicException('Unreconciled attempt did not block transport');
+    };
+    $error=$blocked(fn()=>$deliver($scope,$stopped));
+    verify(ServerWorkflowMax::staffSelects($scope,$stopped) && $stopped['staff_handoff']
+        && (FinalReview::marker($db,900006,'finance')['state']??null)==='returned' && count($calls)===3,
+        'next task was committed and selected once, with no transport');
+    $failure=new ReflectionMethod(Controller::class,'workflowMaxFailure');
+    $_SESSION['rental_notice']=trim($failure->invoke(null,$error));
+    $_GET=['id'=>900006];
+    $card=SourceCards::show();
+    verify(str_contains($card,'Уведомление MAX не отправлено') && str_contains($card,'Сверьте результат предыдущей попытки'),
+        'the saved contract card says to reconcile the earlier attempt');
+
+    $legacy=new ServerWorkflowMax($db);
+    $legacySlot=new ReflectionMethod($legacy,'assertSlot');
+    $legacyProbe=['actor_id'=>$stopped['actor_id'],'request_key'=>'contract-workflow-'.str_repeat('a',64)];
+    $blocked(fn()=>$legacySlot->invoke($legacy,$legacyProbe));
+
+    // Model an independently established outcome only in the temporary fixture.
+    $db->prepare("UPDATE messaging_attempts SET status='accepted' WHERE id=? AND status='uncertain'")->execute([$attempt['id']]);
+    $legacySlot->invoke($legacy,$legacyProbe);
+    Service::command(FinalReview::RETURN_FINANCE,$stoppedInput,$fresh);
+    $q=$db->prepare('SELECT COUNT(*) FROM messaging_attempts WHERE request_key=?');
+    $q->execute([ServerWorkflowMax::requestKey($stopped,true)]);
+    verify($fresh===null && (int)$q->fetchColumn()===0 && count($calls)===3,
+        'clearing the fence and replaying the command creates neither a fresh event nor an attempt');
+
+    // A receipt in the original workflow namespace retains the same fence in both routes.
+    $db->prepare("UPDATE messaging_attempts SET status='uncertain',request_key=? WHERE id=?")->execute([
+        'contract-workflow-'.str_repeat('b',64),$attempt['id'],
+    ]);
+    $blocked(fn()=>$legacySlot->invoke($legacy,$legacyProbe));
+    $blocked(fn()=>$assertSlot->invoke($server,$stopped+['request_key'=>ServerWorkflowMax::requestKey($stopped,true)]));
+    $db->prepare("UPDATE messaging_attempts SET status='pending' WHERE id=?")->execute([$attempt['id']]);
+    $blocked(fn()=>$legacySlot->invoke($legacy,$legacyProbe));
+    $db->prepare("UPDATE messaging_attempts SET status='accepted' WHERE id=?")->execute([$attempt['id']]);
+    $transportStatus='accepted';
+    [$later]=$command(900006,'manager',FinalReview::RESUBMIT,$resubmit);
+    verify($deliver($scope,$later)['status']==='accepted' && count($calls)===4,
+        'a later genuine handoff sends after reconciliation');
 } finally {
     if (is_file($secretPath)) unlink($secretPath);
     if ($old) $db->prepare("UPDATE integration_connections SET enabled=?,revision=? WHERE provider='max'")->execute([$old['enabled'],$old['revision']]);
@@ -156,4 +224,5 @@ try {
     else $db->exec("DELETE FROM integration_configuration_sources WHERE provider='max'");
     $db->prepare('DELETE FROM integration_group_bindings WHERE local_group_id=?')->execute([$group]);
     $db->prepare('DELETE FROM messaging_groups WHERE id=?')->execute([$group]);
+    $db->exec('DROP TEMPORARY TABLE IF EXISTS messaging_receipts,messaging_attempts');
 }

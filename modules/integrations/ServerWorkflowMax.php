@@ -43,6 +43,7 @@ final class ServerWorkflowMax
 
     private const KINDS=['submit','resubmit','legalApprove','lawyerReturn','accountantReturn','package','signed','cancelled'];
     public const STAFF_SEQUENCE='staff-handoff-sequence';
+    public const RECONCILIATION_REQUIRED='WORKFLOW_MAX_RECONCILIATION_REQUIRED';
 
     public static function requestKey(array $event,bool $staff=false):string
     {
@@ -224,7 +225,7 @@ final class ServerWorkflowMax
         $lock->execute([$sequence?5:0]);
         if ((int)$lock->fetchColumn()!==1) throw new RuntimeException('WORKFLOW_MAX_BUSY');
         try {
-            $this->assertSlot($event,$sequence);
+            $this->assertSlot($event);
             if ($sequence) $this->waitForTarget($scope['chat_id'],$event['request_key']);
             if ($this->context()!==$scope || $this->plan($event['event_id'],$event['command_key'],Auth::user() ?? [])!==$event)
                 throw new RuntimeException('WORKFLOW_MAX_EVENT_REJECTED');
@@ -234,20 +235,15 @@ final class ServerWorkflowMax
         } finally {$this->event=null;$this->scope=null;$this->pending=null;$this->db->query("SELECT RELEASE_LOCK('ipphp-provider:max')");}
     }
 
-    private function assertSlot(array $event,bool $sequence): void
+    private function assertSlot(array $event): void
     {
-        // Pending always blocks. In a sequence a settled but uncertain attempt
-        // fences its own event, while the next independent handoff has its own key.
-        $blocking="status='pending'";
-        if (!$sequence) {
-            $lane=$this->staff?"request_key LIKE 'contract-workflow-staff-%'"
-                :"request_key LIKE 'contract-workflow-%' AND request_key NOT LIKE 'contract-workflow-staff-%'";
-            $blocking.=" OR (status='uncertain' AND ($lane))";
-        }
+        // Keep the original workflow fence. The staff key shares its prefix,
+        // so uncertainty in either route stops new sends in both routes.
         $q=$this->db->prepare("SELECT 1 FROM messaging_attempts WHERE provider='max'
-            AND ($blocking) AND NOT(actor_id=? AND request_key=?) LIMIT 1");
+            AND (status='pending' OR (status='uncertain' AND request_key LIKE 'contract-workflow-%'))
+            AND NOT(actor_id=? AND request_key=?) LIMIT 1");
         $q->execute([$event['actor_id'],$event['request_key']]);
-        if ($q->fetchColumn()) throw new RuntimeException('WORKFLOW_MAX_RECONCILIATION_REQUIRED');
+        if ($q->fetchColumn()) throw new RuntimeException(self::RECONCILIATION_REQUIRED);
     }
 
     private function waitForTarget(string $chat,string $key): void
