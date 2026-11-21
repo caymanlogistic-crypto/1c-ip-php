@@ -3,7 +3,7 @@ declare(strict_types=1);
 namespace Modules\Integrations;
 
 use App\Auth;
-use Modules\Rental\HandoverQuestion;
+use Modules\Rental\{HandoverQuestion,StaffHandoff,WorkflowEvents};
 use PDO;
 use RuntimeException;
 
@@ -42,6 +42,7 @@ final class ServerWorkflowMax
     }
 
     private const KINDS=['submit','resubmit','legalApprove','lawyerReturn','accountantReturn','package','signed','cancelled'];
+    public const STAFF_SEQUENCE='staff-handoff-sequence';
 
     public static function requestKey(array $event,bool $staff=false):string
     {
@@ -56,23 +57,71 @@ final class ServerWorkflowMax
 
     public static function validateStaff(mixed $scope): void
     {
-        if (!is_array($scope) || ($scope['scope']??null)!=='staff-handoff'
-            || !is_int($scope['contract_id']??null) || $scope['contract_id']<1
-            || !is_int($scope['actor_id']??null) || $scope['actor_id']<1
-            || !is_string($scope['action']??null) || !\Modules\Rental\StaffHandoff::managed($scope['action'])
-            || !is_string($scope['command_key']??null) || !preg_match('/\A[a-zA-Z0-9-]{16,100}\z/',$scope['command_key'])
+        if (!is_array($scope) || !in_array($scope['scope']??null,['staff-handoff',self::STAFF_SEQUENCE],true)
             || !is_int($scope['catalog_version']??null) || $scope['catalog_version']<1)
             throw new RuntimeException('STAFF_HANDOFF_ADMISSION_INVALID');
-        unset($scope['contract_id'],$scope['actor_id'],$scope['action'],$scope['command_key'],$scope['catalog_version']);
+        if ($scope['scope']===self::STAFF_SEQUENCE) {
+            self::validateStaffSequence($scope);
+            unset($scope['contracts'],$scope['actions'],$scope['epoch'],$scope['valid_from'],$scope['expires_at']);
+        } else {
+            if (!is_int($scope['contract_id']??null) || $scope['contract_id']<1
+                || !is_int($scope['actor_id']??null) || $scope['actor_id']<1
+                || !is_string($scope['action']??null) || !StaffHandoff::managed($scope['action'])
+                || !is_string($scope['command_key']??null) || !preg_match('/\A[a-zA-Z0-9-]{16,100}\z/',$scope['command_key']))
+                throw new RuntimeException('STAFF_HANDOFF_ADMISSION_INVALID');
+            unset($scope['contract_id'],$scope['actor_id'],$scope['action'],$scope['command_key']);
+        }
+        unset($scope['catalog_version']);
         $scope['scope']='object-activity';
         ServerObjectMax::validate($scope);
     }
 
-    public static function staffAdmits(array $scope,array $event): bool
+    private static function validateStaffSequence(array $scope): void
     {
-        return ($event['event_id']??0)>$scope['event_floor']
-            && $event['contract_id']===$scope['contract_id'] && $event['actor_id']===$scope['actor_id']
-            && $event['action']===$scope['action'] && $event['command_key']===$scope['command_key'];
+        if (!is_array($scope['contracts']??null) || !array_is_list($scope['contracts']) || !$scope['contracts']
+            || !is_array($scope['actions']??null) || !array_is_list($scope['actions']) || !$scope['actions']
+            || !is_string($scope['epoch']??null) || !preg_match('/\A[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\z/',$scope['epoch'])
+            || !is_int($scope['valid_from']??null) || $scope['valid_from']<1
+            || !is_int($scope['expires_at']??null) || $scope['expires_at']<=$scope['valid_from'])
+            throw new RuntimeException('STAFF_HANDOFF_ADMISSION_INVALID');
+        $ids=[];
+        foreach ($scope['contracts'] as $contract) {
+            if (!is_array($contract) || count($contract)!==2 || !is_int($contract['id']??null) || $contract['id']<1
+                || isset($ids[$contract['id']]) || !is_string($contract['number']??null)
+                || trim($contract['number'])!==$contract['number'] || $contract['number']===''
+                || mb_strlen($contract['number'])>100 || preg_match('/\p{C}/u',$contract['number'])!==0)
+                throw new RuntimeException('STAFF_HANDOFF_ADMISSION_INVALID');
+            $ids[$contract['id']]=true;
+        }
+        $actions=[];
+        foreach ($scope['actions'] as $action) {
+            if (!is_string($action) || !StaffHandoff::managed($action) || isset($actions[$action]))
+                throw new RuntimeException('STAFF_HANDOFF_ADMISSION_INVALID');
+            $actions[$action]=true;
+        }
+    }
+
+    /** Select the route before checking whether a selected delivery is still allowed. */
+    public static function staffSelects(array $scope,array $event): bool
+    {
+        if (($event['event_id']??0)<=$scope['event_floor']) return false;
+        if (($scope['scope']??null)!==self::STAFF_SEQUENCE) {
+            return $event['contract_id']===$scope['contract_id'] && $event['actor_id']===$scope['actor_id']
+                && $event['action']===$scope['action'] && $event['command_key']===$scope['command_key'];
+        }
+        if (empty($event['staff_handoff']) || !in_array($event['action'],$scope['actions'],true)) return false;
+        foreach ($scope['contracts'] as $contract) {
+            if ($event['contract_id']===$contract['id'] && $event['contract_number']===$contract['number']) return true;
+        }
+        return false;
+    }
+
+    public static function staffAdmits(array $scope,array $event,?int $now=null): bool
+    {
+        if (!self::staffSelects($scope,$event)) return false;
+        if (($scope['scope']??null)!==self::STAFF_SEQUENCE) return true;
+        $now??=time();
+        return $event['epoch']===$scope['epoch'] && $now>=$scope['valid_from'] && $now<$scope['expires_at'];
     }
 
     public static function selectedStaffEvent(PDO $db,int $eventId): bool
@@ -82,8 +131,8 @@ final class ServerWorkflowMax
         $q=$db->prepare('SELECT id,source_json,created_at FROM rental_events WHERE id=?');
         $q->execute([$eventId]);
         $row=$q->fetch();
-        $event=$row?\Modules\Rental\WorkflowEvents::decode($row):null;
-        return $event!==null && self::staffAdmits($scope,$event);
+        $event=$row?WorkflowEvents::decode($row):null;
+        return $event!==null && self::staffSelects($scope,$event);
     }
 
     public static function assertLane(PDO $db,array $event,bool $staff): void
@@ -101,7 +150,7 @@ final class ServerWorkflowMax
         $scope=$this->context();
         if(($_SERVER['REQUEST_METHOD']??'')!=='POST')throw new RuntimeException('WORKFLOW_MAX_POST_REQUIRED');
         $q=$this->db->prepare('SELECT id,source_json,created_at FROM rental_events WHERE id=?');$q->execute([$eventId]);$row=$q->fetch();
-        $event=$row?\Modules\Rental\WorkflowEvents::decode($row):null;
+        $event=$row?WorkflowEvents::decode($row):null;
         if (!$event || $eventId<=$scope['event_floor']) return null;
         if ($this->staff) {
             if (!self::staffAdmits($scope,$event) || empty($event['staff_handoff'])) return null;
@@ -170,23 +219,46 @@ final class ServerWorkflowMax
         $scope=$this->context();
         $proof=$this->plan($event['event_id'],$event['command_key'],Auth::user() ?? []);
         if ($proof!==$event||$event['event_id']<=$scope['event_floor']) throw new RuntimeException('WORKFLOW_MAX_EVENT_REJECTED');
-        if ((int)$this->db->query("SELECT GET_LOCK('ipphp-provider:max',0)")->fetchColumn()!==1) throw new RuntimeException('WORKFLOW_MAX_BUSY');
+        $sequence=$this->staff && $scope['scope']===self::STAFF_SEQUENCE;
+        $lock=$this->db->prepare("SELECT GET_LOCK('ipphp-provider:max',?)");
+        $lock->execute([$sequence?5:0]);
+        if ((int)$lock->fetchColumn()!==1) throw new RuntimeException('WORKFLOW_MAX_BUSY');
         try {
-            if ($this->plan($event['event_id'],$event['command_key'],Auth::user() ?? [])!==$event)
+            $this->assertSlot($event,$sequence);
+            if ($sequence) $this->waitForTarget($scope['chat_id'],$event['request_key']);
+            if ($this->context()!==$scope || $this->plan($event['event_id'],$event['command_key'],Auth::user() ?? [])!==$event)
                 throw new RuntimeException('WORKFLOW_MAX_EVENT_REJECTED');
-            $key=$event['request_key'];
-            // A pending claim always blocks the provider. An uncertain result blocks later
-            // use of its own lane. assertLane also fences the same event across both lanes.
-            $uncertain=$this->staff?"request_key LIKE 'contract-workflow-staff-%'"
-                :"request_key LIKE 'contract-workflow-%' AND request_key NOT LIKE 'contract-workflow-staff-%'";
-            $q=$this->db->prepare("SELECT COUNT(*) FROM messaging_attempts WHERE provider='max'
-                AND (status='pending' OR (status='uncertain' AND ($uncertain))) AND NOT(actor_id=? AND request_key=?)");
-            $q->execute([$event['actor_id'],$key]);
-            if ((int)$q->fetchColumn()>0) throw new RuntimeException('WORKFLOW_MAX_RECONCILIATION_REQUIRED');
-            $this->scope=$this->context();$this->event=$event;$this->sent=0;$this->pending=null;
+            $this->scope=$scope;$this->event=$event;$this->sent=0;$this->pending=null;
             $transport=fn($p,$o,$c,$s,$t,$r,$id,$g)=>(new MessageTransport(null,null,null,$this))->execute($p,$o,$c,$s,$t,$r,$id,$g);
-            return (new Messaging($this->db,Config::store(),$transport))->dispatch('max',$event['actor_id'],$key,'send',[$scope['group_id']],$event['text']);
+            return (new Messaging($this->db,Config::store(),$transport))->dispatch('max',$event['actor_id'],$event['request_key'],'send',[$scope['group_id']],$event['text']);
         } finally {$this->event=null;$this->scope=null;$this->pending=null;$this->db->query("SELECT RELEASE_LOCK('ipphp-provider:max')");}
+    }
+
+    private function assertSlot(array $event,bool $sequence): void
+    {
+        // Pending always blocks. In a sequence a settled but uncertain attempt
+        // fences its own event, while the next independent handoff has its own key.
+        $blocking="status='pending'";
+        if (!$sequence) {
+            $lane=$this->staff?"request_key LIKE 'contract-workflow-staff-%'"
+                :"request_key LIKE 'contract-workflow-%' AND request_key NOT LIKE 'contract-workflow-staff-%'";
+            $blocking.=" OR (status='uncertain' AND ($lane))";
+        }
+        $q=$this->db->prepare("SELECT 1 FROM messaging_attempts WHERE provider='max'
+            AND ($blocking) AND NOT(actor_id=? AND request_key=?) LIMIT 1");
+        $q->execute([$event['actor_id'],$event['request_key']]);
+        if ($q->fetchColumn()) throw new RuntimeException('WORKFLOW_MAX_RECONCILIATION_REQUIRED');
+    }
+
+    private function waitForTarget(string $chat,string $key): void
+    {
+        // Respect Messaging's existing one-second target interval without a job or replay.
+        $q=$this->db->prepare("SELECT TIMESTAMPDIFF(MICROSECOND,NOW(6),MAX(created_at)+INTERVAL 1 SECOND)
+            FROM messaging_attempts WHERE provider='max' AND target=? AND operation='send' AND request_key<>?
+            AND created_at>DATE_SUB(NOW(6),INTERVAL 1 SECOND)");
+        $q->execute([$chat,$key]);
+        $remaining=(int)$q->fetchColumn();
+        if ($remaining>0) usleep($remaining);
     }
 
     public function assertOperation(string $provider,string $operation,string $target,string $raw,array $groups): void
