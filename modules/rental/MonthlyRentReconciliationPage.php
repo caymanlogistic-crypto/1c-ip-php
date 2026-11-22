@@ -212,8 +212,8 @@ final class MonthlyRentReconciliationPage
                 $details[$index] = self::details('reconciliation-'.$month, 'Клиенты · '.$label, self::clients($month, $clients, $invoiceFacts));
             }
         }
-        return Controller::table(['Месяц',self::PLAN_COLUMN,'Счета 1С','Разница','Разнесено в ERP','Не оплачено по ERP'],
-            $rows, ['text','money','money','money','money','money'], $details, columnWidths:[1=>'text']);
+        return Controller::table(['Месяц',self::PLAN_COLUMN,'Счета 1С','Разница','Разнесено в ERP','Выставлено, но не оплачено'],
+            $rows, ['text','money','money','money','money','money'], $details, columnWidths:[1=>'text',5=>'long']);
     }
 
     private static function clients(string $month, array $clients, array $invoiceFacts): string
@@ -226,8 +226,8 @@ final class MonthlyRentReconciliationPage
             $key = 'reconciliation-'.$month.'-'.$id;
             $details[$index] = self::details($key, 'Счета · '.$client['name'], self::clientDetails($key, $month, $client, $invoiceFacts));
         }
-        return Controller::table(['Клиент',self::PLAN_COLUMN,'Счета 1С','Разница','Разнесено в ERP','Не оплачено по ERP'],
-            $rows, ['flex','money','money','money','money','money'], $details, columnWidths:[1=>'text']);
+        return Controller::table(['Клиент',self::PLAN_COLUMN,'Счета 1С','Разница','Разнесено в ERP','Выставлено, но не оплачено'],
+            $rows, ['flex','money','money','money','money','money'], $details, columnWidths:[1=>'text',5=>'long']);
     }
 
     private static function clientDetails(string $key, string $month, array $client, array $invoiceFacts): string
