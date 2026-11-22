@@ -43,7 +43,7 @@ final class MonthlyRentReconciliationPage
         try {
             $months = MonthlyRentReconciliation::range($first, $last);
         } catch (RuntimeException $error) {
-            return View::page(self::TITLE, $body.self::tabs($tab,$context,0,0)
+            return View::page(self::TITLE, $body.self::tabs($tab,$context,0,0,0)
                 .'<section class="table-card registry-ui-card">'.self::filters($tab,$context,[])
                 .'<section class="panel-section">'
                 .RentalUI::alert($error->getMessage(), '', 'error').'</section></section>', self::MENU_KEY);
@@ -69,16 +69,17 @@ final class MonthlyRentReconciliationPage
             Http::redirect($url);
         }
         $db = DB::pdo();
-        $report = null;
-        $rows = $issues = $monthRows = [];
-        if ($tab === 'bills') {
-            $rows = MonthlyInvoiceAssignments::listing($db, $selectedMonths);
-            $rows = array_values(array_filter($rows, static fn(array $row): bool=>(!$unlinked || $row['contract'] === null)
-                && self::matches($tokens,[$row['number'],$row['name'],$row['client'],$row['contract'],
+        $billRows = MonthlyInvoiceAssignments::listing($db, $selectedMonths);
+        if ($unlinked || $tokens) {
+            $billRows = array_values(array_filter($billRows, static fn(array $row): bool=>(!$unlinked || $row['contract'] === null)
+                && (!$tokens || self::matches($tokens,[$row['number'],$row['name'],$row['client'],$row['contract'],
                     $row['contract'] === null ? 'Не привязан' : '№'.$row['contract'],
                     ...array_map(self::monthLabel(...),$row['months']),Documents::dateText($row['issued']),
-                    $row['amount'],$row['paid'],$row['status'],$row['origin']])));
-        } else {
+                    $row['amount'],$row['paid'],$row['status'],$row['origin']]))));
+        }
+        $report = null;
+        $issues = $monthRows = [];
+        if ($tab !== 'bills') {
             $report = (new MonthlyRentReconciliation($db, Config::store()))->capture($selectedMonths, $tab === 'review');
             $issues = array_values(array_filter($report['issues'], static function(array $issue) use ($month,$tokens): bool {
                 $periods = explode(', ', $issue[0]);
@@ -86,8 +87,7 @@ final class MonthlyRentReconciliationPage
                     && self::matches($tokens, [...$issue,...array_map(self::monthLabel(...),$periods)]);
             }));
             if ($tab === 'review') {
-                $rows = $issues;
-                usort($rows, static fn(array $left, array $right): int=>($left[0] === '—') <=> ($right[0] === '—'));
+                usort($issues, static fn(array $left, array $right): int=>($left[0] === '—') <=> ($right[0] === '—'));
             } else {
                 $monthRows = self::filterClients($report['months'],$tokens);
             }
@@ -95,21 +95,21 @@ final class MonthlyRentReconciliationPage
         $archive = $report['archive'] ?? MonthlyInvoiceArchive::lastImports($db);
         $issueCount = $report === null ? null : count($issues);
         $body .= self::tabs($tab,$context,$tab === 'main' ? count($monthRows) : count($selectedMonths),
-                $issueCount,$tab === 'bills' ? count($rows) : null)
+                $issueCount,count($billRows))
             .'<section class="table-card registry-ui-card">'.self::filters($tab,$context,$months,$archive);
         if ($tab === 'bills') {
             $document = $_GET['document'] ?? '';
             $body .= RentalUI::notice();
             if (is_string($document) && $document !== '') $body .= MonthlyInvoiceAssignments::editor($document,$url);
-            $body .= MonthlyInvoiceAssignments::table($rows,$url);
+            $body .= MonthlyInvoiceAssignments::table($billRows,$url);
         } else {
-            $body .= $tab === 'review' ? self::reviewTable($rows)
+            $body .= $tab === 'review' ? self::reviewTable($issues)
                 : self::monthlyTable($monthRows);
         }
         return View::page(self::TITLE, $body.'</section>', self::MENU_KEY);
     }
 
-    private static function tabs(string $tab, array $context, int $months, ?int $issues, ?int $bills = null): string
+    private static function tabs(string $tab, array $context, int $months, ?int $issues, int $bills): string
     {
         return Controller::tabs(['main'=>['Основное',$months], 'review'=>['Требует сверки',$issues], 'bills'=>['Счета и разнесения',$bills]],
             $tab, context:$context);
