@@ -33,11 +33,17 @@ foreach ([null, '2021-10-19'] as $issued) {
     }
 }
 
-$source['Услуги'][0]['Содержание'] = 'Аренда офиса за IV квартал 2026 г.';
-try {
-    MonthlyRentReconciliation::sourceMonths($source, '122.01');
-    throw new RuntimeException('A quarterly total was assigned to months without a breakdown.');
-} catch (DomainException $error) {
-    if ($error->getMessage() !== 'INVOICE_PERIOD_UNCONFIRMED') throw $error;
+$source['Услуги'][0]['Содержание'] = 'Аренда парковочного места за период с 01 октября по 08 октября 2026г.';
+if (MonthlyRentReconciliation::sourceMonths($source, '122.01', '2026-09-17') !== ['2026-10'=>'122.01']) {
+    throw new RuntimeException('A repeated month name must not hide an invoice.');
+}
+foreach (['Аренда офиса за IV квартал 2026 г.', 'Аренда места за период с 30 сентября по 08 октября 2026г.'] as $text) {
+    $source['Услуги'][0]['Содержание'] = $text;
+    try {
+        MonthlyRentReconciliation::sourceMonths($source, '122.01', '2026-09-17');
+        throw new RuntimeException('A multi-month total was assigned to one month without a breakdown.');
+    } catch (DomainException $error) {
+        if ($error->getMessage() !== 'INVOICE_PERIOD_UNCONFIRMED') throw $error;
+    }
 }
 echo "Monthly rent reconciliation source totals OK\n";
