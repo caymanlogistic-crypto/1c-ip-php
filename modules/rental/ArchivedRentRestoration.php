@@ -11,12 +11,14 @@ use RuntimeException;
 /** Restore the reviewed contract and original 1C invoices in one business transaction. */
 final class ArchivedRentRestoration
 {
+    private const RSTROY_PARTY_REF = 'a444cc56-df4f-11f1-ae1e-005056950eec';
+
     private const LEASES = [
         '160'=>['2026-10-15','2026-11-29','2027-10-28','296861.36',1076,1009,'office',115,
             ['АЯИП-001148'=>['19790.76',true],'АЯИП-001258'=>['296861.36',false]],['128','2026-11-28']],
         '161'=>['2026-11-02','2026-12-01','2027-10-01','210067.00',1080,1024,'office',116,
             ['АЯИП-001300'=>['210067.00',true]],['130','2026-11-30']],
-        '164'=>['2026-11-11','2026-11-16','2027-10-15','577500.00',[1093=>null,1094=>null],9000015,'office',112,
+        '164'=>['2026-11-11','2026-11-16','2027-10-15','577500.00',[1093=>null,1094=>null],null,'office',112,
             ['АЯИП-001251'=>['288750.00',true],'АЯИП-001252'=>['577500.00',true]]],
         '64'=>['2026-11-02','2026-11-05','2027-10-02','25200.00',1043,1016,'parking',44,
             ['АЯИП-001310'=>['25200.00',false]]],
@@ -91,7 +93,7 @@ final class ArchivedRentRestoration
             $basis['register_sha256']='328caf9a55923613b1845cce03fd65b0fe1e9f7d795a6c1d2f6193443f192fb2';
             $basis['register_party_ref']='c19311a4-c2be-11ef-9f81-005056954c70';
             $basis['first_invoice']='АЯИП-001251';
-            if ($partyRef!=='a444cc56-df4f-11f1-ae1e-005056950eec' || $contractRef!=='e92b088f-df4f-11f1-ae1e-005056950eec')
+            if ($partyRef!==self::RSTROY_PARTY_REF || $contractRef!=='e92b088f-df4f-11f1-ae1e-005056950eec')
                 throw new RuntimeException('Изменилась связь Р-СТРОЙ с оригиналами 1С.',409);
         }
         $party=self::party($db,$partyRef,$knownParty);
@@ -205,12 +207,27 @@ final class ArchivedRentRestoration
         $name=trim((string)($source['Description'] ?? ''));
         if (($source['Ref_Key'] ?? '')!==$ref || ($source['DeletionMark'] ?? true)!==false || !preg_match('/^\d{10}$/D',$inn) || $name==='')
             throw new RuntimeException('Юрлицо 1С не подтверждено.',409);
-        $query=$db->prepare('SELECT 1 FROM parties WHERE inn=? FOR UPDATE');
+        $query=$db->prepare('SELECT id,name,kpp,blocked,source_json FROM parties WHERE inn=? FOR UPDATE');
         $query->execute([$inn]);
-        if ($query->fetchColumn()) throw new RuntimeException('Есть другое юридическое лицо с тем же ИНН.',409);
+        $existing=$query->fetchAll();
+        $proof=['source_party_guid'=>$ref,'source_sha256'=>$archive['raw_sha256']];
+        if ($existing) {
+            $card=$existing[0];
+            $bindings=$db->prepare("SELECT 1 FROM rental_source_bindings WHERE entity_type='party' AND entity_id=? LIMIT 1 FOR UPDATE");
+            $bindings->execute([$card['id']]);
+            if ($ref!==self::RSTROY_PARTY_REF || count($existing)!==1 || $card['blocked'] || $card['name']!==$name
+                || ($card['kpp'] && $card['kpp']!==($source['КПП'] ?? null))
+                || Importer::decodeExact($card['source_json']) || $bindings->fetchColumn()) {
+                throw new RuntimeException('Есть другое юридическое лицо с тем же ИНН.',409);
+            }
+            $db->prepare('UPDATE parties SET source_json=?,version=version+1 WHERE id=?')
+                ->execute([Importer::json($proof),$card['id']]);
+            Audit::record(ArchivedRentCorrection::ACTION,'party',$card['id'],[],['inn'=>$inn]+$proof);
+            return (int)$card['id'];
+        }
         $id=BusinessIds::next($db,'parties',900000,false);
         $db->prepare('INSERT INTO parties(id,name,inn,source_json) VALUES(?,?,?,?)')->execute(
-            [$id,$name,$inn,Importer::json(['source_party_guid'=>$ref,'source_sha256'=>$archive['raw_sha256']])]);
+            [$id,$name,$inn,Importer::json($proof)]);
         return $id;
     }
 
