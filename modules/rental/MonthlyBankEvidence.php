@@ -10,6 +10,8 @@ use PDO;
 /** Evidence of full bank payment, independent of a local invoice or allocation. */
 final class MonthlyBankEvidence
 {
+    public const THIRD_PARTY = 'rental_yakovlev_confirmed_third_party';
+
     public function __construct(private PDO $db,private PrivateStore $store) {}
 
     public function fullyPaid(array $targets,array $invoices,string $through): array
@@ -32,6 +34,8 @@ final class MonthlyBankEvidence
         foreach ($paid as $ref=>$amount) {
             if (bccomp($amount,$targets[$ref]['amount'],2)!==0) unset($paid[$ref]);
         }
+        $thirdParty=$this->confirmedThirdParty($targets,$through);
+        foreach ($thirdParty as $ref=>$fact) $paid[$ref]=$fact['amount'];
         if (!$paid) return [];
 
         foreach ($this->records('bank_out',$through) as [$header,$record]) {
@@ -41,10 +45,32 @@ final class MonthlyBankEvidence
             if ($links) continue;
             $party=$record['party'];
             foreach ($paid as $ref=>$amount) {
-                if ($targets[$ref]['party_ref']===$party) unset($paid[$ref]);
+                if ($targets[$ref]['party_ref']===$party
+                    || (isset($thirdParty[$ref]) && $thirdParty[$ref]['payer_ref']===$party))
+                    unset($paid[$ref]);
             }
         }
         return $paid;
+    }
+
+    private function confirmedThirdParty(array $targets,string $through): array
+    {
+        $query=$this->db->prepare("SELECT f.source_key,f.fact_json FROM rental_facts f
+            JOIN external_documents d ON d.source_id=JSON_UNQUOTE(JSON_EXTRACT(f.fact_json,'$.bank_source'))
+                AND d.raw_sha256=JSON_UNQUOTE(JSON_EXTRACT(f.fact_json,'$.bank_sha'))
+            WHERE f.namespace=? AND f.operative=1 AND d.provider=? AND d.account_id='bank_in'
+                AND d.status='Проведён' AND d.document_date<=?");
+        $query->execute([self::THIRD_PARTY,YakovlevImport::PROVIDER,$through]);
+        $confirmed=[];
+        foreach ($query as $row) {
+            $ref=$row['source_key'];
+            $target=$targets[$ref] ?? null;
+            if ($target===null) continue;
+            $fact=Support::decode($row['fact_json']);
+            if ($target['raw_sha256']===$fact['invoice_sha'] && bccomp($target['amount'],$fact['amount'],2)===0)
+                $confirmed[$ref]=$fact;
+        }
+        return $confirmed;
     }
 
     private function records(string $kind,string $through): iterable

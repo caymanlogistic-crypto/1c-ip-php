@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Modules\Rental;
 
 use App\{Audit,Auth,BusinessIds};
-use Modules\Integrations\{Config,Support};
+use Modules\Integrations\{Config,OnecMapping,Support};
 use PDO;
 use RuntimeException;
 
@@ -35,8 +35,70 @@ final class ArchivedRentCorrection
                 ['АЯИП-001246'=>'20930.00','АЯИП-001273'=>'48150.00'],['2.40'=>'2.12']),
             ['33','2024-02-01']=>self::settleParkingInvoices($db,$actor,$contract,
                 ['АЯИП-001298'=>'24000.00'],['1.34'=>'1.14']),
+            ['55','2025-10-20']=>self::recordPayerAgreement($db,$actor,$input,$contract),
             default=>throw new RuntimeException('По договору отсутствует проверенное основание коррекции.',409),
         };
+    }
+
+    private static function recordPayerAgreement(PDO $db,array $actor,array $input,array $contract): array
+    {
+        $agreement=$input['payer_agreement'] ?? [];
+        $payer=OnecMapping::guid($agreement['payer_ref'] ?? null);
+        $payerName=trim((string)($agreement['payer_name'] ?? ''));
+        $receipts=$agreement['receipts'] ?? [];
+        if ($payerName==='' || array_keys($receipts)!==['2026-10','2026-11']) {
+            throw new RuntimeException('Укажите согласованного плательщика и основания за октябрь и ноябрь.',422);
+        }
+        $bankQuery=$db->prepare("SELECT * FROM external_documents WHERE provider='onec-yakovlev'
+            AND account_id='bank_in' AND source_id=? AND status='Проведён'");
+        $contractLink=$db->prepare("SELECT 1 FROM rental_source_bindings WHERE entity_type='contract'
+            AND entity_id=? AND relation_kind='rental_contract' AND collection='Catalog_ДоговорыКонтрагентов' AND source_id=?");
+        $save=$db->prepare('INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,1)');
+        $saved=[];
+        $bankReferences=[];
+        foreach ($receipts as $month=>$proof) {
+            [$invoice,$original]=self::sourceInvoice($db,(int)$contract['party_id'],$proof['invoice'],$proof['amount']);
+            $source=$original['fields']['record'];
+            $contractLink->execute([$contract['id'],$source['ДоговорКонтрагента_Key']]);
+            $bankQuery->execute(['bank_in:'.$proof['bank_ref']]);
+            $bank=$bankQuery->fetch() ?: throw new RuntimeException('Банковское поступление отсутствует в архиве.',409);
+            $receipt=Support::decode(Config::store()->read($bank['raw_path'],$bank['raw_sha256']))['fields']['record'];
+            $received=YakovlevRentalSync::cents($bank['amount']);
+            $amount=YakovlevRentalSync::cents($invoice['amount']);
+            $deposit=YakovlevRentalSync::cents($proof['deposit_amount'] ?? '0.00',true);
+            $transfer=OnecMapping::guid($proof['transfer_ref'] ?? null);
+            $depositTransfer=$deposit==='0.00' ? null : OnecMapping::guid($proof['deposit_transfer_ref'] ?? null);
+            if (!$contractLink->fetchColumn() || $source['Контрагент_Key']===$payer
+                || MonthlyRentReconciliation::sourceMonths($source,$amount,$invoice['document_date'])!==[$month=>$amount]
+                || ($receipt['Контрагент_Key'] ?? $receipt['Контрагент'] ?? null)!==$payer
+                || ($receipt['Posted'] ?? false)!==true || ($receipt['DeletionMark'] ?? true)!==false
+                || ($receipt['ВидОперации'] ?? null)!=='ОплатаПокупателя'
+                || ($receipt['Организация_Key'] ?? null)!==$source['Организация_Key']
+                || $bank['source_id']!=='bank_in:'.($receipt['Ref_Key'] ?? '')
+                || ($receipt['ВалютаДокумента_Key'] ?? null)!==$source['ВалютаДокумента_Key']
+                || bcadd($amount,$deposit,2)!==$received || isset($bankReferences[$bank['source_id']])
+                || $transfer===$depositTransfer || empty($proof['transfer_number'])) {
+                throw new RuntimeException('Поступление или основание переноса расходится с оригиналом '.$invoice['number'].'.',409);
+            }
+            $fact=['invoice_sha'=>$invoice['raw_sha256'],'bank_source'=>$bank['source_id'],'bank_sha'=>$bank['raw_sha256'],
+                'payer_ref'=>$payer,'payer_name'=>$payerName,'amount'=>$amount,'month'=>$month,'invoice'=>$invoice['number'],
+                'bank'=>$bank['number'],'payment_date'=>$bank['document_date'],'transfer_ref'=>$transfer,
+                'transfer_number'=>$proof['transfer_number'],'deposit_amount'=>$deposit,
+                'deposit_transfer_ref'=>$depositTransfer];
+            $save->execute([MonthlyBankEvidence::THIRD_PARTY,$source['Ref_Key'],Importer::json($fact)]);
+            $bankReferences[$bank['source_id']]=true;
+            $saved[]=$fact;
+        }
+        $result=['id'=>(int)$contract['id'],'payer'=>$payerName,'receipts'=>$saved];
+        $source=Importer::decodeExact($contract['source_json']);
+        $source['ownerConfirmedThirdPartyRent']=['payer_ref'=>$payer,'payer_name'=>$payerName];
+        ContractHistory::remember($db,$contract,$actor,$input['command_key'],$result);
+        $db->prepare('UPDATE contracts SET source_json=?,version=version+1 WHERE id=?')
+            ->execute([Importer::json($source),$contract['id']]);
+        Audit::record(self::ACTION,'contract',$contract['id'],null,$result);
+        Service::event($db,$actor,self::ACTION,'Подтверждена договорённость об оплате парковки третьим лицом: '.$payerName.'.',
+            (int)$contract['id'],$result);
+        return $result;
     }
 
     private static function terms(PDO $db,array $contract,int $object): array
