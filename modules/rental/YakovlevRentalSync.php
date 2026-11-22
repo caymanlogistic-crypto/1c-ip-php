@@ -94,6 +94,83 @@ final class YakovlevRentalSync
         return $evidence+['bank'=>$ref['number'],'payment_date'=>$ref['document_date'],'transfer'=>$proof['transfer_number']];
     }
 
+    public function accountArchivedSecurity(int $contractId,array $proof): array
+    {
+        ArchivedRentCorrection::requireOperator();
+        if (!$this->db->inTransaction()) throw new RuntimeException('YAKOVLEV_ASSIGNMENT_TRANSACTION_REQUIRED');
+        $scope=self::settings($this->db,true) ?? throw new RuntimeException('YAKOVLEV_ACCOUNTING_ADMISSION_INVALID');
+        [$archive,$original,$invoiceRef]=$this->verifiedArchive('invoices',$proof['invoice_ref'],$proof['invoice_sha']);
+        [$bank,$receipt,$bankRef,$bankFingerprint]=$this->verifiedArchive('bank_in',$proof['bank_ref'],$proof['bank_sha']);
+        $contract=$this->contract($contractId,$original,$scope,$this->invoiceContracts($original,$archive));
+        self::requirePayee($scope,$receipt);
+        $amount=self::cents($invoiceRef['amount']);
+        $invoiceRows=array_merge($original['Товары'] ?? [],$original['Услуги'] ?? []);
+        $receiptRows=$receipt['РасшифровкаПлатежа'] ?? [];
+        $line=$receiptRows[0] ?? [];
+        $description=(string)($invoiceRows[0]['Содержание'] ?? '');
+        $purpose=(string)($receipt['НазначениеПлатежа'] ?? '');
+        $contractMarker='/№\s*'.preg_quote($contract['number'],'/').'(?![\d\/])/u';
+        if ($contract['status']!=='active' || self::partyRef($original)!==self::partyRef($receipt)
+            || ($original['Организация_Key'] ?? null)!==$scope['organization']
+            || ($receipt['Организация_Key'] ?? null)!==$scope['organization']
+            || ($receipt['ВалютаДокумента_Key'] ?? null)!==$scope['currency']
+            || ($receipt['ДоговорКонтрагента_Key'] ?? null)!==$proof['bank_contract_ref']
+            || ($line['ДоговорКонтрагента_Key'] ?? null)!==$proof['bank_contract_ref']
+            || count($invoiceRows)!==1 || count($receiptRows)!==1
+            || !preg_match('/^обеспечительн\p{L}*\s+плат[её]ж/iu',$description) || !preg_match($contractMarker,$description)
+            || !preg_match('/обеспечительн\p{L}*\s+плат[её]ж/iu',$purpose) || !preg_match($contractMarker,$purpose)
+            || !self::purposeMatchesInvoiceNumbers(self::invoiceNumbersInPurpose($purpose),[$invoiceRef['number']])
+            || self::invoiceNumbersInPurpose($purpose)===[] || $bankRef['document_date']<$invoiceRef['document_date']
+            || !in_array($line['СчетНаОплату_Key'] ?? '',[$proof['invoice_ref'],'00000000-0000-0000-0000-000000000000'],true)
+            || self::cents($bankRef['amount'])!==$amount || self::cents($line['СуммаПлатежа'] ?? null)!==$amount
+            || self::cents($line['СуммаВзаиморасчетов'] ?? null)!==$amount || self::cents($line['СуммаВозврата'] ?? null,true)!=='0.00') {
+            throw new DomainException('SECURITY_DEPOSIT_ORIGINALS_CONFLICT');
+        }
+        self::assertOperatingWriter();
+        $invoices=$this->invoicesFor($proof['invoice_ref']);
+        if (!$invoices) {
+            if ($this->one("SELECT id FROM invoices WHERE contract_id=? AND kind=? AND status<>'revoked' LIMIT 1",
+                    [$contractId,SecurityDeposit::KIND])
+                || $this->one('SELECT id FROM invoices WHERE number=? LIMIT 1',[$invoiceRef['number']]))
+                throw new DomainException('SECURITY_DEPOSIT_DUPLICATE');
+            $id=BusinessIds::next($this->db,'invoices',9000000,false);
+            $snapshot=['Ref_Key'=>$proof['invoice_ref'],'currency'=>$scope['currency'],'yakovlev_archive'=>['document_id'=>$archive['id']]];
+            $this->db->prepare("INSERT INTO invoices(id,number,contract_id,title,purpose,kind,period,amount,paid,issued,due,status,initial_invoice,source_json)
+                VALUES(?,?,?,?,?,?,'Обеспечение',?,0,?,?,'active',1,?)")->execute([$id,$invoiceRef['number'],$contractId,$description,$description,
+                    SecurityDeposit::KIND,$amount,$invoiceRef['document_date'],InvoiceDueDate::firstRent($invoiceRef['document_date']),Support::json($snapshot)]);
+            $invoices=$this->invoicesFor($proof['invoice_ref']);
+        }
+        if (count($invoices)!==1 || $invoices[0]['kind']!==SecurityDeposit::KIND || $invoices[0]['period']!=='Обеспечение')
+            throw new DomainException('SECURITY_DEPOSIT_DUPLICATE');
+        $invoice=$invoices[0];
+        $this->assertInvoice($invoice,$contractId,$invoiceRef);
+        $planned=[$invoice['id']=>['invoice'=>$invoice,'amount'=>$amount]];
+        $known=$this->paymentIds($proof['bank_ref']);
+        if ($known) {
+            $this->assertExistingPayment($known,$contract,$bankRef,$planned);
+            return ['effect'=>'existing','payment_id'=>$known[0],'invoice_ids'=>array_keys($planned)];
+        }
+        $result=$this->postPayment($receipt,$bankRef,$bank['id'],$contract,$planned,['archived_security'=>$proof],SecurityDeposit::KIND);
+        $this->save(self::BOOKED,hash('sha256',$bankRef['source_id']),['sha'=>$bankFingerprint,'contract_id'=>$contractId,
+            'security_invoice'=>$proof['invoice_ref']]+$result);
+        Audit::record('rental.yakovlev-accounting','bank_in',$bank['id'],null,$result+['archived_security'=>$proof]);
+        return $result+['amount'=>$amount,'invoice'=>$invoiceRef['number'],'bank'=>$bankRef['number']];
+    }
+
+    private function verifiedArchive(string $kind,string $ref,string $sha): array
+    {
+        $row=$this->one('SELECT * FROM external_documents WHERE provider=? AND source_id=? FOR UPDATE',
+            [YakovlevImport::PROVIDER,$kind.':'.$ref]);
+        if (!$row || $row['status']!=='Проведён' || $row['raw_sha256']!==$sha)
+            throw new DomainException('SOURCE_CHANGED');
+        $document=Support::decode($this->store->read($row['raw_path'],$row['raw_sha256']));
+        $record=YakovlevImport::normalize($document);
+        if ($record['source_id']!==$row['source_id'] || $record['status']!==$row['status']
+            || $record['document_date']!==$row['document_date'] || self::cents($record['amount'])!==self::cents($row['amount']))
+            throw new DomainException('SOURCE_CHANGED');
+        return [$row,$document['fields']['record'],$record,self::fingerprint($document)];
+    }
+
     /** Both successful archive loads must belong to the same scheduled window. */
     public function afterLoads(string $invoices, string $bank, string $from, string $until): array
     {
@@ -204,6 +281,17 @@ final class YakovlevRentalSync
 
     private function assertBooked(array $scope,array $data,array $ref,int $contractId,array $booked,array $archive): void
     {
+        if (isset($booked['security_invoice'])) {
+            $matches=$this->invoicesFor($booked['security_invoice']);
+            $ids=$this->paymentIds($data['Ref_Key']);
+            if (count($matches)!==1 || $matches[0]['kind']!==SecurityDeposit::KIND
+                || (int)$matches[0]['contract_id']!==$contractId || $ids!==[(int)$booked['payment_id']])
+                throw new DomainException('EXISTING_PAYMENT_CONFLICT');
+            $invoice=$matches[0];
+            $contract=$this->contract($contractId,$data,$scope,[$contractId]);
+            $this->assertExistingPayment($ids,$contract,$ref,[$invoice['id']=>['invoice'=>$invoice,'amount'=>self::cents($ref['amount'])]]);
+            return;
+        }
         if (isset($booked['transferred_invoice'])) {
             $actual=$this->transferredPayment($scope,$data,$ref,$archive,(int)$booked['contract_id'],$booked['transferred_invoice'],true);
             if ($actual['payment_id']!==$booked['payment_id']) throw new DomainException('EXISTING_PAYMENT_CONFLICT');
@@ -246,9 +334,11 @@ final class YakovlevRentalSync
             'printDetails'=>['number'=>$ref['number'],'issued'=>$ref['document_date'],'lines'=>$proof['lines']]];
         if ($parkingAccountingMap)
             $snapshot['yakovlev_archive']['owner_confirmed_parking_accounting_map']=$parkingAccountingMap;
-        $this->db->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,source_json)
-            VALUES(?,?,?,'Аренда',?,?,0,?,?,'active',?)")->execute([$id,$ref['number'],$contractId,$proof['period'],
-                self::cents($ref['amount']),$ref['document_date'],InvoiceDueDate::monthlyRent($proof['period']),Support::json($snapshot)]);
+        $first=(Support::decode($contract['source_json'])['archivedRentRestoration']['first_invoice'] ?? null)===$ref['number'];
+        $due=$first ? InvoiceDueDate::firstRent($ref['document_date']) : InvoiceDueDate::monthlyRent($proof['period']);
+        $this->db->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,initial_invoice,source_json)
+            VALUES(?,?,?,'Аренда',?,?,0,?,?,'active',?,?)")->execute([$id,$ref['number'],$contractId,$proof['period'],
+                self::cents($ref['amount']),$ref['document_date'],$due,(int)$first,Support::json($snapshot)]);
         $objects=$this->db->prepare('INSERT INTO invoice_objects(invoice_id,object_id) VALUES(?,?)');
         $cover=$this->db->prepare('INSERT INTO invoice_coverage(invoice_id,object_id,start_date,end_date) VALUES(?,?,?,?)');
         foreach (array_unique(array_column($proof['segments'],'object')) as $object) $objects->execute([$id,$object]);
@@ -270,9 +360,23 @@ final class YakovlevRentalSync
         }
         $invoiceNumbers=array_column(array_column($planned,'invoice'),'number');
         $mentioned=self::invoiceNumbersInPurpose((string)($data['НазначениеПлатежа'] ?? ''));
-        if (!self::purposeMatchesInvoiceNumbers($mentioned,$invoiceNumbers))
-            throw new DomainException('PAYMENT_PURPOSE_INVOICE_CONFLICT');
-        return $this->postPayment($data,$ref,$document,$contract,$planned);
+        $metadata=[];
+        if (!self::purposeMatchesInvoiceNumbers($mentioned,$invoiceNumbers)) {
+            $proof=Support::decode($contract['source_json'])['ownerConfirmedArchiveBank'][$data['Ref_Key']] ?? [];
+            $invoice=count($planned)===1 ? reset($planned)['invoice'] : null;
+            $bank=$this->one('SELECT raw_sha256 FROM external_documents WHERE id=?',[$document]);
+            $archive=$this->one('SELECT raw_sha256 FROM external_documents WHERE provider=? AND source_id=?',
+                [YakovlevImport::PROVIDER,'invoices:'.($proof['invoice_ref'] ?? '')]);
+            if (!$invoice || !$bank || !$archive || $bank['raw_sha256']!==($proof['bank_sha'] ?? null)
+                || $archive['raw_sha256']!==($proof['invoice_sha'] ?? null)
+                || $invoice['period']!==($proof['period'] ?? null) || $invoice['amount']!==$total
+                || $mentioned!==[$proof['purpose_invoice'] ?? null]
+                || array_column($data['РасшифровкаПлатежа'],'СчетНаОплату_Key')!==[$proof['invoice_ref']]) {
+                throw new DomainException('PAYMENT_PURPOSE_INVOICE_CONFLICT');
+            }
+            $metadata['owner_confirmed_invoice_number_conflict']=$proof;
+        }
+        return $this->postPayment($data,$ref,$document,$contract,$planned,$metadata);
     }
 
     private function transferredPayment(array $scope,array $data,array $ref,array $bank,int $contractId,string $invoiceRef,
@@ -320,7 +424,7 @@ final class YakovlevRentalSync
             throw new DomainException('PAYEE_OR_OPERATION_UNCONFIRMED');
     }
 
-    private function postPayment(array $data,array $ref,string $document,array $contract,array $planned,array $metadata=[]): array
+    private function postPayment(array $data,array $ref,string $document,array $contract,array $planned,array $metadata=[],string $invoiceKind='Аренда'): array
     {
         $total=self::cents($ref['amount']);
         if ($contract['status']!=='active') throw new DomainException('CONTRACT_NOT_ACTIVE');
@@ -341,7 +445,7 @@ final class YakovlevRentalSync
             $remaining=InvoiceFacts::remaining($i);
             if ($i['status']!=='active' || !empty($i['control_closed']) || !empty($i['manual_review'])
                 || $i['paid']===null || bccomp($i['paid'],$accounted,2)!==0 || $remaining===null
-                || bccomp($entry['amount'],$remaining,2)>0 || (string)$i['kind']!=='Аренда')
+                || bccomp($entry['amount'],$remaining,2)>0 || (string)$i['kind']!==$invoiceKind)
                 throw new DomainException('INVOICE_BALANCE_OR_KIND_CONFLICT');
         }
         $id=BusinessIds::next($this->db,'payments',9000000,false);

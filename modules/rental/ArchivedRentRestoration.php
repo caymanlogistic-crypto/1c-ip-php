@@ -16,6 +16,8 @@ final class ArchivedRentRestoration
             ['АЯИП-001148'=>['19790.76',true],'АЯИП-001258'=>['296861.36',false]],['128','2026-11-28']],
         '161'=>['2026-11-02','2026-12-01','2027-10-01','210067.00',1080,1024,'office',116,
             ['АЯИП-001300'=>['210067.00',true]],['130','2026-11-30']],
+        '164'=>['2026-11-11','2026-11-16','2027-10-15','577500.00',[1093=>null,1094=>null],9000015,'office',112,
+            ['АЯИП-001251'=>['288750.00',true],'АЯИП-001252'=>['577500.00',true]]],
         '64'=>['2026-11-02','2026-11-05','2027-10-02','25200.00',1043,1016,'parking',44,
             ['АЯИП-001310'=>['25200.00',false]]],
         '149/1'=>['2026-10-10','2026-10-10','2026-12-31','12000.00',1105,900015,'legal',393,
@@ -70,6 +72,14 @@ final class ArchivedRentRestoration
         $contractRef=\Modules\Integrations\OnecMapping::guid($contracts[0]);
         $basis=['register_row'=>$registerRow,'source_contract'=>$contractRef,'payer'=>$partyRef,
             'accounting_from'=>$from,'use'=>$use,'source_invoices'=>array_map(static fn($entry)=>$entry[0]['raw_sha256'],$documents)];
+        if ($number==='164') {
+            $basis['register_as_of']='2026-11-18';
+            $basis['register_sha256']='328caf9a55923613b1845cce03fd65b0fe1e9f7d795a6c1d2f6193443f192fb2';
+            $basis['register_party_ref']='c19311a4-c2be-11ef-9f81-005056954c70';
+            $basis['first_invoice']='АЯИП-001251';
+            if ($partyRef!=='a444cc56-df4f-11f1-ae1e-005056950eec' || $contractRef!=='e92b088f-df4f-11f1-ae1e-005056950eec')
+                throw new RuntimeException('Изменилась связь Р-СТРОЙ с оригиналами 1С.',409);
+        }
         $party=self::party($db,$partyRef,$knownParty);
         $used=$db->prepare("SELECT 1 FROM contracts WHERE number=? OR EXISTS (
             SELECT 1 FROM rental_source_bindings b WHERE b.entity_id=contracts.id AND b.entity_type='contract'
@@ -93,6 +103,20 @@ final class ArchivedRentRestoration
         }
         $origin=['imported'=>true,'sourceLegalMapping'=>['legalDate'=>$signed,'legalNumber'=>$number,'party1CRef_Key'=>$partyRef],
             'archivedRentRestoration'=>$basis];
+        if ($number==='164') {
+            $origin['sourceStatus']='Действует';
+            $condition=['condition_id'=>'owner-register:2026-11-18:112','kind'=>'RENT','monthly_gross'=>$rate,'start'=>$from,'end'=>$until];
+            $origin['sourceLegalMapping']['sourceConditions']=[$condition];
+            $origin['sourceLegalMapping']['unresolvedComponentAllocation']=[['condition'=>$condition,'objects'=>array_keys($objectRates)]];
+            $origin['ownerConfirmedArchiveBank']=[
+                '38cb81e3-e185-11f1-ae1e-005056950eec'=>[
+                    'bank_sha'=>'42980e789cdf9dd4d7b3b472d6ea76703fa38f3c4141276a99bb113fa275ecef',
+                    'invoice_ref'=>'b940f4b1-df50-11f1-ae1e-005056950eec',
+                    'invoice_sha'=>'9accbcd4e9b42c0b9f01ff85074be7c029f8044bea0e5d4126558ae6e40aa2d5',
+                    'period'=>'2026-12','purpose_invoice'=>1251,'actor_id'=>(int)$actor['id'],
+                ],
+            ];
+        }
         if ($prior) $origin['archiveContinuity']=['predecessor'=>$prior]+$basis;
         if ($number==='65') {
             $origin['archiveContinuity']=['confirmed_rent_from'=>$from,'confirmed_rent_through'=>$until,'owner_confirmed'=>true];

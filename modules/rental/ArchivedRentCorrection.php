@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental;
 
-use App\{Audit,Auth,BusinessIds};
+use App\{Audit,Auth,BusinessIds,ContractOccupancy};
 use Modules\Integrations\{Config,OnecMapping,Support,YakovlevImport};
 use PDO;
 use RuntimeException;
@@ -47,8 +47,56 @@ final class ArchivedRentCorrection
                 ? self::recordPayerAgreement($db,$actor,$input,$contract)
                 : self::settleThirdPartyParking($db,$actor,$contract),
             ['144','2026-03-10']=>self::recordRentCredit($db,$actor,$contract,$input['rent_credit'] ?? []),
+            ['164','2026-11-11']=>self::settleRstroySecurity($db,$actor,$contract),
+            ['65','2026-11-11']=>self::extendRstroyParking($db,$actor,$contract),
             default=>throw new RuntimeException('По договору отсутствует проверенное основание коррекции.',409),
         };
+    }
+
+    private static function settleRstroySecurity(PDO $db,array $actor,array $contract): array
+    {
+        $result=(new YakovlevRentalSync($db,Config::store()))->accountArchivedSecurity((int)$contract['id'],[
+            'invoice_ref'=>'2f5c5a24-df50-11f1-ae1e-005056950eec',
+            'invoice_sha'=>'471d3c313ec00200a2b86b499edd30571c3264ce50454817450523e484e6d363',
+            'bank_ref'=>'376bf581-e185-11f1-ae1e-005056950eec',
+            'bank_sha'=>'3fdbcf2f6440cdb7d4ddc2ff6b5138578ef6a03f24b4e44998dbfdeaf59c6543',
+            'bank_contract_ref'=>'ab03e263-e186-11f1-ae1e-005056950eec',
+        ]);
+        Service::event($db,$actor,self::ACTION,'Учтён отдельный обеспечительный платёж по договору №164.',(int)$contract['id'],$result);
+        return $result;
+    }
+
+    private static function extendRstroyParking(PDO $db,array $actor,array $contract): array
+    {
+        $id=(int)$contract['id'];
+        $end='2027-10-15';
+        $source=Importer::decodeExact($contract['source_json']);
+        if ($contract['template_type']!=='parking' || $contract['start_date']!=='2026-11-16'
+            || $contract['end_date']!==null || ($source['sourceLegalMapping']['party1CRef_Key'] ?? null)!=='a444cc56-df4f-11f1-ae1e-005056950eec'
+            || !isset($source[ContractOccupancy::EXCEPTIONS][1015])) {
+            throw new RuntimeException('Условия договора №65 изменились. Сверьте карточку парковки.',409);
+        }
+        $q=$db->prepare('SELECT t.id,t.object_id,t.start_date,t.end_date,t.amount,o.name FROM contract_terms t
+            JOIN rental_objects o ON o.id=t.object_id WHERE t.contract_id=? AND t.superseded_on IS NULL ORDER BY t.object_id FOR UPDATE');
+        $q->execute([$id]);
+        $terms=$q->fetchAll();
+        if (array_column($terms,'name')!==['2.12','2.13'] || array_column($terms,'object_id')!==[1015,1016]
+            || array_column($terms,'amount')!==['24150.00','24150.00'] || array_column($terms,'end_date')!==['2026-12-31','2026-12-31']) {
+            throw new RuntimeException('Состав парковки №65 изменился.',409);
+        }
+        Service::available($db,[1016],'2027-01-01',$end,$id,(int)$contract['party_id']);
+        $basis=['as_of'=>'2026-11-18','rows'=>[51,52],'workbook_sha256'=>'328caf9a55923613b1845cce03fd65b0fe1e9f7d795a6c1d2f6193443f192fb2'];
+        $source['archivedRentRestoration']['confirmed_end']=$basis;
+        $source['sourceStatus']='Действует';
+        $source[ContractOccupancy::EXCEPTIONS][1015]['until']=$end;
+        $db->prepare('UPDATE contracts SET end_date=?,source_json=?,version=version+1 WHERE id=?')
+            ->execute([$end,Importer::json($source),$id]);
+        $update=$db->prepare('UPDATE contract_terms SET end_date=? WHERE id=?');
+        foreach ($terms as $term) $update->execute([$end,$term['id']]);
+        $result=['id'=>$id,'end_date'=>$end,'object_numbers'=>['2.12','2.13'],'physical_review'=>['2.12'],'source'=>$basis];
+        Audit::record(self::ACTION,'contract',$id,['end_date'=>null,'terms'=>$terms],$result);
+        Service::event($db,$actor,self::ACTION,'Уточнён срок договора парковки №65 по реестру на 18 ноября.',$id,$result);
+        return $result;
     }
 
     public static function confirmedBillingEnd(array $contract,string $period): ?string
