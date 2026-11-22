@@ -5,7 +5,7 @@ namespace Modules\Integrations;
 /** HTTPS only, bounded responses, no redirects/proxies, explicit project authorization. */
 final class HttpTransport
 {
-    public static function request(string $method,string $url,array $headers=[],?string $body=null,int $limit=8388608,int $timeoutSeconds=30,?WorkflowMaxEvent $workflowEvent=null,?callable $observer=null,MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|null $readCheck=null): array
+    public static function request(string $method,string $url,array $headers=[],?string $body=null,int $limit=8388608,int $timeoutSeconds=30,?WorkflowMaxEvent $workflowEvent=null,?callable $observer=null,MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|DadataLookup|null $readCheck=null): array
     {
         $mark=static function(string $stage,array $facts=[])use($observer):void{
             if($observer!==null)try{$observer($stage,$facts);}catch(\Throwable){} // Diagnostics never mask the original result.

@@ -74,6 +74,9 @@ final class DirectoryRules
         $name=trim((string)($input['name'] ?? ''));
         $inn=trim((string)($input['inn'] ?? ''));
         if ($name==='' || mb_strlen($name)>255) throw new RuntimeException('Введите полное наименование.',422);
+        if ($old===null && array_key_exists('party_type',$input) && trim((string)$input['party_type'])==='') {
+            throw new RuntimeException('Выберите тип клиента.',422);
+        }
         if ($inn!=='' && !preg_match('/^(\d{10}|\d{12})$/D',$inn)) throw new RuntimeException('ИНН должен содержать 10 или 12 цифр.',422);
         $fields=['name'=>$name,'inn'=>$inn];
         foreach (['address','contact','phone','email','account_email','additional_contact','additional_phone','postal_address','edo','edo_id','description','kpp','legal_address'] as $key) {

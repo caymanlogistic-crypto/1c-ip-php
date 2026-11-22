@@ -14,16 +14,64 @@
   const value=doc.createElement('span');value.className='cs-value';trigger.append(value);
   const panel=doc.createElement('div');panel.className='cs-dropdown';panel.hidden=true;panel.setAttribute('popover','manual');
   const searchWrap=doc.createElement('div');searchWrap.className='cs-search-wrap';
-  const search=doc.createElement('input');search.type='search';search.className='cs-search-input';search.placeholder=options.searchPlaceholder||'Найти помещение';search.setAttribute('aria-label',options.searchLabel||'Поиск помещения');search.setAttribute('aria-controls',id+'-list');searchWrap.append(search);
+  const search=doc.createElement('input');search.type='search';search.className='cs-search-input';search.placeholder=options.searchPlaceholder||'Найти помещение';if(options.allowCustomName)search.maxLength=255;search.setAttribute('aria-label',options.searchLabel||'Поиск помещения');search.setAttribute('aria-controls',id+'-list');searchWrap.append(search);
   const list=doc.createElement('div');list.className='cs-options';list.id=id+'-list';list.setAttribute('role','listbox');list.setAttribute('aria-label',options.listLabel||'Помещения и доступность');
   panel.append(searchWrap,list);host.append(trigger,panel);select.after(host);
   const wasHidden=select.hidden;select.hidden=true;let items=[],visible=[],active=-1,opened=false,destroyed=false;
   function contents(node,item){node.replaceChildren();if(!item){node.textContent=options.placeholder||'Выберите помещение';return;}node.append(doc.createTextNode(item.name+(item.description?' · ':'')));const detail=doc.createElement(item.available?'strong':'span');if(item.available)detail.className='registry-ui-success';detail.textContent=item.description;node.append(detail);}
   function close(focus=false){opened=false;if(panel.matches(':popover-open'))panel.hidePopover();panel.hidden=true;panel.classList.remove('is-open');trigger.classList.remove('is-open');trigger.setAttribute('aria-expanded','false');search.removeAttribute('aria-activedescendant');trigger.removeAttribute('aria-activedescendant');if(focus&&!destroyed)trigger.focus();}
   function setActive(index){active=visible.length?Math.max(0,Math.min(visible.length-1,index)):-1;for(const [i,node]of [...list.children].entries())node.classList.toggle('is-active',i===active);const node=list.children[active];for(const target of[trigger,search])if(node)target.setAttribute('aria-activedescendant',node.id);else target.removeAttribute('aria-activedescendant');node?.scrollIntoView?.({block:'nearest',inline:'nearest'});}
-  function choose(item){if(item.disabled)return;select.value=String(item.id);contents(value,item);close(true);select.dispatchEvent(new doc.defaultView.Event('change',{bubbles:true}));}
+  function choose(item) {
+   if (item.disabled) return;
+   if (item.custom) {
+    const option=doc.createElement('option');
+    option.value=item.id;
+    option.textContent=item.id;
+    select.append(option);
+    refresh();
+    item=items.find(entry=>entry.id===option.value);
+   }
+   select.value=String(item.id);
+   contents(value,item);
+   close(true);
+   select.dispatchEvent(new doc.defaultView.Event('change',{bubbles:true}));
+  }
   function normalized(value){return String(value||'').toLocaleLowerCase('ru').replaceAll('ё','е').replaceAll(',','.').replaceAll('²','2');}
- function renderList(){const tokens=normalized(search.value).trim().split(/\s+/).filter(Boolean);visible=items.filter(i=>{const text=normalized([i.label,i.name,i.description,i.type,i.area].join(' '));return tokens.every(token=>text.includes(token));});list.replaceChildren();for(const [i,item]of visible.entries()){const node=doc.createElement('div');node.className='cs-option';node.id=id+'-option-'+i;node.setAttribute('role','option');node.setAttribute('aria-selected',String(String(item.id)===select.value));node.setAttribute('aria-disabled',String(!!item.disabled));contents(node,item);node.addEventListener('pointerdown',e=>e.preventDefault());node.addEventListener('click',()=>choose(item));list.append(node);}if(!visible.length){const empty=doc.createElement('div');empty.className='cs-no-results';empty.textContent=options.emptyText||'Помещения не найдены';empty.setAttribute('role','status');list.append(empty);}setActive(Math.max(0,visible.findIndex(i=>String(i.id)===select.value)));if(opened)position();}
+  function renderList() {
+   const query=search.value.trim();
+   const tokens=normalized(query).split(/\s+/).filter(Boolean);
+   const choices=options.allowCustomName && !query
+    ? [{id:'',name:options.placeholder,label:options.placeholder},...items] : items;
+   visible=choices.filter(item=>{
+    const text=normalized([item.label,item.name,item.description,item.type,item.area].join(' '));
+    return tokens.every(token=>text.includes(token));
+   });
+   if (options.allowCustomName && query && !items.some(item=>normalized(item.name)===normalized(query))) {
+    visible.push({id:query,name:'Использовать название «'+query+'»',custom:true});
+   }
+   list.replaceChildren();
+   for (const [i,item] of visible.entries()) {
+    const node=doc.createElement('div');
+    node.className='cs-option';
+    node.id=id+'-option-'+i;
+    node.setAttribute('role','option');
+    node.setAttribute('aria-selected',String(String(item.id)===select.value));
+    node.setAttribute('aria-disabled',String(!!item.disabled));
+    contents(node,item);
+    node.addEventListener('pointerdown',event=>event.preventDefault());
+    node.addEventListener('click',()=>choose(item));
+    list.append(node);
+   }
+   if (!visible.length) {
+    const empty=doc.createElement('div');
+    empty.className='cs-no-results';
+    empty.textContent=options.emptyText||'Помещения не найдены';
+    empty.setAttribute('role','status');
+    list.append(empty);
+   }
+   setActive(Math.max(0,visible.findIndex(item=>String(item.id)===select.value)));
+   if (opened) position();
+  }
   function position(){
   if(!opened)return;
   const rect=trigger.getBoundingClientRect(),edge=8,gap=3,width=Math.min(rect.width,innerWidth-2*edge);
@@ -36,7 +84,7 @@
  }
  function reposition(event){if(opened&&!panel.contains(event.target))position();}
  function open(){if(destroyed||select.disabled)return;refresh();opened=true;panel.hidden=false;panel.classList.add('is-open');trigger.classList.add('is-open');trigger.setAttribute('aria-expanded','true');search.value='';renderList();if(panel.showPopover)panel.showPopover();position();search.focus();}
-  function refresh(){if(destroyed)return;const state=get(options.state);if(!state)throw new TypeError('Room picker state is missing');items=options.items(state);const selected=select.value;select.replaceChildren();const empty=doc.createElement('option');empty.value='';empty.textContent=options.placeholder||'Выберите помещение';select.append(empty);for(const item of items){const option=doc.createElement('option');option.value=String(item.id);option.textContent=item.label;option.disabled=!!item.disabled;option.dataset.name=item.name;option.dataset.description=item.description;option.dataset.search=item.label;option.dataset.available=String(!!item.available);option.dataset.type=item.type||'';option.dataset.area=item.area||'';select.append(option);}select.value=items.some(i=>String(i.id)===selected)?selected:'';contents(value,items.find(i=>String(i.id)===select.value));trigger.disabled=select.disabled;trigger.setAttribute('aria-required',String(select.required));if(opened)renderList();}
+  function refresh(){if(destroyed)return;const state=get(options.state);if(!state)throw new TypeError('Room picker state is missing');items=options.items(state);const selected=select.value;select.replaceChildren();const empty=doc.createElement('option');empty.value='';empty.textContent=options.placeholder||'Выберите помещение';select.append(empty);for(const item of items){const option=doc.createElement('option');option.value=String(item.id);option.textContent=item.label;option.disabled=!!item.disabled;option.dataset.name=item.name;option.dataset.description=item.description;option.dataset.search=item.label;option.dataset.available=String(!!item.available);option.dataset.type=item.type||'';option.dataset.area=item.area||'';if(item.prefixes)option.dataset.prefixes=item.prefixes;select.append(option);}select.value=items.some(i=>String(i.id)===selected)?selected:'';contents(value,items.find(i=>String(i.id)===select.value));trigger.disabled=select.disabled;trigger.setAttribute('aria-required',String(select.required));if(opened)renderList();}
   function keydown(e){if(e.key==='Escape'&&opened){e.preventDefault();e.stopPropagation();close(true);return;}if(e.key==='Tab'){close();return;}if(['ArrowDown','ArrowUp','Home','End','Enter'].includes(e.key)||e.key===' '&&e.target===trigger){e.preventDefault();if(!opened){open();return;}if(e.key==='Enter'||e.key===' '){if(visible[active])choose(visible[active]);}else setActive(e.key==='Home'?0:e.key==='End'?visible.length-1:active+(e.key==='ArrowUp'?-1:1));}}
   function outside(e){if(!host.contains(e.target))close();}
   function invalid(e){e.preventDefault();trigger.setAttribute('aria-invalid','true');trigger.focus();}
@@ -46,8 +94,28 @@
   const api=Object.freeze({refresh,destroy,open,close,element:host});select._rentalRoomPicker=api;refresh();return api;
  }
  const mounted=new Map();
- function items(select){return [...select.options].filter(option=>option.value!=='').map(option=>({id:option.value,name:option.dataset.name||option.textContent,description:option.dataset.description||'',label:option.dataset.search||[option.dataset.name||option.textContent,option.dataset.description||''].join(' '),available:option.dataset.available==='true',type:option.dataset.type||'',area:option.dataset.area||'',disabled:option.disabled}));}
- function enhance(scope=document){for(const select of scope.querySelectorAll('select[data-rental-picker],select[data-rental-object-picker]')){if(mounted.has(select))continue;const kind=select.dataset.rentalPicker||'room',room=kind==='room';const api=mountRoomPicker(select,{state:()=>({}),items:()=>items(select),label:room?'Помещение':kind==='party'?'Контрагент':'Основной договор',placeholder:room?'Выберите помещение':kind==='party'?'Выберите контрагента':'Выберите договор',searchPlaceholder:room?'Найти помещение':kind==='party'?'Найти контрагента':'Найти договор',searchLabel:room?'Поиск помещения':'Поиск по справочнику',listLabel:room?'Помещения и доступность':'Записи справочника',emptyText:room?'Помещения не найдены':'Записи не найдены'});mounted.set(select,api);}creator(scope);}
+ function items(select){return [...select.options].filter(option=>option.value!=='').map(option=>({id:option.value,name:option.dataset.name||option.textContent,description:option.dataset.description||'',label:option.dataset.search||[option.dataset.name||option.textContent,option.dataset.description||''].join(' '),available:option.dataset.available==='true',type:option.dataset.type||'',area:option.dataset.area||'',prefixes:option.dataset.prefixes||'',disabled:option.disabled}));}
+ function enhance(scope=document) {
+  for (const select of scope.querySelectorAll('select[data-rental-picker],select[data-rental-object-picker]')) {
+   if (mounted.has(select)) continue;
+   const kind=select.dataset.rentalPicker||'room';
+   const room=kind==='room';
+   const labels=kind==='edo' ? {
+    label:'Оператор ЭДО',placeholder:'Не указан',searchPlaceholder:'Найти по названию или префиксу',
+    searchLabel:'Поиск оператора ЭДО',listLabel:'Операторы ЭДО',allowCustomName:true
+   } : {
+    label:room?'Помещение':kind==='party'?'Контрагент':'Основной договор',
+    placeholder:room?'Выберите помещение':kind==='party'?'Выберите контрагента':'Выберите договор',
+    searchPlaceholder:room?'Найти помещение':kind==='party'?'Найти контрагента':'Найти договор',
+    searchLabel:room?'Поиск помещения':'Поиск по справочнику',
+    listLabel:room?'Помещения и доступность':'Записи справочника',
+    emptyText:room?'Помещения не найдены':'Записи не найдены'
+   };
+   const api=mountRoomPicker(select,{state:()=>({}),items:()=>items(select),...labels});
+   mounted.set(select,api);
+  }
+  creator(scope);
+ }
  function creator(scope=document){for(const type of scope.querySelectorAll('[data-rental-document-type]')){const form=type.closest('form'),base=form?.querySelector('[data-rental-document-base]');if(!base)continue;const show=type.value==='addendum';if(base.dataset.creatorMode===String(show))continue;base.dataset.creatorMode=String(show);base.hidden=!show;for(const input of base.querySelectorAll('select,input')){input.disabled=!show;if(input.matches('select'))input.required=show;mounted.get(input)?.refresh();}}}
  function destroy(scope){for(const [select,api]of mounted)if(scope===select||scope.contains(select)){api.destroy();mounted.delete(select);}}
  document.addEventListener('rental:picker-refresh',event=>{const scope=event.target;for(const [select,api]of mounted)if(scope===select||scope.contains?.(select))api.refresh();});

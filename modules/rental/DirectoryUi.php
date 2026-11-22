@@ -53,9 +53,11 @@ final class DirectoryUi
         return $html!==''?'<span class="nav-counts">'.$html.'</span>':'';
     }
 
-    public static function select(string $key,string $label,array $options,mixed $selected='',bool $required=false,string $attributes=''): string
+    public static function select(string $key,string $label,array $options,mixed $selected='',bool $required=false,string $attributes='',bool $alignedLabel=false): string
     {
-        $html='<label class="field"><span class="field-label">'.View::e($label).'</span><select class="field-select field-input" name="'.$key.'"'.($required?' required':'').' '.$attributes.'>';
+        $caption='<span class="field-label">'.View::e($label).($alignedLabel && $required?' <span class="req">*</span>':'').'</span>';
+        if ($alignedLabel) $caption='<span class="field-label-row">'.$caption.'</span>';
+        $html='<label class="field">'.$caption.'<select class="field-select field-input" name="'.$key.'"'.($required?' required':'').' '.$attributes.'>';
         foreach ($options as $value=>$text) $html.='<option value="'.View::e($value).'"'.((string)$value===(string)$selected?' selected':'').'>'.View::e($text).'</option>';
         return $html.'</select></label>';
     }
