@@ -112,7 +112,7 @@ final class YakovlevInvoiceCoverage
     public static function period(string $text, ?string $issued = null): array
     {
         foreach (self::MONTHS as $stem=>$month) {
-            $startMonth = $issued === null ? '' : '(?:\s+'.$stem.'\p{L}*)?';
+            $startMonth = $issued === null ? '' : '(?:\s+'.$stem.'\p{L}*(?:\s+(?<start_year>20\d\d|\d\d)\s*г?\.?)?)?';
             if (!preg_match('/\bза\s+(?:(?:период\s+)?с\s+(?<first>\d{1,2})'.$startMonth
                 .'\s+по\s+(?<last>\d{1,2})\s+)?'.$stem.'\p{L}*\s+(?<year>20\d\d|\d\d)\s*г?\.?\s*$/iu',$text,$m)) continue;
             $year = $m['year'];
@@ -121,6 +121,10 @@ final class YakovlevInvoiceCoverage
                 if ($issued === null || abs((int)$year - (int)substr($issued,0,4)) > 1) {
                     throw new DomainException('INVOICE_PERIOD_UNCONFIRMED');
                 }
+            }
+            if (!empty($m['start_year'])) {
+                $startYear = strlen($m['start_year']) === 2 ? '20'.$m['start_year'] : $m['start_year'];
+                if ($startYear !== $year) throw new DomainException('INVOICE_PERIOD_UNCONFIRMED');
             }
             $period=sprintf('%s-%02d',$year,$month);
             [$from,$until]=InvoicePeriods::bounds($period);

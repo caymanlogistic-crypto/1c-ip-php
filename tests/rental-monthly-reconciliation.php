@@ -37,7 +37,8 @@ $source['Услуги'][0]['Содержание'] = 'Аренда парков�
 if (MonthlyRentReconciliation::sourceMonths($source, '122.01', '2026-09-17') !== ['2026-10'=>'122.01']) {
     throw new RuntimeException('A repeated month name must not hide an invoice.');
 }
-foreach (['Аренда офиса за IV квартал 2026 г.', 'Аренда места за период с 30 сентября по 08 октября 2026г.'] as $text) {
+foreach (['Аренда офиса за IV квартал 2026 г.', 'Аренда места за период с 30 сентября по 08 октября 2026г.',
+    'Аренда места за период с 15 сентября 2025г. по 30 сентября 2026г.'] as $text) {
     $source['Услуги'][0]['Содержание'] = $text;
     try {
         MonthlyRentReconciliation::sourceMonths($source, '122.01', '2026-09-17');
@@ -45,5 +46,13 @@ foreach (['Аренда офиса за IV квартал 2026 г.', 'Аренд
     } catch (DomainException $error) {
         if ($error->getMessage() !== 'INVOICE_PERIOD_UNCONFIRMED') throw $error;
     }
+}
+$source['Услуги'] = [
+    ['Содержание'=>'Аренда парковочного места за период с 15 сентября 2026г. по 30 сентября 2026г.', 'Сумма'=>'13440.00'],
+    ['Содержание'=>'Аренда парковочного места за октябрь 2026г.', 'Сумма'=>'25200.00'],
+];
+if (MonthlyRentReconciliation::sourceMonths($source, '38640.00', '2026-09-11')
+    !== ['2026-09'=>'13440.00','2026-10'=>'25200.00']) {
+    throw new RuntimeException('The separately priced September and October lines must keep their own amounts.');
 }
 echo "Monthly rent reconciliation source totals OK\n";
