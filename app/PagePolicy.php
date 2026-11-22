@@ -115,7 +115,10 @@ final class PagePolicy {
                 $roleId,
                 $key
             ]);
-            return (int)($q->fetchColumn()?:0);
+            $level=$q->fetchColumn();
+            if ($level===false && $key==='rental.onec-work')
+                return self::levelForRole($roleId,$kind,true,'rental.approvals');
+            return (int)($level?:0);
         }
         if (!self::coarse($roleId, $page['read']))return 0;
         if (str_starts_with($key, 'rental.') && !Menu::allowed(substr($key, 7), [
@@ -128,6 +131,7 @@ final class PagePolicy {
         return self::levelForRole($u['role_id'] ?? $u['role'], $u['role'], !empty($u['grants_configured']), $key);
     }
     public static function commandPage(string $action):string {
+        if (in_array($action,\Modules\Rental\OnecRequest::ACTIONS,true))return 'rental.onec-work';
         if ($action===\Modules\Rental\OccupiedBilling::SAVE) return 'rental.contracts-active';
         if(str_starts_with($action,'workspace.'))return 'core.zero-point';
         if (in_array($action, ['operation.retry', 'operation.manual', \Modules\Rental\StaffHandoff::PACKET], true))return 'rental.operations';
@@ -256,6 +260,7 @@ final class PagePolicy {
                 throw new \RuntimeException('Недостаточно прав для контекста формы или справочника.', 403);
             }
             $fixed = [
+                'onec-work'=>'onec-work',
                 'party' => 'parties',
                 'party-review' => 'parties',
                 'edit-party' => 'parties',

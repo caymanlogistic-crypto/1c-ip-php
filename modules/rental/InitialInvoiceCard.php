@@ -48,6 +48,11 @@ final class InitialInvoiceCard
                 $body.self::factForm($contract,$action), '',$page);
         }
         $plan = InitialInvoice::preview(DB::pdo(),$contract,$issued);
+        $actor=Auth::user();
+        if ($actor['role']==='manager' && OnecRequest::available($contract)
+            && \App\PagePolicy::level('rental.onec-work',$actor)>=2 && !$plan['existing'] && !$plan['receipt']) {
+            $body.=RentalUI::button('Передать в «Работа с 1С»',OnecRequest::route($id).'&issued='.$issued);
+        }
         if ($plan['existing'] || $plan['receipt']) {
             $body .= self::history($plan);
         } else {

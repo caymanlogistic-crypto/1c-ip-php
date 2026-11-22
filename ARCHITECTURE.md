@@ -116,6 +116,7 @@ D28 проходит обычное согласование шаблонов Wo
 | /connections/{provider} | Integrations\Controller::page | PageView::render |
 | /integrations/action | Integrations\Controller::action | Проверить конкретный action, затем ProviderService/другой целевой сервис |
 | /integrations/onec/{preview,prepare,dispatch,reconcile,state} | OnecController | Специальный путь записи/сверки в 1С |
+| /rental/onec-work | OnecRequestCard → Service::command → OnecRequest | Реестр заявок на первый счёт. Сохраняет версию комплекта и решение назначенного бухгалтера. Передача/возврат пользуются существующим маршрутом передачи рабочих задач MAX |
 | /email и /max | Integrations\Controller::page | Настройки и сообщения |
 | /auxiliary/market/{dashboard,runs,comparison,history,settings} | Auxiliary\Controller::market | Рынок |
 | /api/menu-counts | public/index.php | InvoiceSignals::refreshForRequest и Menu::counts |

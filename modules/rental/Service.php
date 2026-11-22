@@ -91,6 +91,7 @@ final class Service {
 
     /** Same coarse grant for command execution and its later typed workflow notification. */
     public static function commandGrant(string $action,array $actor): string {
+        if (in_array($action,OnecRequest::ACTIONS,true)) return $action===OnecRequest::SUBMIT?'rental.write':'finance.write';
         if (in_array($action,[UpdRegister::SAVE,SavedReceipt408::ACTION,OccupiedBilling::SAVE,InvoiceContractAssignment::SAVE],true)) return 'finance.write';
         if ($action === StaffHandoff::PACKET) return match($actor['role']) {
             'admin'=>'*','director'=>'rental.approve.executive',

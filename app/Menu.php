@@ -10,7 +10,7 @@ final class Menu {
             ? ['Простой от 30 дней','Простой 14–29 дней','Недавно сданы','Резервирование']
             : ['Ошибки / срочно','Требует внимания','Положительные события','Ожидание / наблюдение'];
     }
-    public const GROUPS=['Договоры'=>['contracts'=>'Договоры в работе','booking-list'=>'Резервирование','contracts-active'=>'Действующие договоры','contracts-completed'=>'Завершённые договоры'],'Согласования'=>['approvals'=>'Согласование документов','templates'=>'Шаблоны документов'],'Счета и сверка'=>['invoices'=>'Оплаты контрагентов','invoice-list'=>'Счета и оплаты',MonthlyRentReconciliationPage::MENU_KEY=>'Помесячная сверка','reconciliation'=>'Финальная сверка'],'Справочники'=>['parties'=>'Контрагенты','organization'=>'Наша организация','cadastre'=>'Кадастровые объекты','objects'=>'Объекты аренды'],'Контроль'=>['operations'=>'Операции и отправки','errors'=>'Контроль ошибок','journal'=>'Журнал','summary'=>'Обзор документов']];
+    public const GROUPS=['Договоры'=>['contracts'=>'Договоры в работе','booking-list'=>'Резервирование','contracts-active'=>'Действующие договоры','contracts-completed'=>'Завершённые договоры'],'Согласования'=>['approvals'=>'Согласование документов','onec-work'=>'Работа с 1С','templates'=>'Шаблоны документов'],'Счета и сверка'=>['invoices'=>'Оплаты контрагентов','invoice-list'=>'Счета и оплаты',MonthlyRentReconciliationPage::MENU_KEY=>'Помесячная сверка','reconciliation'=>'Финальная сверка'],'Справочники'=>['parties'=>'Контрагенты','organization'=>'Наша организация','cadastre'=>'Кадастровые объекты','objects'=>'Объекты аренды'],'Контроль'=>['operations'=>'Операции и отправки','errors'=>'Контроль ошибок','journal'=>'Журнал','summary'=>'Обзор документов']];
     public static function visible(string $key,array $u):bool {return ($u['role']==='admin'||!array_key_exists($key,self::GROUPS['Контроль']))&&self::allowed($key,$u);}
     public static function permissionPage(string $key): string
     {
@@ -21,6 +21,7 @@ final class Menu {
         if ($key === MonthlyRentReconciliationPage::MENU_KEY && !MonthlyRentReconciliationPage::available($u)) return false;
         if($u['role']==='admin')return true;
         if(!empty($u['grants_configured'])&&(empty($u['workflow_role'])||PagePolicy::level('rental.'.self::permissionPage($key),$u)<1))return false;
+        if($key==='onec-work')return in_array($u['role'],['manager','accountant'],true);
         if(in_array($key,['errors','journal','summary','thresholds'],true))return $u['role']==='director';
         if($key==='contracts')return $u['role']==='manager';
         if($key==='templates')return in_array($u['role'],['lawyer','director'],true);

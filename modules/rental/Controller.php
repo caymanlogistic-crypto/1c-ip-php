@@ -1175,6 +1175,7 @@ final class Controller {
         unset($in['_csrf']);
         $action = (string)($in['action'] ?? '');
         $target = match (true) {
+            in_array($action,OnecRequest::ACTIONS,true) => OnecRequest::route((int)($in['id']??0)),
             in_array($action,InitialInvoice::ACTIONS,true) => InitialInvoiceCard::route((int)($in['id']??0)),
             $action===LeasePaymentTerms::SAVE => LeasePaymentTermsCard::route((int)($in['id']??0),(string)($in['month']??'')),
             $action===DebtFollowUp::SAVE => DebtFollowUpCard::route((int)($in['invoice_id']??0)),
