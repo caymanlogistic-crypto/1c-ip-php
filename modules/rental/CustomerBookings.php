@@ -62,6 +62,7 @@ final class CustomerBookings
             'client'=>self::client($after+$labels),'responsible_id'=>(int)($after['author_id'] ?? 0),
             'responsible'=>$labels['responsible'] ?? 'Менеджер по аренде',
             'actor'=>$system?'Система':(Auth::user()['name'] ?? 'Система'),
+            'start_date'=>$after['start_date'],'comment'=>$after['comment'],
             'before_until'=>$before['until_date'] ?? null,'until'=>$after['until_date'],'status'=>$after['status'],
             'reason'=>$reason,'contract_id'=>$basis,'document_id'=>$document,'version'=>(int)$after['version'],
         ];

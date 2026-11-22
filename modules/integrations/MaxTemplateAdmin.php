@@ -17,8 +17,20 @@ final class MaxTemplateAdmin
         return $html;
     }
 
-    public static function variables(): array
+    public static function variables(array $entry=[]): array
     {
+        $key=$entry['source_key'] ?? '';
+        if (array_key_exists($key,TemplateCatalog::RESERVATION_VARS)) {
+            $common=['number'=>'Номер заявки','context'=>'Помещение','party'=>'Клиент'];
+            $deadline=['effective'=>'Последний день резервирования','manager'=>'Ответственный'];
+            return $common+match ($key) {
+                'reservationCreated'=>['reservationStart'=>'Планируемое начало аренды']+$deadline
+                    +['reservationCommentLine'=>'Строка с комментарием, если он указан'],
+                'reservationExtended'=>['previousDeadline'=>'Прежний срок']+$deadline,
+                'reservationCancelled'=>['reason'=>'Причина снятия','actor'=>'Кто снял резервирование'],
+                default=>$deadline,
+            };
+        }
         return [
             'text'=>'Текст события', 'number'=>'Номер договора', 'party'=>'Контрагент',
             'lawyer'=>'Юрист', 'manager'=>'Менеджер', 'accountant'=>'Бухгалтер',
@@ -32,8 +44,17 @@ final class MaxTemplateAdmin
         ];
     }
 
-    public static function sampleValues(): array
+    public static function sampleValues(array $entry=[]): array
     {
+        $key=$entry['source_key'] ?? '';
+        if (array_key_exists($key,TemplateCatalog::RESERVATION_VARS)) {
+            return [
+                'number'=>'173','context'=>'204','party'=>'ООО «Пример»','reservationStart'=>'10.12.2026',
+                'reservationCommentLine'=>"\nКомментарий · Клиент просил уточнить время осмотра.",
+                'previousDeadline'=>'25.11.2026','effective'=>'01.12.2026','manager'=>'Раиса',
+                'reason'=>'Клиент выбрал другое помещение.','actor'=>'Раиса',
+            ];
+        }
         return [
             'text'=>'Документ направлен на юридическую проверку.', 'number'=>'173',
             'party'=>'ООО «Пример»', 'lawyer'=>'Юрист', 'manager'=>'Менеджер',
@@ -57,6 +78,9 @@ final class MaxTemplateAdmin
     public static function usage(array $entry): array
     {
         $key=(string)($entry['source_key']??'');
+        if (array_key_exists($key,TemplateCatalog::RESERVATION_VARS)) {
+            return ['active'=>true,'text'=>'Используется при включённом допуске MAX для резервирования и согласованной версии шаблона.'];
+        }
         if ($key==='staffHandoff') {
             return ['active'=>true,'text'=>'Используется при включённой отправке MAX.'];
         }

@@ -5,6 +5,19 @@ namespace Modules\Integrations;
 final class TemplateCatalog
 {
     public const MESSAGE_VARS=['text','number','party','lawyer','manager','accountant','director','admin','version','reason','invoiceNumbers','recipientNames','actor','documentNumber','effective','context','documentLabel','invoiceSummary','effectiveSummary','managerEmail','recordUrl'];
+    public const RESERVATION_VARS=[
+        'reservationCreated'=>['reservationStart','reservationCommentLine'],
+        'reservationExtended'=>['previousDeadline'],
+        'reservationCancelled'=>[],
+        'reservationReminder'=>[],
+        'reservationExpired'=>[],
+    ];
+
+    public static function messageVariables(string $channel,string $key): array
+    {
+        return $channel==='max'?array_merge(self::MESSAGE_VARS,self::RESERVATION_VARS[$key] ?? []):self::MESSAGE_VARS;
+    }
+
     public const TOP_VARS=['title','text','record','section','why','actor','number','party','template','details'];
     public function __construct(private \PDO $db,private PrivateStore $store) {}
     /** Render a particular immutable event revision into a delivery DTO; never resolve recipients here. */
@@ -13,7 +26,7 @@ final class TemplateCatalog
     }
     public static function renderEvent(\PDO $db,string $channel,string $key,array $values): array {
         if(!in_array($channel,['email','max'],true)||!preg_match('/^[A-Za-z0-9_.-]{1,100}$/D',$key))throw new \InvalidArgumentException('CATALOG_EVENT_INVALID');
-        if(array_diff(array_keys($values),self::MESSAGE_VARS))throw new \InvalidArgumentException('UNKNOWN_TEMPLATE_FIELD');
+        if(array_diff(array_keys($values),self::messageVariables($channel,$key)))throw new \InvalidArgumentException('UNKNOWN_TEMPLATE_FIELD');
         foreach($values as $value)if(!is_string($value))throw new \InvalidArgumentException('TEMPLATE_VALUE_STRING_REQUIRED');
         $q=$db->prepare('SELECT * FROM integration_template_catalog WHERE channel=? AND source_key=?');$q->execute([$channel,$key]);$entry=$q->fetch(\PDO::FETCH_ASSOC);if(!$entry)throw new \RuntimeException('CATALOG_ENTRY_NOT_FOUND');
         $render=self::preview($channel,$entry,$values);
@@ -27,7 +40,7 @@ final class TemplateCatalog
     }
     public static function validateText(string $text,array $variables,int $limit,bool $singleLine=false): void {if(trim($text)===''||mb_strlen($text)>$limit||preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f]/',$text)||$singleLine&&preg_match('/[\r\n]/',$text))throw new \InvalidArgumentException('TEMPLATE_TEXT_LIMIT');preg_match_all('/\{([^{}]*)\}/u',$text,$matches);foreach($matches[1] as $name)if(!in_array($name,$variables,true))throw new \InvalidArgumentException('UNKNOWN_TEMPLATE_FIELD');if(preg_match('/[{}]/',preg_replace('/\{[^{}]+\}/u','',$text)))throw new \InvalidArgumentException('BROKEN_TEMPLATE_BRACES');}
     public static function safeUrl(string $url): bool {return !preg_match('/[\s<>"\'\\\\{}]/u',$url)&&preg_match('~^(?:https?://[^/\s]+|mailto:[^\s]+)~i',$url)===1;}
-    public static function validateFormat(string $format,string $text): void {if(!in_array($format,['plain','markdown','html'],true))throw new \InvalidArgumentException('UNKNOWN_TEMPLATE_FORMAT');self::validateText($text,self::MESSAGE_VARS,4000);if($format==='markdown'){preg_match_all('/\]\(([^)]*)\)/u',$text,$m);foreach($m[1] as $url)if(!self::safeUrl($url))throw new \InvalidArgumentException('UNSAFE_TEMPLATE_LINK');}if($format==='html'){$rest=preg_replace('~</?(?:b|strong|i|em|s|del|u|ins|code|pre|mark|blockquote|h[1-6])\s*>~i','',$text);$rest=preg_replace_callback('~<a\s+href=("([^"]*)"|\'([^\']*)\')\s*>~i',static function($m){if(!self::safeUrl($m[2]?:$m[3]))throw new \InvalidArgumentException('UNSAFE_TEMPLATE_LINK');return '';},$rest);$rest=preg_replace('~</a\s*>~i','',$rest);if(preg_match('~<[^>]*>|<\s*[a-z!/]~i',$rest))throw new \InvalidArgumentException('UNSAFE_TEMPLATE_HTML');}}
+    public static function validateFormat(string $format,string $text,array $variables=self::MESSAGE_VARS): void {if(!in_array($format,['plain','markdown','html'],true))throw new \InvalidArgumentException('UNKNOWN_TEMPLATE_FORMAT');self::validateText($text,$variables,4000);if($format==='markdown'){preg_match_all('/\]\(([^)]*)\)/u',$text,$m);foreach($m[1] as $url)if(!self::safeUrl($url))throw new \InvalidArgumentException('UNSAFE_TEMPLATE_LINK');}if($format==='html'){$rest=preg_replace('~</?(?:b|strong|i|em|s|del|u|ins|code|pre|mark|blockquote|h[1-6])\s*>~i','',$text);$rest=preg_replace_callback('~<a\s+href=("([^"]*)"|\'([^\']*)\')\s*>~i',static function($m){if(!self::safeUrl($m[2]?:$m[3]))throw new \InvalidArgumentException('UNSAFE_TEMPLATE_LINK');return '';},$rest);$rest=preg_replace('~</a\s*>~i','',$rest);if(preg_match('~<[^>]*>|<\s*[a-z!/]~i',$rest))throw new \InvalidArgumentException('UNSAFE_TEMPLATE_HTML');}}
     public function importState(string $bytes): array {$source=Support::decode($bytes);$domain=$source['domain']??$source;$hash=hash('sha256',$bytes);$q=$this->db->prepare('SELECT 1 FROM rental_imports WHERE state_hash=?');$q->execute([$hash]);if(!$q->fetchColumn())throw new \RuntimeException('STATE_IMPORT_ATTESTATION_REQUIRED');$path=$this->store->put('catalog-imports',$bytes);$counts=[];$this->db->beginTransaction();try{foreach(['max'=>'maxTemplates','email'=>'emailTemplates'] as $channel=>$key){$entries=$domain[$key]??null;if(!is_array($entries))throw new \RuntimeException('CATALOG_SOURCE_MISSING');$counts[$channel]=0;foreach($entries as $sourceKey=>$record){if(!is_array($record))throw new \RuntimeException('CATALOG_SOURCE_INVALID');$this->importRecord($channel,(string)$sourceKey,$record,$hash,$path,'state.2026-10-31');$counts[$channel]++;}}$top=Support::decode(file_get_contents(__DIR__.'/defaults/top-catalog.json'));$overrides=$domain['topToastTemplates']??[];$counts['top']=0;foreach($top['entries'] as $record){$key=$record['id'];$record=array_replace($record,$overrides[$key]??[]);$this->importRecord('top',$key,$record,$hash,$path,$top['source_commit']);$counts['top']++;}$this->db->commit();return ['source_sha256'=>$hash,'counts'=>$counts];}catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}}
     public function installHandoverQuestion(): void {
         $bytes = file_get_contents(__DIR__.'/defaults/handover-question-max.json');
@@ -42,14 +55,63 @@ final class TemplateCatalog
         self::validateFormat($entry['format'], $entry['body']);
         $this->importRecord('max', 'staffHandoff', $entry, hash('sha256', $bytes), 'bundled', 'staff-handoff-v1');
     }
-    public function installReservationNotices(): void
+    public function installReservationNotices(bool $apply=true): array
     {
-        foreach (\Modules\Rental\BookingNotices::TEMPLATES as [$key,$title]) {
-            $body=$title.". Заявка №{number}. Помещение: {context}. Клиент: {party}. Срок: {effective}. Ответственный: {manager}. {reason}";
-            $entry=['id'=>$key,'name'=>$title,'format'=>'plain','body'=>$body,'version'=>1];
-            self::validateFormat($entry['format'],$entry['body']);
-            $this->importRecord('max',$key,$entry,hash('sha256',Support::canonical($entry)),'bundled','reservation-notices-v1');
+        $definitions=Support::decode(file_get_contents(__DIR__.'/defaults/reservation-max-templates.json'));
+        $result=[];
+        $this->db->beginTransaction();
+        try {
+            $select=$this->db->prepare("SELECT * FROM integration_template_catalog WHERE channel='max' AND source_key=? FOR UPDATE");
+            $update=$this->db->prepare("UPDATE integration_template_catalog SET body_text=?,trigger_text=?,version=version+1,
+                actor_label=?,changed_at=?,source_sha256=?,source_path=?,source_version='reservation-notices-v2'
+                WHERE channel='max' AND source_key=?");
+            foreach (\Modules\Rental\BookingNotices::TEMPLATES as [$key,$title]) {
+                $definition=$definitions[$key];
+                $entry=['id'=>$key,'name'=>$title,'format'=>'plain','body'=>$definition['body'],'version'=>1,'trigger'=>$definition['trigger']];
+                self::validateFormat($entry['format'],$entry['body'],self::messageVariables('max',$key));
+                $sha=hash('sha256',Support::canonical($entry));
+                $select->execute([$key]);
+                $old=$select->fetch(\PDO::FETCH_ASSOC);
+                if (!$old) {
+                    if ($apply) $this->importRecord('max',$key,$entry,$sha,'bundled','reservation-notices-v2');
+                    $result[$key]=['status'=>$apply?'installed':'missing','version'=>$apply?1:null];
+                } elseif ($this->untouchedReservationDefault($old,$key,$title)) {
+                    if ($apply) {
+                        $this->rememberVersion($old);
+                        $original=$this->store->put('catalog-records',Support::json($entry));
+                        $update->execute([$entry['body'],$entry['trigger'],'Каталог системы',date(DATE_ATOM),$sha,$original,$key]);
+                    }
+                    $result[$key]=['status'=>$apply?'upgraded':'can_upgrade','version'=>$apply?2:1];
+                } else {
+                    $result[$key]=['status'=>'preserved','version'=>(int)$old['version']];
+                }
+            }
+            $this->db->commit();
+            return $result;
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
         }
+    }
+
+    private function untouchedReservationDefault(array $old,string $key,string $title): bool
+    {
+        $body=$title.". Заявка №{number}. Помещение: {context}. Клиент: {party}. Срок: {effective}. Ответственный: {manager}. {reason}";
+        $legacy=['id'=>$key,'name'=>$title,'format'=>'plain','body'=>$body,'version'=>1];
+        return (int)$old['version']===1 && $old['source_version']==='reservation-notices-v1'
+            && hash_equals(hash('sha256',Support::canonical($legacy)),$old['source_sha256'])
+            && $old['source_id']===$key && $old['source_path']==='catalog-records/'.hash('sha256',Support::json($legacy))
+            && $old['body_text']===$body && $old['format']==='plain' && $old['name']===$title
+            && $old['trigger_text']==='' && $old['subject']==='' && $old['title']===''
+            && $old['recipients_policy']===null && $old['attachment_policy']===null && $old['tone']===null
+            && $old['actor_label']===null && $old['changed_at']===null;
+    }
+
+    private function rememberVersion(array $old): void
+    {
+        $path=$this->store->put('catalog-history',Support::json($old));
+        $this->db->prepare('INSERT INTO integration_template_history(channel,source_key,version,format,subject,body_text,title,actor_label,changed_at,original_path) VALUES(?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$old['channel'],$old['source_key'],$old['version'],$old['format'],$old['subject'],$old['body_text'],$old['title'],$old['actor_label'],$old['changed_at'],$path]);
     }
 
     private function importRecord(string $channel,string $key,array $record,string $sha,string $sourcePath,string $sourceVersion): void {
@@ -59,9 +121,9 @@ final class TemplateCatalog
     }
     public function save(string $channel,string $key,int $expected,array $input,string $actor): array {
         if(!in_array($channel,['email','max','top'],true))throw new \InvalidArgumentException('UNKNOWN_TEMPLATE_CHANNEL');$this->db->beginTransaction();try{$q=$this->db->prepare('SELECT * FROM integration_template_catalog WHERE channel=? AND source_key=? FOR UPDATE');$q->execute([$channel,$key]);$old=$q->fetch(\PDO::FETCH_ASSOC);if(!$old)throw new \RuntimeException('CATALOG_ENTRY_NOT_FOUND');if((int)$old['version']!==$expected)throw new \RuntimeException('REVISION_CONFLICT');$format=$channel==='max'?(string)($input['format']??'plain'):'plain';$body=str_replace(["\r\n","\r"],"\n",(string)($input['body']??''));$subject=$channel==='email'?(string)($input['subject']??''):'';$title=$channel==='top'?(string)($input['title']??''):'';
-            if($channel==='top'){if(array_diff(array_keys($input),['title','body']))throw new \InvalidArgumentException('TEMPLATE_TEXT_ONLY');self::validateText($title,self::TOP_VARS,80,true);self::validateText($body,self::TOP_VARS,600);}else {if(array_diff(array_keys($input),$channel==='max'?['format','body']:['subject','body']))throw new \InvalidArgumentException('TEMPLATE_TEXT_ONLY');self::validateFormat($format,$body);if($channel==='email')self::validateText($subject,self::MESSAGE_VARS,200,true);}
+            if($channel==='top'){if(array_diff(array_keys($input),['title','body']))throw new \InvalidArgumentException('TEMPLATE_TEXT_ONLY');self::validateText($title,self::TOP_VARS,80,true);self::validateText($body,self::TOP_VARS,600);}else {if(array_diff(array_keys($input),$channel==='max'?['format','body']:['subject','body']))throw new \InvalidArgumentException('TEMPLATE_TEXT_ONLY');self::validateFormat($format,$body,self::messageVariables($channel,$key));if($channel==='email')self::validateText($subject,self::MESSAGE_VARS,200,true);}
             if($format===$old['format']&&$subject===$old['subject']&&$body===str_replace(["\r\n","\r"],"\n",$old['body_text'])&&$title===$old['title']){$this->db->commit();return ['channel'=>$channel,'key'=>$key,'version'=>$expected,'unchanged'=>true];}
-            $path=$this->store->put('catalog-history',Support::json($old));$this->db->prepare('INSERT INTO integration_template_history(channel,source_key,version,format,subject,body_text,title,actor_label,changed_at,original_path) VALUES(?,?,?,?,?,?,?,?,?,?)')->execute([$channel,$key,$old['version'],$old['format'],$old['subject'],$old['body_text'],$old['title'],$old['actor_label'],$old['changed_at'],$path]);$this->db->prepare('UPDATE integration_template_catalog SET format=?,subject=?,body_text=?,title=?,version=version+1,actor_label=?,changed_at=? WHERE channel=? AND source_key=?')->execute([$format,$subject,$body,$title,$actor,date(DATE_ATOM),$channel,$key]);$this->db->commit();return ['channel'=>$channel,'key'=>$key,'version'=>$expected+1];
+            $this->rememberVersion($old);$this->db->prepare('UPDATE integration_template_catalog SET format=?,subject=?,body_text=?,title=?,version=version+1,actor_label=?,changed_at=? WHERE channel=? AND source_key=?')->execute([$format,$subject,$body,$title,$actor,date(DATE_ATOM),$channel,$key]);$this->db->commit();return ['channel'=>$channel,'key'=>$key,'version'=>$expected+1];
         }catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
     public static function preview(string $channel,array $entry,array $values=[]): array {

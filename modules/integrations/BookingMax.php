@@ -157,6 +157,8 @@ final class BookingMax
             || $notice['recorded_at']>time() || !BookingNotices::current($this->db,$notice,$date)) return null;
         $id=$notice['reservation_id'];
         $action=$notice['action'];
+        if ($action==='reservation.create' && (!is_string($notice['start_date']??null) || !array_key_exists('comment',$notice))
+            || $action==='reservation.extend' && !is_string($notice['before_until']??null)) return null;
         // A first run may close overdue pre-admission bookings without sending their backlog.
         if ($action==='reservation.expire'
             && (new \DateTimeImmutable($notice['until']))->modify('+1 day')->format('Y-m-d')<date('Y-m-d',$scope['valid_from'])) return null;

@@ -90,8 +90,15 @@ final class BookingNotices
 
     public static function values(array $notice): array
     {
+        $comment=trim((string)($notice['comment'] ?? ''));
+        $specific=match ($notice['action']) {
+            'reservation.create'=>['reservationStart'=>Documents::dateText($notice['start_date']),
+                'reservationCommentLine'=>$comment===''?'':"\nКомментарий · ".$comment],
+            'reservation.extend'=>['previousDeadline'=>Documents::dateText($notice['before_until'])],
+            default=>[],
+        };
         return ['number'=>(string)$notice['reservation_id'],'context'=>$notice['object'],'party'=>$notice['client'],
             'manager'=>$notice['responsible'],'effective'=>Documents::dateText($notice['until']),
-            'reason'=>$notice['reason'],'actor'=>$notice['actor']];
+            'reason'=>$notice['reason'],'actor'=>$notice['actor']]+$specific;
     }
 }
