@@ -88,7 +88,7 @@ final class FinanceService {
                 if (($in['confirmed'] ?? null) !== '1' || !in_array($mode,['rule','individual'],true))
                     throw new RuntimeException('Подтвердите основание срока именно для этого счёта.',422);
                 if ($mode === 'rule') {
-                    $deadline = InitialInvoice::issuedDeadline($p,$c,$initialProof);
+                    $deadline = InitialInvoice::issuedDeadline($p,$c,$initialProof,$i['issued']);
                     if (($deadline['date'] ?? null) !== $due)
                         throw new RuntimeException($deadline['question'] ?? 'Подтверждённая дата изменилась. Откройте счёт заново.',409);
                     $reason = trim(($deadline['rule'] ?? '').' '.($deadline['source'] ?? '')).' '.$reason;

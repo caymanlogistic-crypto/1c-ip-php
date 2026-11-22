@@ -110,7 +110,8 @@ final class MonthlyRentReconciliation
             $matchesContract = $contract && $sourceParty && $sourceParty === $contract['party_ref'];
             $client = $matchesContract ? $contract['client'] : ($customers[$sourceParty ?? ''] ?? 'Уточнить');
             if ($periods === null) {
-                $issues[] = ['—', $client, $archived['number'],
+                $issuedMonth = substr($archived['document_date'],0,7);
+                if (isset($report[$issuedMonth])) $issues[] = ['—', $client, $archived['number'],
                     'Уточнить период и суммы строк оригинала 1С.', $archived['name']];
                 continue;
             }
@@ -145,7 +146,8 @@ final class MonthlyRentReconciliation
             $original = $verified[$id] ?? null;
             if ($original === null) continue;
             $contract = $contracts[$invoice['contract_id']];
-            $due = $invoice['due'];
+            $due = InvoiceDueDate::archivedRent($invoice,$original['periods']);
+            $invoice['due'] = $due;
             $rentAmount = $original['rent_amount'];
             $rentPaid = MonthlyInvoiceArchive::rentPayment($original, $invoice['paid']);
             $month = $due ? substr($due, 0, 7) : InvoicePeriods::month($invoice['period']);
@@ -165,7 +167,9 @@ final class MonthlyRentReconciliation
                 ? InvoiceFacts::remaining(array_replace($invoice,['amount'=>$rentAmount,'paid'=>$rentPaid])) : null;
             $invoiceFacts[$id] = ['due'=>$due,'paid_from_1c'=>$paidFromOnec,'balance'=>$balance];
             if (!$due) continue;
-            if (!isset($report[$month])) continue;
+            $rentalMonths = array_intersect_key($original['periods'],$report);
+            $month = isset($report[$month]) ? $month : array_key_first($rentalMonths);
+            if ($month === null) continue;
             $entry = &$this->entry($report[$month], $contract);
             $invoice['contract'] = $contract['number'];
             $invoice['verified'] = true;

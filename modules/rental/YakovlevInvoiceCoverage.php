@@ -9,14 +9,16 @@ use PDO;
 /** Admit only a source line whose period and complete object scope can be proved. */
 final class YakovlevInvoiceCoverage
 {
-    private const PARKING='/парковочн\p{L}*\s+мест\p{L}*\s*№?\s*([\p{L}\d.\/-]+)(?=[\s,;])/iu';
+    private const SINGLE_PARKING='/парковочн\p{L}*\s+мест\p{L}*\s*№?\s*([\p{L}\d.\/-]+)(?=[\s,;])/iu';
+    private const PARKING='/(?:парковочн\p{L}*\s+|парк\.\s*)(?:машино[–-])?мест\p{L}*\s*№?\s*(\d+[.,]\d+(?:\s*,\s*\d+[.,]\d+)*)(?=[\s,;])/iu';
     private const MONTHS=['январ'=>1,'феврал'=>2,'март'=>3,'апрел'=>4,'ма[йя]'=>5,'июн'=>6,'июл'=>7,
         'август'=>8,'сентябр'=>9,'октябр'=>10,'ноябр'=>11,'декабр'=>12];
 
-    public static function prove(PDO $db,array $contract,array $source,string $total,?string $issued = null): array
+    public static function prove(PDO $db,array $contract,array $source,string $total,?string $issued = null,bool $recheckArchivedInvoice = false): array
     {
         $rows=array_merge($source['Товары'] ?? [],$source['Услуги'] ?? []);
-        if (!$rows || ($source['СуммаВключаетНДС'] ?? null)!==false)
+        $includesVat=$source['СуммаВключаетНДС'] ?? null;
+        if (!$rows || !is_bool($includesVat) || ($includesVat && !$recheckArchivedInvoice))
             throw new DomainException('INVOICE_LINES_UNCONFIRMED');
         $q=$db->prepare('SELECT r.object_id,o.name,o.type,t.start_date,t.end_date,t.amount FROM contract_objects r
             JOIN rental_objects o ON o.id=r.object_id
@@ -36,14 +38,19 @@ final class YakovlevInvoiceCoverage
             if (!$contract['start_date'] || !$contract['end_date'] || $contract['start_date']>$from || $contract['end_date']<$until)
                 throw new DomainException('INVOICE_OUTSIDE_CONTRACT');
             $q->execute([$until,$from,$contract['id']]);
-            $term=self::object($q->fetchAll(PDO::FETCH_ASSOC),$text);
-            $object=(int)$term['object_id'];
-            foreach ($segments as $previous) {
-                if ($previous['object']===$object && $previous['from']<=$until && $previous['until']>=$from)
-                    throw new DomainException('INVOICE_OBJECT_UNCONFIRMED');
+            $terms=self::objects($q->fetchAll(PDO::FETCH_ASSOC),$text,$recheckArchivedInvoice);
+            if (!$recheckArchivedInvoice && (count($terms)!==1 ||
+                !in_array((string)($line['Количество'] ?? ''),['1','1.0','1.00'],true)))
+                throw new DomainException('INVOICE_OBJECT_UNCONFIRMED');
+            foreach ($terms as $term) {
+                $object=(int)$term['object_id'];
+                foreach ($segments as $previous) {
+                    if ($previous['object']===$object && $previous['from']<=$until && $previous['until']>=$from)
+                        throw new DomainException('INVOICE_OBJECT_UNCONFIRMED');
+                }
+                $segments[]=compact('object','from','until');
             }
-            $segments[]=compact('object','from','until');
-            $detail=self::line($term,$line,$text,$period,$from,$until);
+            $detail=self::line($terms,$line,$text,$period,$from,$until,$includesVat);
             $sum=bcadd($sum,bcadd($detail['netAmount'],$detail['vatAmount'],2),2);
             $lines[]=$detail;
         }
@@ -62,55 +69,95 @@ final class YakovlevInvoiceCoverage
     public static function parkingReferences(array $source): array
     {
         $labels=[];
-        foreach (array_merge($source['Товары'] ?? [],$source['Услуги'] ?? []) as $line)
-            if (preg_match(self::PARKING,(string)($line['Содержание'] ?? ''),$match) && mb_strlen($match[1])<=20)
-                $labels[$match[1]]=true;
+        foreach (array_merge($source['Товары'] ?? [],$source['Услуги'] ?? []) as $line) {
+            foreach (self::parkingLabels((string)($line['Содержание'] ?? '')) as $label) $labels[$label]=true;
+        }
         return array_keys($labels);
     }
 
-    private static function object(array $terms,string $text): array
+    private static function parkingLabels(string $text): array
     {
-        $kind=null;
-        if (preg_match(self::PARKING,$text,$label)) {
-            $kind='parking';
-        } elseif (preg_match('/^аренда\s+(офиса|нежилого помещения|апартаментов)\s+(?:(?:№\s*|помещения\s+)([\p{L}\d.\/-]+)(?=[\s,;]))?/iu',$text,$scope)) {
-            $kind=mb_strtolower($scope[1])==='апартаментов' ? 'apartment' : 'office';
-            if (isset($scope[2])) $label=[null,$scope[2]];
-        }
-        if ($kind===null) throw new DomainException('INVOICE_OBJECT_UNCONFIRMED');
-        // A generic lease line can identify a single contractual object only.
-        if (isset($label[1])) $terms=array_values(array_filter($terms,static fn($row)=>mb_strtolower($row['name'])===mb_strtolower($label[1])));
-        if (count($terms)!==1 || !$terms[0]['start_date'] || !$terms[0]['end_date'])
-            throw new DomainException('INVOICE_OBJECT_UNCONFIRMED');
-        $category=match($terms[0]['type']) {
-            'Офис'=>'office',
-            'Апартаменты'=>'apartment',
-            'Машиноместо'=>'parking',
-            default=>null,
-        };
-        if ($category!==$kind) throw new DomainException('INVOICE_OBJECT_UNCONFIRMED');
-        return $terms[0]+['category'=>$category];
+        if (!preg_match(self::PARKING,$text,$scope)) return [];
+        preg_match_all('/\d+[.,]\d+/',$scope[1],$labels);
+        return array_map(static fn(string $label): string=>str_replace(',','.',$label),$labels[0]);
     }
 
-    private static function line(array $term,array $line,string $text,string $period,string $from,string $until): array
+    private static function objects(array $terms,string $text,bool $recheckArchivedInvoice): array
     {
-        if (!in_array((string)($line['Количество'] ?? ''),['1','1.0','1.00'],true)
+        $wanted=$recheckArchivedInvoice ? self::parkingLabels($text)
+            : (preg_match(self::SINGLE_PARKING,$text,$legacy) ? [mb_strtolower($legacy[1])] : []);
+        if ($wanted) {
+            $categories=['Машиноместо'=>'parking'];
+        } elseif (preg_match('/^аренда\s+(офиса|нежилого помещения|апартаментов|помещения)\s+(?:(?:№\s*|помещения\s+)([\p{L}\d.\/-]+)(?=[\s,;]))?/iu',$text,$scope)) {
+            $categories=match(mb_strtolower($scope[1])) {
+                'помещения'=>$recheckArchivedInvoice ? ['Офис'=>'office','Апартаменты'=>'apartment'] : [],
+                'апартаментов'=>['Апартаменты'=>'apartment'],
+                default=>['Офис'=>'office'],
+            };
+            if (isset($scope[2])) $wanted=[mb_strtolower($scope[2])];
+        } else {
+            throw new DomainException('INVOICE_OBJECT_UNCONFIRMED');
+        }
+
+        $matches=[];
+        foreach ($terms as $term) {
+            $label=mb_strtolower($term['name']);
+            if ($wanted && !in_array($label,$wanted,true)) continue;
+            $category=$categories[$term['type']] ?? null;
+            if (!$category || isset($matches[$label]) || !$term['start_date'] || !$term['end_date'])
+                throw new DomainException('INVOICE_OBJECT_UNCONFIRMED');
+            $matches[$label]=$term+['category'=>$category];
+        }
+        if (!$matches || ($wanted && count($matches)!==count($wanted))
+            || count(array_unique(array_column($matches,'category')))!==1)
+            throw new DomainException('INVOICE_OBJECT_UNCONFIRMED');
+        return array_values($matches);
+    }
+
+    private static function line(array $terms,array $line,string $text,string $period,string $from,string $until,bool $includesVat): array
+    {
+        $quantity=YakovlevRentalSync::cents($line['Количество'] ?? null);
+        if (($quantity!=='1.00' && $quantity!==count($terms).'.00')
             || !preg_match('/\AНДС([0-9]+)\z/u',(string)($line['СтавкаНДС'] ?? ''),$vat))
             throw new DomainException('INVOICE_LINES_UNCONFIRMED');
-        $net=YakovlevRentalSync::cents($line['Сумма'] ?? null);
+        $sourceAmount=YakovlevRentalSync::cents($line['Сумма'] ?? null);
         $tax=YakovlevRentalSync::cents($line['СуммаНДС'] ?? null,true);
-        $rate=YakovlevRentalSync::cents($term['amount']);
+        $net=$includesVat ? bcsub($sourceAmount,$tax,2) : $sourceAmount;
+        if (bccomp($net,'0.00',2)!==1) throw new DomainException('INVOICE_LINES_UNCONFIRMED');
         $first=new \DateTimeImmutable($from);
         $last=new \DateTimeImmutable($until);
         $days=$first->diff($last)->days+1;
-        $expected=bcadd(bcdiv(bcmul($rate,(string)$days,2),$first->format('t'),8),'0.005',2);
+        $expected='0.00';
+        foreach ($terms as $term) {
+            $rate=YakovlevRentalSync::cents($term['amount']);
+            $objectAmount=bcadd(bcdiv(bcmul($rate,(string)$days,2),$first->format('t'),8),'0.005',2);
+            $expected=bcadd($expected,$objectAmount,2);
+        }
         if (bcadd($net,$tax,2)!==$expected) throw new DomainException('INVOICE_TOTAL_CONFLICT');
-        return ['description'=>$text,'unit'=>'счёт','quantity'=>'1','netPrice'=>$net,'netAmount'=>$net,
-            'vatRate'=>$vat[1],'vatAmount'=>$tax,'rentalCategory'=>$term['category'],'rentalPeriod'=>$period];
+        $price=bcdiv($net,$quantity,2);
+        if (bcmul($price,$quantity,2)!==$net || ($quantity!=='1.00' &&
+            bcmul(YakovlevRentalSync::cents($line['Цена'] ?? null),$quantity,2)!==$sourceAmount))
+            throw new DomainException('INVOICE_LINES_UNCONFIRMED');
+        return ['description'=>$text,'unit'=>'счёт','quantity'=>rtrim(rtrim($quantity,'0'),'.'),'netPrice'=>$price,'netAmount'=>$net,
+            'vatRate'=>$vat[1],'vatAmount'=>$tax,'rentalCategory'=>$terms[0]['category'],'rentalPeriod'=>$period];
     }
 
     public static function period(string $text, ?string $issued = null): array
     {
+        if ($issued !== null && preg_match('/\bс\s+(\d{2}\.\d{2}\.\d{2,4})(?:\s*г\.)?\s+по\s+(\d{2}\.\d{2}\.\d{2,4})(?:\s*г\.?)?\s*$/iu',$text,$range)) {
+            $dates=[];
+            foreach (array_slice($range,1) as $value) {
+                [$day,$month,$year]=explode('.',$value);
+                $year=strlen($year)===2 ? '20'.$year : $year;
+                if (!checkdate((int)$month,(int)$day,(int)$year) || abs((int)$year-(int)substr($issued,0,4))>1)
+                    throw new DomainException('INVOICE_PERIOD_UNCONFIRMED');
+                $dates[]=$year.'-'.$month.'-'.$day;
+            }
+            [$from,$until]=$dates;
+            if ($from>$until || substr($from,0,7)!==substr($until,0,7))
+                throw new DomainException('INVOICE_PERIOD_UNCONFIRMED');
+            return [substr($from,0,7),$from,$until];
+        }
         foreach (self::MONTHS as $stem=>$month) {
             $startMonth = $issued === null ? '' : '(?:\s+'.$stem.'\p{L}*(?:\s+(?<start_year>20\d\d|\d\d)\s*г?\.?)?)?';
             if (!preg_match('/\bза\s+(?:(?:период\s+)?с\s+(?<first>\d{1,2})'.$startMonth

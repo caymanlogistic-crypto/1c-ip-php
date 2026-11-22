@@ -22,4 +22,10 @@ try {
 } catch (DomainException $error) {
     if ($error->getMessage()!=='UNCONFIRMED_AMOUNT') throw $error;
 }
+if (YakovlevInvoiceCoverage::period('Аренда помещения с 18.09.26 по 30.09.26','2026-09-17')
+    !==['2026-09','2026-09-18','2026-09-30'])
+    throw new RuntimeException('Numeric rent coverage was not recognized.');
+$grouped=['Услуги'=>[['Содержание'=>'Арендная плата за парковочные места 1.39, 1.40, 1.12 по договору №46.']]];
+if (YakovlevInvoiceCoverage::parkingReferences($grouped)!==['1.39','1.40','1.12'])
+    throw new RuntimeException('A grouped parking line must retain every listed object.');
 echo "Yakovlev rental source evidence OK\n";

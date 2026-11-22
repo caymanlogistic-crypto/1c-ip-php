@@ -11,7 +11,8 @@ function expect(mixed $actual, mixed $expected): void
 }
 
 expect(RegularInvoice::due('D09','2026-12',['due'=>['date'=>'2026-11-25']]),['date'=>'2026-11-25']);
-expect(RegularInvoice::due('D09','2026-12',['due'=>['question'=>'Сверьте подписанный ДС.']]),['question'=>'Сверьте подписанный ДС.']);
+expect(RegularInvoice::due('D09','2026-12',['due'=>['question'=>'Сверьте подписанный ДС.']]),['date'=>'2026-11-25']);
+expect(\Modules\Rental\InvoiceDueDate::firstRent('2026-11-30'),'2026-12-02');
 expect(RegularInvoice::due('D17','2026-12',[]),['date'=>'2026-11-25']);
 expect(RegularInvoice::due('D03','2027-01',[]),['date'=>'2026-12-25']);
 expect(isset(RegularInvoice::due('','2026-12',[])['question']),true);
