@@ -104,7 +104,7 @@ final class MonthlyRentReconciliation
             $ids = $bindings[$source['ДоговорКонтрагента_Key'] ?? ''] ?? [];
             $contract = count($ids) === 1 ? ($contracts[$ids[0]] ?? null) : null;
             try {
-                $periods = self::sourceMonths($source, $archived['amount']);
+                $periods = self::sourceMonths($source, $archived['amount'], $archived['document_date']);
             } catch (DomainException) {
                 $issues[] = ['—', $contract['client'] ?? '—', $archived['number'], 'Уточнить период и суммы строк оригинала 1С.'];
                 continue;
@@ -269,7 +269,7 @@ final class MonthlyRentReconciliation
     }
 
     /** Totals from the priced lines of the original, independent of ERP tariff matching. */
-    public static function sourceMonths(array $source, string $total): array
+    public static function sourceMonths(array $source, string $total, ?string $issued = null): array
     {
         $periods = [];
         $sum = self::ZERO;
@@ -282,7 +282,7 @@ final class MonthlyRentReconciliation
             }
             $sum = bcadd($sum, $amount, 2);
             if (!YakovlevInvoiceCoverage::hasRentLine(['Услуги'=>[$line]])) continue;
-            [$period] = YakovlevInvoiceCoverage::period(trim((string)$line['Содержание']));
+            [$period] = YakovlevInvoiceCoverage::period(trim((string)$line['Содержание']), $issued);
             $periods[$period] = bcadd($periods[$period] ?? self::ZERO, $amount, 2);
         }
         if (bccomp($sum, $total, 2) !== 0) throw new DomainException('Суммы строк расходятся с итогом.');

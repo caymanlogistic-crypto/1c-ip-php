@@ -109,11 +109,18 @@ final class YakovlevInvoiceCoverage
             'vatRate'=>$vat[1],'vatAmount'=>$tax,'rentalCategory'=>$term['category'],'rentalPeriod'=>$period];
     }
 
-    public static function period(string $text): array
+    public static function period(string $text, ?string $issued = null): array
     {
         foreach (self::MONTHS as $stem=>$month) {
-            if (!preg_match('/\bза\s+(?:(?:период\s+)?с\s+(?<first>\d{1,2})\s+по\s+(?<last>\d{1,2})\s+)?'.$stem.'\p{L}*\s+(?<year>20\d\d)\s*г?\.?\s*$/iu',$text,$m)) continue;
-            $period=sprintf('%s-%02d',$m['year'],$month);
+            if (!preg_match('/\bза\s+(?:(?:период\s+)?с\s+(?<first>\d{1,2})\s+по\s+(?<last>\d{1,2})\s+)?'.$stem.'\p{L}*\s+(?<year>20\d\d|\d\d)\s*г?\.?\s*$/iu',$text,$m)) continue;
+            $year = $m['year'];
+            if (strlen($year) === 2) {
+                $year = '20'.$year;
+                if ($issued === null || abs((int)$year - (int)substr($issued,0,4)) > 1) {
+                    throw new DomainException('INVOICE_PERIOD_UNCONFIRMED');
+                }
+            }
+            $period=sprintf('%s-%02d',$year,$month);
             [$from,$until]=InvoicePeriods::bounds($period);
             if (!empty($m['first'])) {
                 $a=(int)$m['first']; $b=(int)$m['last'];

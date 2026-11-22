@@ -20,6 +20,19 @@ if (MonthlyRentReconciliation::sourceMonths($source, '122.01') !== ['2026-11'=>'
     throw new RuntimeException('Included VAT must not be counted twice.');
 }
 
+$source['Услуги'][0]['Содержание'] = 'Арендная плата за парк.место, по Договору №59Ф за ноябрь 26г.';
+if (MonthlyRentReconciliation::sourceMonths($source, '122.01', '2026-10-19') !== ['2026-11'=>'122.01']) {
+    throw new RuntimeException('The abbreviated year in a posted invoice must be read in the report.');
+}
+foreach ([null, '2021-10-19'] as $issued) {
+    try {
+        MonthlyRentReconciliation::sourceMonths($source, '122.01', $issued);
+        throw new RuntimeException('An abbreviated year without matching issue date was accepted.');
+    } catch (DomainException $error) {
+        if ($error->getMessage() !== 'INVOICE_PERIOD_UNCONFIRMED') throw $error;
+    }
+}
+
 $source['Услуги'][0]['Содержание'] = 'Аренда офиса за IV квартал 2026 г.';
 try {
     MonthlyRentReconciliation::sourceMonths($source, '122.01');
