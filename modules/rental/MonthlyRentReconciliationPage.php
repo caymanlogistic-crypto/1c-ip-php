@@ -240,6 +240,7 @@ final class MonthlyRentReconciliationPage
             $rows = [];
             foreach ($client['due'] as $invoice) {
                 $state = $invoice['overdue'] ? 'Просрочка подтверждена' : ($invoice['verified'] ? 'Связан с 1С' : 'Сверить связь с 1С');
+                if ($invoice['advance']!=='0.00') $state .= '. Зачёт аванса '.self::money($invoice['advance']);
                 $rows[] = [Controller::link('/rental/invoice?id='.$invoice['id'], $invoice['number']), '№'.View::e($invoice['contract']),
                     View::e($invoice['due'] ?? 'Уточнить'), self::money($invoice['amount']), self::money($invoice['paid']),
                     self::money($invoice['paid_from_1c']), self::money($invoice['balance']), $state];

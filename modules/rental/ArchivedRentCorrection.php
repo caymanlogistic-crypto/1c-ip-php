@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Modules\Rental;
 
 use App\{Audit,Auth,BusinessIds};
-use Modules\Integrations\{Config,OnecMapping,Support};
+use Modules\Integrations\{Config,OnecMapping,Support,YakovlevImport};
 use PDO;
 use RuntimeException;
 
@@ -35,9 +35,85 @@ final class ArchivedRentCorrection
                 ['АЯИП-001246'=>'20930.00','АЯИП-001273'=>'48150.00'],['2.40'=>'2.12']),
             ['33','2024-02-01']=>self::settleParkingInvoices($db,$actor,$contract,
                 ['АЯИП-001298'=>'24000.00'],['1.34'=>'1.14']),
-            ['55','2025-10-20']=>self::recordPayerAgreement($db,$actor,$input,$contract),
+            ['55','2025-10-20']=>isset($input['payer_agreement'])
+                ? self::recordPayerAgreement($db,$actor,$input,$contract)
+                : self::settleThirdPartyParking($db,$actor,$contract),
+            ['144','2026-03-10']=>self::recordRentCredit($db,$actor,$contract,$input['rent_credit'] ?? []),
             default=>throw new RuntimeException('По договору отсутствует проверенное основание коррекции.',409),
         };
+    }
+
+    private static function settleThirdPartyParking(PDO $db,array $actor,array $contract): array
+    {
+        $sync=new YakovlevRentalSync($db,Config::store());
+        $settled=[];
+        foreach (['АЯИП-001021','АЯИП-001132'] as $number) {
+            [, $document]=self::sourceInvoice($db,(int)$contract['party_id'],$number,'33000.00');
+            $settled[$number]=$sync->accountConfirmedTransfer($document['fields']['record']['Ref_Key'],(int)$contract['id']);
+        }
+        $result=['id'=>(int)$contract['id'],'invoices'=>$settled];
+        if (in_array('created',array_column($settled,'effect'),true)) {
+            Audit::record(self::ACTION,'contract',$contract['id'],null,$result);
+            Service::event($db,$actor,self::ACTION,'Разнесены подтверждённые оплаты парковки третьим лицом.',
+                (int)$contract['id'],$result);
+        }
+        return $result;
+    }
+
+    private static function recordRentCredit(PDO $db,array $actor,array $contract,array $proof): array
+    {
+        $portions=$proof['portions'] ?? [];
+        $date=$proof['date'] ?? '';
+        if ($date!=='2026-10-31' || ($proof['registrar_number'] ?? '')!=='АЯИП-001152'
+            || !is_array($portions) || count($portions)!==2)
+            throw new RuntimeException('Укажите проведение зачёта аренды за октябрь.',422);
+        $registrar=OnecMapping::guid($proof['registrar_ref'] ?? null);
+        [$archive,$original]=self::sourceInvoice($db,(int)$contract['party_id'],'АЯИП-001090','455000.01');
+        $source=$original['fields']['record'];
+        $ref=$source['Ref_Key'];
+        $invoices=InvoiceContractAssignment::invoiceMatches($db,$ref,true);
+        if (count($invoices)!==1 || (int)$invoices[0]['contract_id']!==(int)$contract['id']
+            || $invoices[0]['status']!=='active' || $invoices[0]['kind']!=='Аренда' || $invoices[0]['period']!=='2026-10'
+            || !MonthlyInvoiceArchive::matchesInvoice($archive,$invoices[0])
+            || MonthlyRentReconciliation::sourceMonths($source,$archive['amount'],$archive['document_date'])!==['2026-10'=>'455000.01'])
+            throw new RuntimeException('Не подтверждён октябрьский счёт договора №144.',409);
+        $banks=$db->prepare("SELECT * FROM external_documents WHERE provider='onec-yakovlev'
+            AND account_id='bank_in' AND status='Проведён' AND source_id=? AND document_date<=?");
+        $receipts=[];
+        $total='0.00';
+        foreach ($portions as $bankRef=>$value) {
+            $banks->execute(['bank_in:'.OnecMapping::guid($bankRef),$date]);
+            $bank=$banks->fetch() ?: throw new RuntimeException('Поступление для зачёта отсутствует в архиве.',409);
+            $document=Support::decode(Config::store()->read($bank['raw_path'],$bank['raw_sha256']));
+            $receipt=YakovlevImport::normalize($document);
+            $row=$document['fields']['record'];
+            $amount=YakovlevRentalSync::cents($value);
+            if ($receipt['source_id']!==$bank['source_id'] || $receipt['status']!=='Проведён'
+                || ($row['Контрагент_Key'] ?? $row['Контрагент'] ?? null)!==$source['Контрагент_Key']
+                || ($row['ВалютаДокумента_Key'] ?? null)!==$source['ВалютаДокумента_Key']
+                || ($row['ВидОперации'] ?? null)!=='ОплатаПокупателя' || bccomp($amount,$receipt['amount'],2)>0)
+                throw new RuntimeException('Исходное поступление не подтверждает зачёт.',409);
+            $receipts[$bankRef]=['sha'=>$bank['raw_sha256'],'number'=>$receipt['number'],'amount'=>$amount];
+            $total=bcadd($total,$amount,2);
+        }
+        if ($total!=='14550.12') throw new RuntimeException('Сумма зачёта расходится с проводкой.',409);
+        $fact=['invoice_sha'=>$archive['raw_sha256'],'month'=>'2026-10','date'=>$date,'registrar_ref'=>$registrar,
+            'registrar_number'=>$proof['registrar_number'],'receipts'=>$receipts,'amount'=>$total];
+        $prior=$db->prepare('SELECT fact_json FROM rental_facts WHERE namespace=? AND source_key=? AND operative=1 FOR UPDATE');
+        $prior->execute([MonthlyBankEvidence::RENT_CREDIT,$ref]);
+        $saved=$prior->fetchColumn();
+        $result=['id'=>(int)$contract['id'],'invoice'=>$archive['number']]+$fact;
+        if ($saved) {
+            if (Importer::canonicalJson(Support::decode($saved))!==Importer::canonicalJson($fact))
+                throw new RuntimeException('У счёта уже есть другое подтверждение зачёта.',409);
+            return $result;
+        }
+        $db->prepare('INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,1)')
+            ->execute([MonthlyBankEvidence::RENT_CREDIT,$ref,Importer::json($fact)]);
+        Audit::record(self::ACTION,'contract',$contract['id'],null,$result);
+        Service::event($db,$actor,self::ACTION,'В сверке аренды учтён зачёт аванса по октябрьскому счёту.',
+            (int)$contract['id'],$result);
+        return $result;
     }
 
     private static function recordPayerAgreement(PDO $db,array $actor,array $input,array $contract): array

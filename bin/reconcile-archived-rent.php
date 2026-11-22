@@ -5,7 +5,7 @@ use App\DB;
 use Modules\Rental\{ArchivedRentCorrection,Importer,Service};
 
 if (PHP_SAPI!=='cli' || !getenv('APP_DB_CONFIG_FILE') || !in_array($argc,[5,6],true)) {
-    fwrite(STDERR,"Использование: reconcile-archived-rent.php <admin-id> <contract-id> <version> <command-key> [payer-proof.json]\n");
+    fwrite(STDERR,"Использование: reconcile-archived-rent.php <admin-id> <contract-id> <version> <command-key> [archive-proof.json]\n");
     exit(2);
 }
 require dirname(__DIR__).'/app/bootstrap.php';
@@ -24,8 +24,9 @@ try {
     ];
     if (isset($argv[5])) {
         $size=is_file($argv[5]) && is_readable($argv[5]) ? filesize($argv[5]) : false;
-        if (!$size || $size>16384) throw new RuntimeException('Укажите файл подтверждения плательщика.');
-        $input['payer_agreement']=json_decode(file_get_contents($argv[5]),true,32,JSON_THROW_ON_ERROR);
+        if (!$size || $size>16384) throw new RuntimeException('Укажите файл подтверждения из архива.');
+        $proof=json_decode(file_get_contents($argv[5]),true,32,JSON_THROW_ON_ERROR);
+        $input+=isset($proof['rent_credit']) ? ['rent_credit'=>$proof['rent_credit']] : ['payer_agreement'=>$proof];
     }
     $result=Service::command(ArchivedRentCorrection::ACTION,$input);
     echo Importer::json($result),PHP_EOL;

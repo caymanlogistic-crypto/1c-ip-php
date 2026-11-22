@@ -154,6 +154,7 @@ final class MonthlyRentReconciliation
                 }
             }
         }
+        $credits = $reviewOnly ? [] : (new MonthlyBankEvidence($this->db,$this->store))->rentCredits($originals,$today);
         $allocations = $reviewOnly ? [] : $this->paymentTotals($today);
         $invoiceFacts = [];
         foreach ($invoices as $id => $invoice) {
@@ -182,11 +183,18 @@ final class MonthlyRentReconciliation
                 $fromOnec = self::monthlyPortion($original,$amount,$rentPaidFromOnec);
                 $balance = $match && $monthlyPaid !== null
                     ? InvoiceFacts::remaining(array_replace($invoice,['amount'=>$amount,'paid'=>$monthlyPaid])) : null;
+                $credit=$credits[$original['reference']] ?? null;
+                $advance='0.00';
+                if ($balance!==null && ($credit['month'] ?? null)===$month) {
+                    $advance=self::unusedAdvance($credit['receipts'],$allocations[$id]['by_source'] ?? []);
+                    if (bccomp($advance,$balance,2)>0) $advance=$balance;
+                    $balance=bcsub($balance,$advance,2);
+                }
                 $invoiceFacts[$id][$month] = ['due'=>$due,'paid_from_1c'=>$fromOnec,'balance'=>$balance,'allocated'=>$monthlyPaid];
                 if (!self::includesContract($contract,$month,$preceding)) continue;
                 $entry = &$this->entry($report[$month],$contract);
                 $entry['due'][] = ['id'=>$id,'number'=>$invoice['number'],'contract'=>$contract['number'],
-                    'due'=>$due,'amount'=>$amount,'paid'=>$monthlyPaid,'paid_from_1c'=>$fromOnec,'balance'=>$balance,
+                    'due'=>$due,'amount'=>$amount,'paid'=>$monthlyPaid,'paid_from_1c'=>$fromOnec,'balance'=>$balance,'advance'=>$advance,
                     'verified'=>true,'overdue'=>$overdue && $balance !== null && bccomp($balance,self::ZERO,2)>0];
                 unset($entry);
             }
@@ -232,6 +240,16 @@ final class MonthlyRentReconciliation
         return bccomp($rentPaid,$original['rent_amount'],2) === 0 ? $amount : null;
     }
 
+    private static function unusedAdvance(array $receipts,array $allocationsBySource): string
+    {
+        $total=self::ZERO;
+        foreach ($receipts as $ref=>$portion) {
+            $difference=bcsub($portion['amount'],$allocationsBySource[$ref] ?? self::ZERO,2);
+            if (bccomp($difference,self::ZERO,2)>0) $total=bcadd($total,$difference,2);
+        }
+        return $total;
+    }
+
     private function paymentTotals(string $date): array
     {
         $archive = $this->db->prepare("SELECT source_id FROM external_documents
@@ -239,13 +257,13 @@ final class MonthlyRentReconciliation
         $archive->execute([YakovlevImport::PROVIDER]);
         $posted = array_fill_keys(array_map('strtolower', $archive->fetchAll(PDO::FETCH_COLUMN)), true);
 
-        $fromOnec = [];
+        $bankReferences = [];
         $bindings = $this->db->query("SELECT entity_id,source_id FROM rental_source_bindings WHERE entity_type='payment'
             AND collection='Document_ПоступлениеНаРасчетныйСчет' AND relation_kind='allocation_no_cash_replay'");
         foreach ($bindings as $binding) {
             $reference = strstr($binding['source_id'], ':', true);
             if ($reference !== false && isset($posted['bank_in:'.strtolower($reference)])) {
-                $fromOnec[$binding['entity_id']] = true;
+                $bankReferences[$binding['entity_id']][strtolower($reference)] = true;
             }
         }
 
@@ -260,12 +278,17 @@ final class MonthlyRentReconciliation
             $id = $allocation['invoice_id'];
             $payment = $allocation['payment_id'];
             $amount = $allocation['amount'];
-            $fromOnec[$payment] ??= isset($posted['bank_in:'.strtolower($allocation['bank_ref'] ?? '')])
-                || isset($posted['bank_in:'.strtolower($allocation['source_ref'] ?? '')]);
+            foreach (['bank_ref','source_ref'] as $field) {
+                $ref=strtolower($allocation[$field] ?? '');
+                if (isset($posted['bank_in:'.$ref])) $bankReferences[$payment][$ref]=true;
+            }
             $totals[$id] ??= ['paid'=>self::ZERO,'paid_from_1c'=>self::ZERO];
             $totals[$id]['paid'] = bcadd($totals[$id]['paid'], $amount, 2);
-            if ($fromOnec[$payment]) {
+            if (isset($bankReferences[$payment])) {
                 $totals[$id]['paid_from_1c'] = bcadd($totals[$id]['paid_from_1c'], $amount, 2);
+                foreach ($bankReferences[$payment] as $ref=>$_) {
+                    $totals[$id]['by_source'][$ref]=bcadd($totals[$id]['by_source'][$ref] ?? self::ZERO,$amount,2);
+                }
             }
         }
         return $totals;

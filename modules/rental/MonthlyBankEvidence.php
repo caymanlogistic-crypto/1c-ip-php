@@ -7,10 +7,11 @@ use DomainException;
 use Modules\Integrations\{PrivateStore,Support,YakovlevImport};
 use PDO;
 
-/** Evidence of full bank payment, independent of a local invoice or allocation. */
+/** Evidence of bank payments and posted advances used in the reconciliation. */
 final class MonthlyBankEvidence
 {
     public const THIRD_PARTY = 'rental_yakovlev_confirmed_third_party';
+    public const RENT_CREDIT = 'rental_yakovlev_confirmed_rent_credit';
 
     public function __construct(private PDO $db,private PrivateStore $store) {}
 
@@ -71,6 +72,28 @@ final class MonthlyBankEvidence
                 $confirmed[$ref]=$fact;
         }
         return $confirmed;
+    }
+
+    public function rentCredits(array $invoices,string $through): array
+    {
+        $query=$this->db->prepare('SELECT source_key,fact_json FROM rental_facts WHERE namespace=? AND operative=1');
+        $query->execute([self::RENT_CREDIT]);
+        $banks=$this->db->prepare("SELECT raw_sha256 FROM external_documents
+            WHERE provider=? AND source_id=? AND account_id='bank_in' AND status='Проведён'");
+        $credits=[];
+        foreach ($query->fetchAll() as $row) {
+            $ref=$row['source_key'];
+            $invoice=$invoices[$ref] ?? null;
+            $fact=Support::decode($row['fact_json']);
+            if (!$invoice || $invoice['status']!=='Проведён' || $invoice['raw_sha256']!==$fact['invoice_sha']
+                || $fact['date']>$through) continue;
+            foreach ($fact['receipts'] as $bankRef=>$portion) {
+                $banks->execute([YakovlevImport::PROVIDER,'bank_in:'.$bankRef]);
+                if ($banks->fetchColumn()!==$portion['sha']) continue 2;
+            }
+            $credits[$ref]=$fact;
+        }
+        return $credits;
     }
 
     private function records(string $kind,string $through): iterable
