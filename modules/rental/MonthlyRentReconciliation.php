@@ -110,7 +110,8 @@ final class MonthlyRentReconciliation
         $today = $now->format('Y-m-d');
         $customers = MonthlyInvoiceArchive::customers($this->db);
         $verified = [];
-        foreach ((new MonthlyInvoiceArchive($this->db, $this->store))->rows() as $archived) {
+        $originals = array_column((new MonthlyInvoiceArchive($this->db,$this->store))->rows(),null,'reference');
+        foreach ($originals as $archived) {
             $periods = $archived['periods'];
             if ($archived['status'] !== 'Проведён' || $periods === [] || $archived['document_date'] > $today) continue;
             $ids = $bindings[$archived['contract_ref'] ?? ''] ?? [];
@@ -147,7 +148,8 @@ final class MonthlyRentReconciliation
                     if (!self::includesContract($contract,$month,$preceding)) continue;
                     $entry = &$this->entry($report[$month], $contract);
                     $entry['billed'][$archived['source_id']] = ['number'=>$archived['number'],
-                        'contract'=>$contract['number'],'amount'=>$amount,'invoice_id'=>$invoiceId,'name'=>$archived['name']];
+                        'contract'=>$contract['number'],'amount'=>$amount,'invoice_id'=>$invoiceId,'name'=>$archived['name'],
+                        'reference'=>$archived['reference']];
                     unset($entry);
                 }
             }
@@ -180,7 +182,7 @@ final class MonthlyRentReconciliation
                 $fromOnec = self::monthlyPortion($original,$amount,$rentPaidFromOnec);
                 $balance = $match && $monthlyPaid !== null
                     ? InvoiceFacts::remaining(array_replace($invoice,['amount'=>$amount,'paid'=>$monthlyPaid])) : null;
-                $invoiceFacts[$id][$month] = ['due'=>$due,'paid_from_1c'=>$fromOnec,'balance'=>$balance];
+                $invoiceFacts[$id][$month] = ['due'=>$due,'paid_from_1c'=>$fromOnec,'balance'=>$balance,'allocated'=>$monthlyPaid];
                 if (!self::includesContract($contract,$month,$preceding)) continue;
                 $entry = &$this->entry($report[$month],$contract);
                 $entry['due'][] = ['id'=>$id,'number'=>$invoice['number'],'contract'=>$contract['number'],
@@ -189,8 +191,38 @@ final class MonthlyRentReconciliation
                 unset($entry);
             }
         }
+        if (!$reviewOnly) $this->settledBills($report,$invoiceFacts,$originals,$today);
         return ['months'=>$report, 'issues'=>$issues, 'archive'=>MonthlyInvoiceArchive::lastImports($this->db), 'invoice_facts'=>$invoiceFacts,
             'generated'=>$now->format('d.m.Y H:i:s').' МСК'];
+    }
+
+    private function settledBills(array &$report,array $invoiceFacts,array $originals,string $today): void
+    {
+        $targets=[];
+        foreach ($report as $month=>$clients) {
+            foreach ($clients as $client) foreach ($client['billed'] as $bill) {
+                $balance=$invoiceFacts[$bill['invoice_id']][$month]['balance'] ?? null;
+                if ($balance!==self::ZERO) $targets[$bill['reference']]=$originals[$bill['reference']];
+            }
+        }
+        $paid=(new MonthlyBankEvidence($this->db,$this->store))->fullyPaid($targets,$originals,$today);
+        foreach ($report as $month=>&$clients) {
+            foreach ($clients as &$client) foreach ($client['billed'] as &$bill) {
+                $facts=$invoiceFacts[$bill['invoice_id']][$month] ?? [];
+                $bill['due']=$facts['due'] ?? null;
+                $bill['paid_from_1c']=$facts['paid_from_1c'] ?? null;
+                $bill['balance']=$facts['balance'] ?? null;
+                $bill['not_allocated']=self::ZERO;
+                if (!isset($paid[$bill['reference']])) continue;
+                $allocated=$bill['invoice_id'] === null ? self::ZERO : ($facts['allocated'] ?? null);
+                $bill['paid_from_1c']=$bill['amount'];
+                $bill['balance']=self::ZERO;
+                $bill['not_allocated']=$allocated === null ? null
+                    : (bccomp($bill['amount'],$allocated,2)>0 ? bcsub($bill['amount'],$allocated,2) : self::ZERO);
+            }
+            unset($bill,$client);
+        }
+        unset($clients);
     }
 
     private static function monthlyPortion(array $original, string $amount, ?string $rentPaid): ?string

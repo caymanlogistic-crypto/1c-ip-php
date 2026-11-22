@@ -234,7 +234,10 @@ final class YakovlevRentalSync
             $this->assertExistingPayment($known,$contract,$ref,$planned);
             return ['effect'=>'existing','payment_ids'=>$known];
         }
-        self::requireConsistentPurpose((string)($data['НазначениеПлатежа'] ?? ''),$planned);
+        $invoiceNumbers=array_column(array_column($planned,'invoice'),'number');
+        $mentioned=self::invoiceNumbersInPurpose((string)($data['НазначениеПлатежа'] ?? ''));
+        if (!self::purposeMatchesInvoiceNumbers($mentioned,$invoiceNumbers))
+            throw new DomainException('PAYMENT_PURPOSE_INVOICE_CONFLICT');
         if ($contract['status']!=='active') throw new DomainException('CONTRACT_NOT_ACTIVE');
         if ($this->one('SELECT id FROM payments WHERE party_id=? AND payment_date=? AND amount=? LIMIT 1',
             [$contract['party_id'],$ref['document_date'],$total])) throw new DomainException('POSSIBLE_MANUAL_PAYMENT');
@@ -269,16 +272,19 @@ final class YakovlevRentalSync
         return ['effect'=>'created','payment_id'=>$id,'invoice_ids'=>array_keys($planned)];
     }
 
-    private static function requireConsistentPurpose(string $purpose,array $planned): void
+    public static function invoiceNumbersInPurpose(string $purpose): array
     {
         preg_match_all('/(?:\bсч[её]т(?:у|а|ом)?\b\s*(?:на оплату\s*)?(?:№\s*)?(?:аяип[- ]*)?|аяип[- –—]+)0*(\d{3,6})(?![\d-])/iu',$purpose,$mentions);
+        return array_map('intval',$mentions[1]);
+    }
+
+    public static function purposeMatchesInvoiceNumbers(array $mentioned,array $invoiceNumbers): bool
+    {
         $numbers=[];
-        foreach ($planned as $entry) {
-            if (preg_match('/^АЯИП-(\d{6})$/u',$entry['invoice']['number'],$number))
-                $numbers[]=(int)$number[1];
+        foreach ($invoiceNumbers as $numberText) {
+            if (preg_match('/^АЯИП-(\d{6})$/u',$numberText,$number)) $numbers[]=(int)$number[1];
         }
-        if ($numbers && array_diff(array_map('intval',$mentions[1]),$numbers))
-            throw new DomainException('PAYMENT_PURPOSE_INVOICE_CONFLICT');
+        return !$numbers || !array_diff($mentioned,$numbers);
     }
 
     private function paymentLines(array $data,int $contract,string $total): array

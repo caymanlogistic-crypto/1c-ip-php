@@ -41,7 +41,7 @@ final class MonthlyInvoiceArchive
             $rows[] = $row + $summary;
         }
         if ($updated || count($invoices) !== count($previous)) {
-            self::save($path, ['revision'=>$revision,'invoices'=>$invoices]);
+            self::saveCache($path, ['revision'=>$revision,'invoices'=>$invoices]);
         }
         return $rows;
     }
@@ -67,6 +67,7 @@ final class MonthlyInvoiceArchive
             'reference'=>$source['Ref_Key'],
             'party_ref'=>is_string($partyRef) ? $partyRef : null,
             'contract_ref'=>$source['ДоговорКонтрагента_Key'] ?? null,
+            'currency_ref'=>$source['ВалютаДокумента_Key'] ?? null,
             'name'=>self::nameFromLines($rentLines, 'Содержание'),
             'rent_amount'=>$rentAmount,
             'periods'=>$periods,
@@ -107,7 +108,7 @@ final class MonthlyInvoiceArchive
         return implode(' · ', array_keys($names));
     }
 
-    private static function save(string $path, array $data): void
+    public static function saveCache(string $path, array $data): void
     {
         $temporary = @tempnam(dirname($path), 'rent-invoice-');
         if ($temporary === false) return;
