@@ -16,7 +16,6 @@ final class MonthlyRentReconciliationPage
     public const ROUTE = '/rental/'.self::MENU_KEY;
     private const TITLE = 'Помесячная сверка аренды';
     private const PLAN_COLUMN = 'Расчёт по договорам';
-    private const PAGE_SIZE = 50;
 
     public static function available(array $user): bool
     {
@@ -47,8 +46,6 @@ final class MonthlyRentReconciliationPage
         }
         $query = ['flag'=>$tab,'first'=>$first,'last'=>$last,'unlinked'=>(int)$unlinked];
         $url = self::ROUTE.'?'.http_build_query($query);
-        $requestedPage = $_GET['page'] ?? '1';
-        $page = is_string($requestedPage) && ctype_digit($requestedPage) ? max(1, (int)$requestedPage) : 1;
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             if ($tab !== 'bills') throw new RuntimeException('Откройте вкладку «Счета и разнесения».',405);
             Http::checkCsrf();
@@ -63,7 +60,7 @@ final class MonthlyRentReconciliationPage
                 in_array($payment['state'],['created','existing'],true) => 'Привязка сохранена. В загруженных платежах нет прямой ссылки на этот счёт.',
                 default => 'Привязка счёта сохранена.',
             };
-            Http::redirect($url.'&page='.$page);
+            Http::redirect($url);
         }
         $db = DB::pdo();
         $report = null;
@@ -80,22 +77,17 @@ final class MonthlyRentReconciliationPage
         }
         $archive = $report['archive'] ?? MonthlyInvoiceArchive::lastImports($db);
         $issueCount = $report === null ? null : count($report['issues']);
-        $count = count($rows);
-        $page = min($page, max(1, (int)ceil($count / self::PAGE_SIZE)));
-        $rows = array_slice($rows, ($page - 1) * self::PAGE_SIZE, self::PAGE_SIZE);
-        $pageUrl = $url.'&page='.$page;
-        $body .= self::tabs($tab,$first,$last,$unlinked,count($months),$issueCount,$tab === 'bills' ? $count : null)
+        $body .= self::tabs($tab,$first,$last,$unlinked,count($months),$issueCount,$tab === 'bills' ? count($rows) : null)
             .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last,$unlinked,$archive);
         if ($tab === 'bills') {
             $document = $_GET['document'] ?? '';
             $body .= RentalUI::notice();
-            if (is_string($document) && $document !== '') $body .= MonthlyInvoiceAssignments::editor($document,$pageUrl);
-            $body .= MonthlyInvoiceAssignments::table($rows,$pageUrl);
+            if (is_string($document) && $document !== '') $body .= MonthlyInvoiceAssignments::editor($document,$url);
+            $body .= MonthlyInvoiceAssignments::table($rows,$url);
         } else {
             $body .= $tab === 'review' ? self::reviewTable($rows)
                 : self::monthlyTable($report['months'], $report['invoice_facts']);
         }
-        $body .= self::pagination($url, $page, $count);
         return View::page(self::TITLE, $body.'</section>', self::MENU_KEY);
     }
 
@@ -143,17 +135,6 @@ final class MonthlyRentReconciliationPage
     {
         return self::details($id, 'Полное наименование · '.$number,
             '<section class="panel-section"><p class="registry-ui-primary text-prewrap">'.View::e($name).'</p></section>');
-    }
-
-    private static function pagination(string $url, int $page, int $count): string
-    {
-        if ($count <= self::PAGE_SIZE) return '';
-        $end = min($page * self::PAGE_SIZE, $count);
-        $first = ($page - 1) * self::PAGE_SIZE + 1;
-        $back = $page > 1 ? '<a class="btn btn-toolbar" href="'.View::e($url.'&page='.($page-1)).'">Назад</a>' : '';
-        $next = $end < $count ? '<a class="btn btn-toolbar" href="'.View::e($url.'&page='.($page+1)).'">Далее</a>' : '';
-        return '<nav class="pagination" aria-label="Страницы списка">'
-            .'<span>'.$first.'–'.$end.' из '.$count.'</span><div class="inline-actions">'.$back.$next.'</div></nav>';
     }
 
     private static function monthlyTable(array $months, array $invoiceFacts): string
