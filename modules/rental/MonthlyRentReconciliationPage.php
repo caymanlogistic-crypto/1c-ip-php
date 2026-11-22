@@ -159,6 +159,7 @@ final class MonthlyRentReconciliationPage
                 $fields = [$client['name'],$month,$label,...$contracts];
                 foreach (array_merge($client['billed'],$client['due']) as $invoice) {
                     $fields[] = $invoice['number'];
+                    $fields[] = $invoice['name'] ?? '';
                     $contracts[] = $invoice['contract'];
                 }
                 foreach ($contracts as $number) $fields[] = '№'.$number;
@@ -211,7 +212,7 @@ final class MonthlyRentReconciliationPage
                 $details[$index] = self::details('reconciliation-'.$month, 'Клиенты · '.$label, self::clients($month, $clients, $invoiceFacts));
             }
         }
-        return Controller::table(['Месяц',self::PLAN_COLUMN,'Счета 1С','Разница','Счета к сроку','Остаток'],
+        return Controller::table(['Месяц',self::PLAN_COLUMN,'Счета 1С','Разница','Разнесено в ERP','Остаток по ERP'],
             $rows, ['text','money','money','money','money','money'], $details, columnWidths:[1=>'text']);
     }
 
@@ -223,34 +224,34 @@ final class MonthlyRentReconciliationPage
             $rows[] = [View::e($client['name']), ...self::summary($client['planned'],
                 array_column($client['billed'], 'amount'), $client['due'])];
             $key = 'reconciliation-'.$month.'-'.$id;
-            $details[$index] = self::details($key, 'Счета · '.$client['name'], self::clientDetails($key, $client, $invoiceFacts));
+            $details[$index] = self::details($key, 'Счета · '.$client['name'], self::clientDetails($key, $month, $client, $invoiceFacts));
         }
-        return Controller::table(['Клиент',self::PLAN_COLUMN,'Счета 1С','Разница','Счета к сроку','Остаток'],
+        return Controller::table(['Клиент',self::PLAN_COLUMN,'Счета 1С','Разница','Разнесено в ERP','Остаток по ERP'],
             $rows, ['flex','money','money','money','money','money'], $details, columnWidths:[1=>'text']);
     }
 
-    private static function clientDetails(string $key, array $client, array $invoiceFacts): string
+    private static function clientDetails(string $key, string $month, array $client, array $invoiceFacts): string
     {
         $body = '';
         if ($client['planned'] || $client['billed']) {
-            $body .= self::heading('Аренда за месяц').self::contracts($key, $client, $invoiceFacts);
+            $body .= self::heading('Аренда за месяц').self::contracts($key, $month, $client, $invoiceFacts);
         }
         if ($client['due']) {
             $rows = [];
             foreach ($client['due'] as $invoice) {
                 $state = $invoice['overdue'] ? 'Просрочка подтверждена' : ($invoice['verified'] ? 'Связан с 1С' : 'Сверить связь с 1С');
                 $rows[] = [Controller::link('/rental/invoice?id='.$invoice['id'], $invoice['number']), '№'.View::e($invoice['contract']),
-                    View::e($invoice['due']), self::money($invoice['amount']), self::money($invoice['paid']),
+                    View::e($invoice['due'] ?? 'Уточнить'), self::money($invoice['amount']), self::money($invoice['paid']),
                     self::money($invoice['paid_from_1c']), self::money($invoice['balance']), $state];
             }
-            $body .= self::heading('Счета со сроком оплаты в этом месяце').Controller::table(
+            $body .= self::heading('Разнесения за месяц аренды').Controller::table(
                 ['Счёт','Договор','Срок оплаты','Сумма','Оплачено','Из 1С','Остаток','Состояние'],
                 $rows, ['code','short','code','money','money','money','money','text']);
         }
         return $body;
     }
 
-    private static function contracts(string $key, array $client, array $invoiceFacts): string
+    private static function contracts(string $key, string $month, array $client, array $invoiceFacts): string
     {
         $contracts = array_fill_keys(array_keys($client['planned']), []);
         foreach ($client['billed'] as $invoice) $contracts[$invoice['contract']][] = $invoice;
@@ -262,10 +263,10 @@ final class MonthlyRentReconciliationPage
             $invoiceRows = $paymentFacts = [];
             foreach ($bills as $bill) {
                 $id = $bill['invoice_id'];
-                $facts = $invoiceFacts[$id] ?? ['due'=>null,'paid_from_1c'=>null,'balance'=>null];
+                $facts = $invoiceFacts[$id][$month] ?? ['due'=>null,'paid_from_1c'=>null,'balance'=>null];
                 $paymentFacts[$id ?? $bill['number']] = $facts;
                 $invoiceRows[] = [$id ? Controller::link('/rental/invoice?id='.$id, $bill['number']) : View::e($bill['number']),
-                    self::money($bill['amount']), View::e($facts['due'] ?? 'Уточнить'),
+                    View::e($bill['name']), self::money($bill['amount']), View::e($facts['due'] ?? 'Уточнить'),
                     self::money($facts['paid_from_1c']), self::money($facts['balance'])];
             }
             $count = count($invoiceRows);
@@ -281,17 +282,20 @@ final class MonthlyRentReconciliationPage
                 count($dates) === 1 => reset($dates),
                 default => 'Разные сроки',
             };
+            $name = $count === 1 ? $bills[0]['name'] : '';
             if ($count > 1) {
                 $details[count($rows)] = self::details($key.'-contract-'.count($rows), 'Счета по договору №'.$contract,
-                    Controller::table(['Счёт','Сумма за месяц','Срок оплаты','Оплата из 1С','Остаток'],
-                        $invoiceRows, ['flex','money','code','money','money']));
+                    Controller::table(['Счёт','Наименование счёта','Сумма за месяц','Срок оплаты','Оплата из 1С','Остаток'],
+                        $invoiceRows, ['code','long','money','code','money','money']));
+            } elseif ($name !== '') {
+                $details[count($rows)] = self::invoiceNameDetails($key.'-invoice-'.count($rows),$bills[0]['number'],$name);
             }
-            $rows[] = ['№'.View::e($contract), $label, self::money($plan), self::money($fact), self::money($difference),
+            $rows[] = ['№'.View::e($contract), $label, self::invoiceNameCell($name), self::money($plan), self::money($fact), self::money($difference),
                 View::e($deadline), $bills ? self::money(self::sum(array_column($paymentFacts,'paid_from_1c'))) : '—',
                 $bills ? self::money(self::sum(array_column($paymentFacts,'balance'))) : '—'];
         }
-        return Controller::table(['Договор','Номер счёта',self::PLAN_COLUMN,'Счета 1С','Разница','Срок оплаты','Оплата из 1С','Остаток'],
-            $rows, ['short','flex','money','money','money','code','money','money'], $details, columnWidths:[2=>'text']);
+        return Controller::table(['Договор','Номер счёта','Наименование счёта',self::PLAN_COLUMN,'Счета 1С','Разница','Срок оплаты','Оплата из 1С','Остаток'],
+            $rows, ['short','code','long','money','money','money','code','money','money'], $details, columnWidths:[3=>'text']);
     }
 
     private static function summary(array $plans, array $billed, array $due): array
@@ -299,8 +303,9 @@ final class MonthlyRentReconciliationPage
         $plan = self::sum($plans);
         $invoiced = self::sum($billed);
         $difference = $plan !== null ? bcsub($plan, $invoiced, 2) : null;
+        $balance = count($due) === count($billed) ? self::sum(array_column($due,'balance')) : null;
         return array_map(self::money(...), [
-            $plan, $invoiced, $difference, self::sum(array_column($due,'amount')), self::sum(array_column($due,'balance')),
+            $plan, $invoiced, $difference, self::sum(array_column($due,'paid')), $balance,
         ]);
     }
 

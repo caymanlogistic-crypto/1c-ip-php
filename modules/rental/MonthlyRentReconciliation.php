@@ -135,7 +135,7 @@ final class MonthlyRentReconciliation
                 foreach ($selected as $month => $amount) {
                     $entry = &$this->entry($report[$month], $contract);
                     $entry['billed'][$archived['source_id']] = ['number'=>$archived['number'],
-                        'contract'=>$contract['number'],'amount'=>$amount,'invoice_id'=>$invoiceId];
+                        'contract'=>$contract['number'],'amount'=>$amount,'invoice_id'=>$invoiceId,'name'=>$archived['name']];
                     unset($entry);
                 }
             }
@@ -148,44 +148,44 @@ final class MonthlyRentReconciliation
             $contract = $contracts[$invoice['contract_id']];
             $due = InvoiceDueDate::archivedRent($invoice,$original['periods']);
             $invoice['due'] = $due;
-            $rentAmount = $original['rent_amount'];
-            $rentPaid = MonthlyInvoiceArchive::rentPayment($original, $invoice['paid']);
-            $month = $due ? substr($due, 0, 7) : InvoicePeriods::month($invoice['period']);
-            if ($invoice['paid'] !== null && $rentPaid === null && isset($report[$month])) {
-                $issues[] = [$month, $contract['client'], $invoice['number'],
+            $rentalMonths = array_intersect_key($original['periods'],$report);
+            if (!$rentalMonths) continue;
+            if (!$due) $issues[] = [implode(', ',array_keys($rentalMonths)), $contract['client'], $invoice['number'],
+                'В карточке ERP отсутствует срок оплаты.', $original['name']];
+            if ($invoice['paid'] !== null && MonthlyInvoiceArchive::rentPayment($original,$invoice['paid']) === null) {
+                $issues[] = [implode(', ',array_keys($rentalMonths)), $contract['client'], $invoice['number'],
                     'Уточнить, какая часть оплаты относится к аренде.', $original['name']];
-            }
-            if (!$due) {
-                $periods = array_keys(array_intersect_key($original['periods'], $report));
-                $issues[] = [implode(', ', $periods) ?: '—', $contract['client'], $invoice['number'], 'В карточке ERP отсутствует срок оплаты.',
-                    $original['name']];
             }
             if ($reviewOnly) continue;
             $paid = $allocations[$id]['paid'] ?? self::ZERO;
-            $paidFromOnec = MonthlyInvoiceArchive::rentPayment($original,$allocations[$id]['paid_from_1c'] ?? self::ZERO);
-            $balance = $rentAmount !== null && $rentPaid !== null && $invoice['paid'] !== null && bccomp($invoice['paid'],$paid,2) === 0
-                ? InvoiceFacts::remaining(array_replace($invoice,['amount'=>$rentAmount,'paid'=>$rentPaid])) : null;
-            $invoiceFacts[$id] = ['due'=>$due,'paid_from_1c'=>$paidFromOnec,'balance'=>$balance];
-            if (!$due) continue;
-            $rentalMonths = array_intersect_key($original['periods'],$report);
-            $month = isset($report[$month]) ? $month : array_key_first($rentalMonths);
-            if ($month === null) continue;
-            $entry = &$this->entry($report[$month], $contract);
-            $invoice['contract'] = $contract['number'];
-            $invoice['verified'] = true;
-            $invoice['balance'] = $balance;
-            $invoice['paid_from_1c'] = $paidFromOnec;
-            $invoice['overdue'] = !$invoice['manual_review'] && $balance !== null
-                && InvoiceFacts::overdueDays(PaymentReview::attach($this->db, $invoice, $now)) > 0;
-            $invoice['amount'] = $rentAmount;
-            $invoice['paid'] = $rentPaid;
-            $entry['due'][] = array_intersect_key($invoice,array_flip([
-                'id','number','contract','due','amount','paid','paid_from_1c','balance','verified','overdue',
-            ]));
-            unset($entry);
+            $rentPaid = MonthlyInvoiceArchive::rentPayment($original,$paid);
+            $rentPaidFromOnec = MonthlyInvoiceArchive::rentPayment($original,$allocations[$id]['paid_from_1c'] ?? self::ZERO);
+            $match = $invoice['paid'] !== null && bccomp($invoice['paid'],$paid,2) === 0;
+            $overdue = $match && !$invoice['manual_review'] && $rentPaid !== null
+                && InvoiceFacts::overdueDays(PaymentReview::attach($this->db,$invoice,$now)) > 0;
+            foreach ($rentalMonths as $month=>$amount) {
+                $monthlyPaid = self::monthlyPortion($original,$amount,$rentPaid);
+                $fromOnec = self::monthlyPortion($original,$amount,$rentPaidFromOnec);
+                $balance = $match && $monthlyPaid !== null
+                    ? InvoiceFacts::remaining(array_replace($invoice,['amount'=>$amount,'paid'=>$monthlyPaid])) : null;
+                $invoiceFacts[$id][$month] = ['due'=>$due,'paid_from_1c'=>$fromOnec,'balance'=>$balance];
+                if ($contract['status'] !== 'active') continue;
+                $entry = &$this->entry($report[$month],$contract);
+                $entry['due'][] = ['id'=>$id,'number'=>$invoice['number'],'contract'=>$contract['number'],
+                    'due'=>$due,'amount'=>$amount,'paid'=>$monthlyPaid,'paid_from_1c'=>$fromOnec,'balance'=>$balance,
+                    'verified'=>true,'overdue'=>$overdue && $balance !== null && bccomp($balance,self::ZERO,2)>0];
+                unset($entry);
+            }
         }
         return ['months'=>$report, 'issues'=>$issues, 'archive'=>MonthlyInvoiceArchive::lastImports($this->db), 'invoice_facts'=>$invoiceFacts,
             'generated'=>$now->format('d.m.Y H:i:s').' МСК'];
+    }
+
+    private static function monthlyPortion(array $original, string $amount, ?string $rentPaid): ?string
+    {
+        if ($rentPaid === null || count($original['periods']) === 1 || bccomp($rentPaid,self::ZERO,2) === 0)
+            return $rentPaid;
+        return bccomp($rentPaid,$original['rent_amount'],2) === 0 ? $amount : null;
     }
 
     private function paymentTotals(string $date): array
