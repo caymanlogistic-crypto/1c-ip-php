@@ -1117,7 +1117,7 @@ final class Controller {
         }
         if ($action === 'contract.delete') return '/rental/contracts';
         if ($action === 'contract.submit') return '/rental/approvals';
-        if (str_starts_with($action, 'reservation.')) return '/rental/contracts';
+        if (str_starts_with($action, 'reservation.')) return '/rental/booking-list';
         if (str_starts_with($action,'party.')) return '/rental/parties';
         if (str_starts_with($action,'organization.')) return '/rental/organization';
         if ($action==='cadastre.save') return '/rental/cadastre';
