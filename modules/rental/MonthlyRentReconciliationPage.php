@@ -38,7 +38,7 @@ final class MonthlyRentReconciliationPage
         $search = is_string($_GET['q'] ?? null) ? trim($_GET['q']) : '';
         $tokens = preg_split('/\s+/u', mb_strtolower($search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
         $context = ['first'=>$first,'last'=>$last,'unlinked'=>(int)$unlinked,'month'=>'all','q'=>$search];
-        $body = Controller::heading(self::TITLE, 'Расчёт по договорам, выставленные счета 1С и сроки оплаты.',
+        $body = Controller::heading(self::TITLE, 'Только офисная аренда по реестру договоров. Расчёт, счета 1С и оплаты.',
             '<a class="btn btn-secondary" href="/rental/invoice-list">Счета и оплаты</a>');
         try {
             $months = MonthlyRentReconciliation::range($first, $last);

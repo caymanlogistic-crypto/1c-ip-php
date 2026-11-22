@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-use Modules\Rental\{MonthlyInvoiceArchive, MonthlyRentReconciliation};
+use Modules\Rental\{MonthlyInvoiceArchive, MonthlyRentReconciliation, OfficeRentScope};
 
 require dirname(__DIR__).'/app/bootstrap.php';
 
@@ -79,5 +79,28 @@ if (MonthlyInvoiceArchive::rentPayment($mixed,'260.00') !== '100.00'
     || MonthlyInvoiceArchive::rentPayment($mixed,'0.00') !== '0.00'
     || MonthlyInvoiceArchive::rentPayment($mixed,'100.00') !== null) {
     throw new RuntimeException('A partial payment of a mixed invoice must not be presumed to cover rent.');
+}
+
+$source = ['СуммаВключаетНДС'=>true, 'Услуги'=>[
+    ['Содержание'=>'Аренда офиса за ноябрь 2026 г.', 'Сумма'=>'100.00'],
+    ['Содержание'=>'Аренда офиса (юр) за ноябрь 2026 г.', 'Сумма'=>'50.00'],
+    ['Содержание'=>'Аренда машино–места за ноябрь 2026 г.', 'Сумма'=>'20.00'],
+    ['Содержание'=>'Аренда оборудования для офиса за ноябрь 2026 г.', 'Сумма'=>'15.00'],
+    ['Содержание'=>'Клининг за ноябрь 2026 г.', 'Сумма'=>'10.00'],
+]];
+$officeLines = OfficeRentScope::lines($source);
+if ($officeLines !== [$source['Услуги'][0]] || !OfficeRentScope::explicitlyOffice($officeLines)
+    || MonthlyRentReconciliation::sourceMonths($source, '195.00', '2026-10-19', $officeLines) !== ['2026-11'=>'100.00']) {
+    throw new RuntimeException('An office invoice must contribute only its fixed office line.');
+}
+$source['Услуги'] = [$source['Услуги'][0]];
+if (OfficeRentScope::lines($source + ['Комментарий'=>'офис (юр) ноябрь 2026']) !== []) {
+    throw new RuntimeException('A legal address marked in the original comment must stay outside the office report.');
+}
+$office = ['template_type'=>'office', 'source_json'=>'{}'];
+if (!OfficeRentScope::contract($office) || OfficeRentScope::contract(array_replace($office, ['template_type'=>'parking']))
+    || OfficeRentScope::contract(array_replace($office, ['source_json'=>'{"archivedRentRestoration":{"use":"billing-only"}}']))
+    || OfficeRentScope::contract(array_replace($office, ['source_json'=>'{"archivedRentRestoration":{"use":"legal"}}']))) {
+    throw new RuntimeException('Legal address, parking, and historical-only contracts must stay outside the office register report.');
 }
 echo "Monthly rent reconciliation source totals OK\n";

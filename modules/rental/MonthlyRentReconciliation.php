@@ -11,7 +11,7 @@ use Modules\Integrations\{PrivateStore, YakovlevImport};
 use PDO;
 use RuntimeException;
 
-/** Read-only comparison of contract accruals, posted 1C invoices, and the ERP payment calendar. */
+/** Read-only comparison of office contract accruals, posted 1C invoices, and ERP allocations. */
 final class MonthlyRentReconciliation
 {
     private const ZERO = '0.00';
@@ -49,19 +49,26 @@ final class MonthlyRentReconciliation
         $report = array_fill_keys($months, []);
         $contracts = $this->db->query('SELECT c.*,p.name client,p.source_json party_source FROM contracts c JOIN parties p ON p.id=c.party_id ORDER BY p.name,c.number')
             ->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);
+        $offices = array_filter($contracts, OfficeRentScope::contract(...));
         $issues = [];
         $preceding = [];
-        foreach ($contracts as $successor) {
+        foreach ($offices as $successor) {
             $predecessor = Importer::decodeExact($successor['source_json'])['archiveContinuity']['predecessor'] ?? null;
-            if (isset($contracts[$predecessor]) && $contracts[$predecessor]['status']==='ended') {
-                $preceding[$predecessor] = substr($contracts[$predecessor]['end_date'],0,7);
+            if (isset($offices[$predecessor]) && $offices[$predecessor]['status']==='ended') {
+                $preceding[$predecessor] = substr($offices[$predecessor]['end_date'],0,7);
             }
         }
         foreach ($contracts as $id => &$contract) {
             $contract['id'] = (int)$id;
             $contract['party_ref'] = InvoiceContractAssignment::partyRef($contract);
+            if (!isset($offices[$id])) continue;
             if ($contract['status'] !== 'active' && !isset($preceding[$id])) continue;
-            $terms = BillableTerms::forContract($this->db, (int)$id);
+            $allTerms = BillableTerms::forContract($this->db, (int)$id);
+            $terms = OfficeRentScope::terms($allTerms);
+            if ($allTerms && !$terms) {
+                unset($offices[$id]);
+                continue;
+            }
             $sharedRent = self::sharedMonthlyRent($this->db, $contract, $terms);
             $previousStart = self::previousReplacementTermStart($contract,$terms);
             foreach ($months as $month) {
@@ -121,6 +128,7 @@ final class MonthlyRentReconciliation
             $contract = count($ids) === 1 ? ($contracts[$ids[0]] ?? null) : null;
             $sourceParty = $archived['party_ref'];
             $matchesContract = $contract && $sourceParty && $sourceParty === $contract['party_ref'];
+            if ($matchesContract ? !isset($offices[$contract['id']]) : !$archived['explicit_office']) continue;
             $client = $matchesContract ? $contract['client'] : ($customers[$sourceParty ?? ''] ?? 'Уточнить');
             if ($periods === null) {
                 $issuedMonth = substr($archived['document_date'],0,7);
@@ -131,7 +139,7 @@ final class MonthlyRentReconciliation
             $selected = array_intersect_key($periods, $report);
             if (!$matchesContract) {
                 if ($selected) $issues[] = [implode(', ',array_keys($selected)), $client, $archived['number'],
-                    'Подтвердить связь договора и клиента с 1С.', $archived['name']];
+                    'Подтвердить офис и договор в реестре. Счёт вне офисного итога.', $archived['name']];
                 continue;
             }
             $invoiceId = null;
@@ -388,7 +396,7 @@ final class MonthlyRentReconciliation
     }
 
     /** Totals from the priced lines of the original, independent of ERP tariff matching. */
-    public static function sourceMonths(array $source, string $total, ?string $issued = null): array
+    public static function sourceMonths(array $source, string $total, ?string $issued = null, ?array $selectedLines = null): array
     {
         $periods = [];
         $sum = self::ZERO;
@@ -400,7 +408,7 @@ final class MonthlyRentReconciliation
                 $amount = bcadd($amount, YakovlevRentalSync::cents($line['СуммаНДС'] ?? null, true), 2);
             }
             $sum = bcadd($sum, $amount, 2);
-            if (!self::isRentLine($line)) continue;
+            if ($selectedLines === null ? !self::isRentLine($line) : !in_array($line, $selectedLines, true)) continue;
             [$period] = YakovlevInvoiceCoverage::period(trim((string)$line['Содержание']), $issued);
             $periods[$period] = bcadd($periods[$period] ?? self::ZERO, $amount, 2);
         }

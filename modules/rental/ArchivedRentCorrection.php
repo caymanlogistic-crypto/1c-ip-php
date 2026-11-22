@@ -23,6 +23,7 @@ final class ArchivedRentCorrection
     public static function execute(PDO $db,array $actor,array $input): array
     {
         self::requireOperator();
+        if (isset($input['restore_number'])) return ArchivedRentRestoration::execute($db,$actor,$input);
         $contract=Service::get($db,'contracts',(int)($input['id'] ?? 0));
         Service::version($contract,$input);
         if ($contract['status']!=='active' || empty(Importer::decodeExact($contract['source_json'])['imported'])) {
@@ -55,8 +56,9 @@ final class ArchivedRentCorrection
         if ($contract['end_date']) return $contract['end_date'];
         $continuity=Importer::decodeExact($contract['source_json'])['archiveContinuity'] ?? [];
         $through=$continuity['confirmed_rent_through'] ?? null;
+        $from=$continuity['confirmed_rent_from'] ?? $through;
         return !empty($continuity['owner_confirmed']) && is_string($through)
-            && substr($through,0,7)===$period ? $through : null;
+            && is_string($from) && substr($from,0,7)<=$period && $period<=substr($through,0,7) ? $through : null;
     }
 
     private static function decemberParkingRates(PDO $db,array $actor,array $input,array $contract): array

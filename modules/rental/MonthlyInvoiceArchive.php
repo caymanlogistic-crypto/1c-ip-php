@@ -21,6 +21,7 @@ final class MonthlyInvoiceArchive
         $path = APP_ROOT.'/runtime/monthly-rent-invoice-archive.json';
         // Rebuild when the source interpretation changes, including after rollout or rollback.
         $revision = hash_file('sha256', __FILE__)
+            .hash_file('sha256', __DIR__.'/OfficeRentScope.php')
             .hash_file('sha256', __DIR__.'/MonthlyRentReconciliation.php')
             .hash_file('sha256', __DIR__.'/YakovlevInvoiceCoverage.php')
             .hash_file('sha256', __DIR__.'/YakovlevRentalSync.php')
@@ -49,14 +50,14 @@ final class MonthlyInvoiceArchive
     private function summarize(array $row): array
     {
         $source = Support::decode($this->store->read($row['raw_path'], $row['raw_sha256']))['fields']['record'];
-        $rentLines = MonthlyRentReconciliation::rentLines($source);
+        $rentLines = OfficeRentScope::lines($source);
         $wholeInvoice = count($rentLines) === count($source['Товары'] ?? []) + count($source['Услуги'] ?? []);
         $periods = [];
         $rentAmount = null;
         if ($rentLines) {
             if ($wholeInvoice) $rentAmount = $row['amount'];
             try {
-                $periods = MonthlyRentReconciliation::sourceMonths($source, $row['amount'], $row['document_date']);
+                $periods = MonthlyRentReconciliation::sourceMonths($source, $row['amount'], $row['document_date'], $rentLines);
                 $rentAmount = array_reduce($periods, static fn(string $sum, string $amount): string=>bcadd($sum,$amount,2), '0.00');
             } catch (DomainException) {
                 $periods = null;
@@ -71,6 +72,7 @@ final class MonthlyInvoiceArchive
             'name'=>self::nameFromLines($rentLines, 'Содержание'),
             'rent_amount'=>$rentAmount,
             'periods'=>$periods,
+            'explicit_office'=>OfficeRentScope::explicitlyOffice($rentLines),
         ];
     }
 

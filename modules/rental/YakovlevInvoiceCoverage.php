@@ -36,8 +36,8 @@ final class YakovlevInvoiceCoverage
             if (!preg_match('/№\s*'.preg_quote((string)$contract['number'],'/').'(?![\p{L}\d\/-])/u',$text))
                 throw new DomainException('INVOICE_CONTRACT_TEXT_UNCONFIRMED');
             [$month,$from,$until]=self::period($text,$issued);
-            if ($period!==null && $period!==$month) throw new DomainException('INVOICE_PERIOD_UNCONFIRMED');
-            $period=$month;
+            if (!$recheckArchivedInvoice && $period!==null && $period!==$month) throw new DomainException('INVOICE_PERIOD_UNCONFIRMED');
+            $period=$period===null ? $month : min($period,$month);
             $billingEnd=$recheckArchivedInvoice ? ArchivedRentCorrection::confirmedBillingEnd($contract,$month) : $contract['end_date'];
             if (!$contract['start_date'] || !$billingEnd || $contract['start_date']>$from || $billingEnd<$until)
                 throw new DomainException('INVOICE_OUTSIDE_CONTRACT');
@@ -60,7 +60,7 @@ final class YakovlevInvoiceCoverage
                 if (count($terms)===count($allTerms) && ($contract['servicing_effective_date'] ?? $from)<=$from)
                     $wholeRate=MonthlyRentReconciliation::sharedMonthlyRent($db,$contract,$allTerms);
             }
-            $detail=self::line($terms,$line,$text,$period,$from,$until,$includesVat,$wholeRate);
+            $detail=self::line($terms,$line,$text,$month,$from,$until,$includesVat,$wholeRate);
             $sum=bcadd($sum,bcadd($detail['netAmount'],$detail['vatAmount'],2),2);
             $lines[]=$detail;
         }
@@ -207,7 +207,7 @@ final class YakovlevInvoiceCoverage
                 AND (i.period=? OR (ic.start_date<=? AND ic.end_date>=?))
             ORDER BY i.id FOR UPDATE");
         foreach ($proof['segments'] as $segment) {
-            $q->execute([$contract,$proof['period'],$segment['until'],$segment['from']]);
+            $q->execute([$contract,substr($segment['from'],0,7),$segment['until'],$segment['from']]);
             foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $old) {
                 if (!$old['covered_object'] || (int)$old['covered_object']===$segment['object']
                     && $old['start_date']<=$segment['until'] && $old['end_date']>=$segment['from'])

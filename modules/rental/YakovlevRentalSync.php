@@ -324,8 +324,14 @@ final class YakovlevRentalSync
     {
         $total=self::cents($ref['amount']);
         if ($contract['status']!=='active') throw new DomainException('CONTRACT_NOT_ACTIVE');
-        if ($this->one('SELECT id FROM payments WHERE party_id=? AND payment_date=? AND amount IN (?,?) LIMIT 1',
-            [$contract['party_id'],$ref['document_date'],$total,$metadata['confirmed_debt_transfer']['bank_gross'] ?? $total]))
+        if ($this->one("SELECT p.id FROM payments p
+            WHERE p.party_id=? AND p.payment_date=? AND p.amount IN (?,?)
+            AND NOT EXISTS (SELECT 1 FROM external_documents d WHERE d.provider=? AND d.account_id='bank_in'
+                AND d.status='Проведён' AND d.document_date=p.payment_date
+                AND d.source_id=CONCAT('bank_in:',JSON_UNQUOTE(JSON_EXTRACT(p.source_json,'$.bank_external_id')))
+                AND JSON_UNQUOTE(JSON_EXTRACT(p.source_json,'$.bank_source'))=d.provider) LIMIT 1",
+            [$contract['party_id'],$ref['document_date'],$total,$metadata['confirmed_debt_transfer']['bank_gross'] ?? $total,
+                YakovlevImport::PROVIDER]))
             throw new DomainException('POSSIBLE_MANUAL_PAYMENT');
         self::assertOperatingWriter();
         foreach ($planned as $entry) {

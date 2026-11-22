@@ -6,20 +6,24 @@ use Modules\Rental\{ArchivedRentCorrection,Importer,Service};
 
 if (PHP_SAPI!=='cli' || !getenv('APP_DB_CONFIG_FILE') || !in_array($argc,[5,6],true)) {
     fwrite(STDERR,"Использование: reconcile-archived-rent.php <admin-id> <contract-id> <version> <command-key> [archive-proof.json]\n");
+    fwrite(STDERR,"Восстановление: reconcile-archived-rent.php <admin-id> restore <contract-number> <command-key>\n");
     exit(2);
 }
 require dirname(__DIR__).'/app/bootstrap.php';
 
 try {
     [, $adminId, $contractId, $version, $key]=$argv;
-    foreach ([$adminId,$contractId,$version] as $value) {
+    $restore=$contractId==='restore';
+    foreach ($restore ? [$adminId] : [$adminId,$contractId,$version] as $value) {
         if (!ctype_digit($value) || (int)$value<=0) throw new RuntimeException('Укажите действительные ID и версию.');
     }
+    if ($restore && ($argc!==5 || !preg_match('/^\d+(?:\/\d+)?$/D',$version)))
+        throw new RuntimeException('Укажите номер восстанавливаемого договора.');
     $query=DB::pdo()->prepare("SELECT id,auth_version FROM users WHERE id=? AND role='admin' AND active=1");
     $query->execute([(int)$adminId]);
     $actor=$query->fetch() ?: throw new RuntimeException('Укажите действующего администратора.');
     $_SESSION=['user_id'=>$actor['id'],'auth_version'=>$actor['auth_version']];
-    $input=[
+    $input=$restore ? ['restore_number'=>$version,'command_key'=>$key] : [
         'id'=>(int)$contractId,'version'=>(int)$version,'command_key'=>$key,
     ];
     if (isset($argv[5])) {

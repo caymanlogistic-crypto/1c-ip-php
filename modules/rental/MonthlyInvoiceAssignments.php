@@ -11,7 +11,7 @@ final class MonthlyInvoiceAssignments
 {
     public static function listing(PDO $db, array $months): array
     {
-        $contracts = $db->query('SELECT c.id,c.number,p.name,p.source_json party_source
+        $contracts = $db->query('SELECT c.id,c.number,c.template_type,c.source_json,p.name,p.source_json party_source
             FROM contracts c JOIN parties p ON p.id=c.party_id')->fetchAll(PDO::FETCH_UNIQUE|PDO::FETCH_ASSOC);
         $bindings = $db->query("SELECT DISTINCT source_id,entity_id FROM rental_source_bindings WHERE entity_type='contract'
             AND collection='Catalog_ДоговорыКонтрагентов' AND relation_kind='rental_contract'")
@@ -47,6 +47,7 @@ final class MonthlyInvoiceAssignments
             $linked = $invoice['contract_id'] ?? null;
             $lease = $contracts[$linked ?? $manual ?? (count($ids) === 1 ? $ids[0] : 0)] ?? null;
             if (!$owner || !$lease || $lease['party_ref'] !== $owner || count($matched)>1) $lease = null;
+            if ($lease ? !OfficeRentScope::contract($lease) : !$archive['explicit_office']) continue;
             $paid = $invoice && $lease ? MonthlyInvoiceArchive::rentPayment($archive,$invoice['paid']) : null;
             $rows[] = ['archive'=>$archive['id'],'invoice_id'=>$invoice && $lease ? $matched[0] : null,
                 'number'=>$archive['number'],'name'=>$archive['name'],'issued'=>$archive['document_date'],
@@ -90,8 +91,8 @@ final class MonthlyInvoiceAssignments
         $db = DB::pdo();
         $archive = InvoiceContractAssignment::archive($db,$documentId);
         $source = Support::decode(Config::store()->read($archive['raw_path'],$archive['raw_sha256']))['fields']['record'];
-        if (!MonthlyRentReconciliation::rentLines($source)) {
-            throw new \RuntimeException('В помесячной сверке доступны счета за аренду.',404);
+        if (!OfficeRentScope::lines($source)) {
+            throw new \RuntimeException('В помесячной сверке доступны счета за офисную аренду.',404);
         }
         $assignment = InvoiceContractAssignment::index($db)[$archive['id']] ?? [];
         $options = InvoiceContractAssignment::options($db,$source);
