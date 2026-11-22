@@ -33,6 +33,7 @@ try {
         $input+=match (true) {
             isset($proof['rent_credit']) => ['rent_credit'=>$proof['rent_credit']],
             isset($proof['parking_register_sha']) => ['parking_register_sha'=>$proof['parking_register_sha']],
+            array_key_exists('owner_confirmed_start',$proof) => ['owner_confirmed_start'=>$proof['owner_confirmed_start']],
             default => ['payer_agreement'=>$proof],
         };
     }

@@ -8,7 +8,7 @@ use Modules\Integrations\{Config,Support,YakovlevImport};
 use PDO;
 use RuntimeException;
 
-/** Post the two receipts confirmed by the owner against their reviewed 1C originals. */
+/** Apply owner-confirmed parking corrections using the reviewed 1C originals. */
 final class ArchivedParkingPayments
 {
     private const RECEIPTS = [
@@ -34,7 +34,7 @@ final class ArchivedParkingPayments
     {
         ArchivedRentCorrection::requireOperator();
         $proof=self::RECEIPTS[$contract['number']]+['actor_id'=>(int)$actor['id']];
-        if ($contract['number']==='64' && $contract['start_date']!==$proof['contract_start']) {
+        if ($contract['number']==='64' && !in_array($contract['start_date'],[$proof['contract_start'],$proof['from']],true)) {
             throw new RuntimeException('Изменилась дата договора №64. Откройте оригинал на повторную сверку.',409);
         }
         $archive=InvoiceContractAssignment::archive($db,$proof['invoice_id'],true);
@@ -85,5 +85,47 @@ final class ArchivedParkingPayments
         Audit::record(ArchivedRentCorrection::ACTION,'invoice',$rows[0]['id'],null,$evidence);
         Service::event($db,$actor,ArchivedRentCorrection::ACTION,'Разнесена подтверждённая оплата '.$proof['bank'].'.',(int)$contract['id'],$evidence);
         return $evidence;
+    }
+
+    public static function correctFlyLedgerStart(PDO $db,array $actor,array $input,array $contract): array
+    {
+        ArchivedRentCorrection::requireOperator();
+        $proof=self::RECEIPTS['64'];
+        $start=$proof['from'];
+        $id=(int)$contract['id'];
+        $source=Importer::decodeExact($contract['source_json']);
+        $confirmed=$source['ownerConfirmedArchiveCoverage'][$proof['invoice_ref']] ?? [];
+        if ($input['owner_confirmed_start']!==$start || $contract['template_type']!=='parking'
+            || $contract['start_date']!==$proof['contract_start'] || !$contract['end_date']
+            || ($confirmed['invoice_sha'] ?? null)!==$proof['invoice_sha'] || ($confirmed['from'] ?? null)!==$start) {
+            throw new RuntimeException('Проверьте исходную дату и подтверждённый счёт по договору №64.',409);
+        }
+
+        $terms=$db->prepare('SELECT t.*,o.name FROM contract_terms t JOIN rental_objects o ON o.id=t.object_id
+            JOIN contract_objects co ON co.contract_id=t.contract_id AND co.object_id=t.object_id
+            WHERE t.contract_id=? AND t.superseded_on IS NULL ORDER BY t.id FOR UPDATE');
+        $terms->execute([$id]);
+        $rows=$terms->fetchAll();
+        $term=$rows[0] ?? [];
+        if (count($rows)!==1 || $term['name']!=='1.13' || $term['start_date']!==$contract['start_date']
+            || $term['effective_date']!==$contract['start_date'] || $term['end_date']!==$contract['end_date']
+            || $term['amount']!==$contract['amount']) {
+            throw new RuntimeException('Условия машино-места 1.13 отличаются от проверенных.',409);
+        }
+        $addedThrough=(new \DateTimeImmutable($contract['start_date']))->modify('-1 day')->format('Y-m-d');
+        Service::available($db,[(int)$term['object_id']],$start,$addedThrough,$id,(int)$contract['party_id']);
+
+        $details=['previous_start'=>$contract['start_date'],'start_date'=>$start,'object'=>$term['name'],
+            'invoice'=>$proof['invoice'],'invoice_sha'=>$proof['invoice_sha'],'owner_confirmed'=>true];
+        ContractHistory::remember($db,$contract,$actor,$input['command_key'],$details);
+        $source['ownerConfirmedStartCorrection']=$details;
+        $db->prepare('UPDATE contracts SET start_date=?,source_json=?,version=version+1 WHERE id=?')
+            ->execute([$start,Importer::json($source),$id]);
+        $db->prepare('UPDATE contract_terms SET start_date=?,effective_date=? WHERE id=?')
+            ->execute([$start,$start,$term['id']]);
+        Audit::record(ArchivedRentCorrection::ACTION,'contract',$id,['start_date'=>$contract['start_date']],$details);
+        Service::event($db,$actor,ArchivedRentCorrection::ACTION,
+            'По подтверждению владельца начало аренды машино-места 1.13 по №64 установлено на 03.11.2026.',$id,$details);
+        return ['id'=>$id]+$details;
     }
 }

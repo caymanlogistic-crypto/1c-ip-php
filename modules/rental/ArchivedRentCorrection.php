@@ -29,7 +29,12 @@ final class ArchivedRentCorrection
         if ($contract['status']!=='active' || empty(Importer::decodeExact($contract['source_json'])['imported'])) {
             throw new RuntimeException('Нужен действующий исходный договор.',409);
         }
-        return match ([$contract['number'],$contract['document_date']]) {
+        $identity=[$contract['number'],$contract['document_date']];
+        if (array_key_exists('owner_confirmed_start',$input)) {
+            if ($identity!==['64','2026-11-02']) throw new RuntimeException('Подтверждённая дата относится к договору №64.',409);
+            return ArchivedParkingPayments::correctFlyLedgerStart($db,$actor,$input,$contract);
+        }
+        return match ($identity) {
             ['120','2025-10-07']=>self::indexation($db,$actor,$input,$contract),
             ['127','2025-11-18']=>self::continuation($db,$actor,$input,$contract),
             ['24','2023-02-17']=>self::settleParkingInvoices($db,$actor,$contract,
