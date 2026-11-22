@@ -551,7 +551,7 @@ final class FinanceController {
         $body = '';
         if ($proof) {
             $contract = Controller::query('SELECT * FROM contracts WHERE id=?',[$invoice['contract_id']])[0];
-            $deadline = InitialInvoice::issuedDeadline(DB::pdo(),$contract,$proof);
+            $deadline = InitialInvoice::issuedDeadline(DB::pdo(),$contract,$proof,$invoice['issued']);
             $date ??= $deadline['date'] ?? null;
             $body .= RentalUI::alert($deadline['rule'] ?? 'Срок оплаты',$deadline['question'] ?? $deadline['source'] ?? '');
             $body .= '<label class="field"><span class="field-label">Основание</span><select name="deadline_basis" required>'

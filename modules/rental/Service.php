@@ -91,7 +91,7 @@ final class Service {
 
     /** Same coarse grant for command execution and its later typed workflow notification. */
     public static function commandGrant(string $action,array $actor): string {
-        if (in_array($action,[UpdRegister::SAVE,SavedReceipt408::ACTION,OccupiedBilling::SAVE],true)) return 'finance.write';
+        if (in_array($action,[UpdRegister::SAVE,SavedReceipt408::ACTION,OccupiedBilling::SAVE,InvoiceContractAssignment::SAVE],true)) return 'finance.write';
         if ($action === StaffHandoff::PACKET) return match($actor['role']) {
             'admin'=>'*','director'=>'rental.approve.executive',
             'lawyer'=>'rental.approve.legal','accountant'=>'finance.write',default=>'rental.write',
@@ -110,6 +110,7 @@ final class Service {
     public static function command(string $action, array $in, ?int &$freshCommittedEventId=null): array {
         $freshCommittedEventId=null;
         if ($action === TermEndCorrection::ACTION) TermEndCorrection::requireOperator();
+        if ($action === ArchivedRentCorrection::ACTION) ArchivedRentCorrection::requireOperator();
         if ($action === SavedReceipt408::ACTION) SavedReceipt408::requireOperator();
         if (in_array($action,ExpiryNotice::ACTIONS,true)) ExpiryNotice::access((int)($in['id'] ?? 0),2);
         if ($action === UpdRegister::SAVE) RegularInvoice::requireAccess(2);
@@ -178,8 +179,9 @@ final class Service {
             if (!$o['active'])throw new RuntimeException('Объект неактивен.');
             $parent = $o['cadastre_id']?self::get($p, 'cadastre', (int)$o['cadastre_id']):null;
             if (!$parent || !DirectoryScope::signals($o, $parent))throw new RuntimeException('Объект недоступен для аренды.');
-            $q = $p->prepare("SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE ".\App\ContractOccupancy::contractPredicate('co')." AND co.object_id=? AND c.id<>? AND c.status='reconciling' LIMIT 1 FOR UPDATE");
+            $q = $p->prepare("SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE ".\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease()." AND co.object_id=? AND c.id<>? AND c.status='reconciling' LIMIT 1 FOR UPDATE");
             $q->execute([
+                $start,
                 $id,
                 $except ?? 0
             ]);
@@ -190,8 +192,9 @@ final class Service {
                 $except ?? 0
             ]);
             if ($q->fetchColumn())throw new RuntimeException('Ожидается акт возврата исключённого помещения.');
-            $q = $p->prepare("SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE ".\App\ContractOccupancy::contractPredicate('co')." AND co.object_id=? AND c.status='active' AND ".Occupancy::boundary('start_date')."<=? AND ".Occupancy::boundary('end_date').">=? AND c.id<>? LIMIT 1 FOR UPDATE");
+            $q = $p->prepare("SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE ".\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease()." AND co.object_id=? AND c.status='active' AND ".Occupancy::boundary('start_date')."<=? AND ".Occupancy::boundary('end_date').">=? AND c.id<>? LIMIT 1 FOR UPDATE");
             $q->execute([
+                $start,
                 $id,
                 $end,
                 $start,
@@ -199,9 +202,9 @@ final class Service {
             ]);
             if ($q->fetchColumn())throw new RuntimeException('Объект занят договором на выбранный период.');
             $q=$p->prepare('SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id
-                WHERE '.\App\ContractOccupancy::contractPredicate('co').' AND co.object_id=? AND c.id<>? AND c.id<>? AND '
+                WHERE '.\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease().' AND co.object_id=? AND c.id<>? AND c.id<>? AND '
                 .Occupancy::expiredWithoutReturn(Occupancy::boundary('end_date'),'LEAST(CURRENT_DATE,?)','?').' LIMIT 1 FOR UPDATE');
-            $q->execute([$id,$except ?? 0,$predecessor ?? 0,$end,$start]);
+            $q->execute([$start,$id,$except ?? 0,$predecessor ?? 0,$end,$start]);
             if ($q->fetchColumn()) throw new RuntimeException('Срок прежней аренды истёк. Сначала подтвердите возврат или связанное продолжение.',409);
             $q = $p->prepare("SELECT id,party_id,document_id FROM reservations r WHERE ".Occupancy::reservationPredicate('r')." AND object_id=? AND status='active' AND (contract_id IS NULL OR contract_id<>?) AND ((document_id IS NULL AND until_date>=CURRENT_DATE) OR (document_id IS NOT NULL AND start_date<=? AND end_date>=?)) FOR UPDATE");
             $q->execute([
@@ -276,10 +279,12 @@ final class Service {
         if ($action===ReturnAct::RECORD_ONE) return ReturnAct::recordOne($p,$in);
         if (in_array($action,ExpiryNotice::ACTIONS,true)) return ExpiryNotice::execute($p,$u,$action,$in);
         if ($action === UpdRegister::SAVE) return UpdRegister::save($p,$u,$in);
+        if ($action === InvoiceContractAssignment::SAVE) return InvoiceContractAssignment::save($p,$u,$in);
         if ($action === DebtFollowUp::SAVE) return DebtFollowUp::write($p,$u,$in);
         if (in_array($action,RentalServices::ACTIONS,true)) return RentalServices::execute($p,$action,$in);
         if(in_array($action,['workspace.reset','workspace.undo','workspace.remove-test-object'],true))return WorkspaceReset::execute($p,$u,$action,$in);
         if ($action===TermEndCorrection::ACTION) return TermEndCorrection::execute($p,$u,$in);
+        if ($action===ArchivedRentCorrection::ACTION) return ArchivedRentCorrection::execute($p,$u,$in);
         if ($action===SavedReceipt408::ACTION) return SavedReceipt408::execute($p,$u,$in);
         if ($action===OccupiedBilling::SAVE) return OccupiedBilling::saveActive($p,$u,$in);
         if ($action==='zero-point.correct') return ZeroPointCorrection::execute($p,$in);

@@ -84,9 +84,8 @@ final class RegularInvoice
 
     public static function due(string $form,string $period,array $calculation): array
     {
-        if ($form === 'D09') return $calculation['due'] ?? ['question'=>'Сверьте срок по подписанному парковочному договору или ДС.'];
-        if (in_array($form,['D17','D03'],true)) {
-            return ['date'=>(new DateTimeImmutable(self::period($period).'-01'))->modify('-1 month')->format('Y-m-25')];
+        if (isset(LeasePaymentTerms::FORMS[$form])) {
+            return ['date'=>InvoiceDueDate::monthlyRent($period)];
         }
         return ['question'=>'Уточните договорный срок оплаты аренды.'];
     }

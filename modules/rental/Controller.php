@@ -69,9 +69,8 @@ final class Controller {
         . ($key === $current?'true':'false')
         . '">'
         . self::e($label)
-        . ' <b>'
-        . $count
-        . '</b>'.(isset($spec[2])?DirectoryUi::counts($spec[2],$countPage):'').'</button>';
+        . ($count === null ? '' : ' <b>'.$count.'</b>')
+        . (isset($spec[2])?DirectoryUi::counts($spec[2],$countPage):'').'</button>';
         }
         return $h
         . '</form>';
@@ -117,7 +116,7 @@ final class Controller {
         return $q->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public static function table(array $headers, array $rows, ?array $columnOverride = null, array $details = []): string {
+    public static function table(array $headers, array $rows, ?array $columnOverride = null, array $details = [], array $columnWidths = []): string {
         $profile = $headers[0] === 'Кадастровый номер'?'rental-cadastre':'rental-contracts';
         $columns = $headers[0] === 'Кадастровый номер'?[
             'flex',
@@ -156,8 +155,8 @@ final class Controller {
         . '">';
         if ($columns || $details) {
             $h.='<colgroup>';
-            foreach ($columns as $size)$h.='<col class="registry-column-'
-            . $size
+            foreach ($columns as $index=>$size)$h.='<col class="registry-column-'
+            . ($columnWidths[$index] ?? $size)
             . '">';
             if ($details) $h.='<col class="registry-ui-disclosure-column">';
             $h.='</colgroup>';

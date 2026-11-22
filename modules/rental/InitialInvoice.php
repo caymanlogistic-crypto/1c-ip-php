@@ -210,7 +210,7 @@ final class InitialInvoice
                 continue;
             }
             $row['amount'] = self::prorate($gross,$row['from'],$row['to']);
-            $plan['rows'][] = $row+self::plannedDeadline($db,$id,$basis,$form,$row['initial'] ? 'rent' : 'next',$signature,$transfer);
+            $plan['rows'][] = $row+self::plannedDeadline($db,$id,$basis,$form,$row['initial'] ? 'rent' : 'next',$signature,$transfer,$issued);
         }
         if ($condition['multiple'] > 0) {
             $security = bcmul($gross,(string)$condition['multiple'],2);
@@ -237,20 +237,26 @@ final class InitialInvoice
             + LeasePaymentTerms::firstDue($form,$signature,$transfer);
     }
 
-    private static function plannedDeadline(PDO $db,int $id,string $basis,string $form,string $part,?string $signature,?string $transfer): array
+    private static function plannedDeadline(PDO $db,int $id,string $basis,string $form,string $part,?string $signature,?string $transfer,?string $issued = null): array
     {
         $individual = self::read($db,$id,'due-'.$part);
         if (($individual['basis'] ?? null) === $basis) {
             return ['due'=>$individual['date'],'due_basis'=>self::DUE_PARTS[$part].'. Индивидуальное основание: '.$individual['reason'],
                 'due_part'=>$part];
         }
-        $result = self::ruleDeadline($form,$part,$signature,$transfer);
+        $result = $issued && $part!=='security' ? self::issueBasedRentDeadline($issued)
+            : self::ruleDeadline($form,$part,$signature,$transfer);
         return ['due'=>$result['date'] ?? null,
             'due_basis'=>trim(($result['rule'] ?? '').' '.($result['question'] ?? $result['source'] ?? '')),
             'due_part'=>$part];
     }
 
-    public static function issuedDeadline(PDO $db,array $contract,array $proof): array
+    private static function issueBasedRentDeadline(string $issued): array
+    {
+        return ['date'=>InvoiceDueDate::firstRent($issued),'rule'=>'Аренда при заключении: два календарных дня после выставления счёта.'];
+    }
+
+    public static function issuedDeadline(PDO $db,array $contract,array $proof,string $issued): array
     {
         $id = (int)$contract['id'];
         $facts = LeasePaymentTerms::facts($db,$id);
@@ -258,6 +264,7 @@ final class InitialInvoice
             || (isset($facts['base']['form']) && $facts['base']['form'] !== $proof['form'])) {
             return ['question'=>'Сверьте подтверждённую форму этого договора.'];
         }
+        if ($proof['due_part']!=='security') return self::issueBasedRentDeadline($issued);
         $signature = !empty($contract['signed']) ? ($facts['signature']['date'] ?? null) : null;
         $transfer = !empty($contract['signed']) ? LeasePaymentTerms::actDate(PremisesActs::history($db,$id),'transfer') : null;
         return self::ruleDeadline($proof['form'],$proof['due_part'],$signature,$transfer);

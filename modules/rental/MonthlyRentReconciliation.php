@@ -7,11 +7,11 @@ use App\BillableTerms;
 use DateTimeImmutable;
 use DateTimeZone;
 use DomainException;
-use Modules\Integrations\{PrivateStore, Support, YakovlevImport};
+use Modules\Integrations\{PrivateStore, YakovlevImport};
 use PDO;
 use RuntimeException;
 
-/** Read-only comparison of contract accruals, posted 1C invoices, and the ERP payment calendar. */
+/** Read-only comparison of physical lease accruals, posted 1C invoices, and ERP allocations. */
 final class MonthlyRentReconciliation
 {
     private const ZERO = '0.00';
@@ -32,39 +32,62 @@ final class MonthlyRentReconciliation
         return $months;
     }
 
-    public function capture(array $months): array
+    public function capture(array $months, bool $reviewOnly = false): array
     {
         $now = new DateTimeImmutable('now', new DateTimeZone('Europe/Moscow'));
         $this->db->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
         $this->db->beginTransaction();
         try {
-            return $this->collect($months, $now);
+            return $this->collect($months, $now, $reviewOnly);
         } finally {
             $this->db->rollBack();
         }
     }
 
-    private function collect(array $months, DateTimeImmutable $now): array
+    private function collect(array $months, DateTimeImmutable $now, bool $reviewOnly = false): array
     {
         $report = array_fill_keys($months, []);
         $contracts = $this->db->query('SELECT c.*,p.name client,p.source_json party_source FROM contracts c JOIN parties p ON p.id=c.party_id ORDER BY p.name,c.number')
             ->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);
+        $rentalContracts = array_filter($contracts, PhysicalRentScope::contract(...));
         $issues = [];
+        $preceding = [];
+        foreach ($rentalContracts as $successor) {
+            $predecessor = Importer::decodeExact($successor['source_json'])['archiveContinuity']['predecessor'] ?? null;
+            if (isset($rentalContracts[$predecessor]) && $rentalContracts[$predecessor]['status']==='ended') {
+                $preceding[$predecessor] = substr($rentalContracts[$predecessor]['end_date'],0,7);
+            }
+        }
         foreach ($contracts as $id => &$contract) {
             $contract['id'] = (int)$id;
-            if ($contract['status'] !== 'active') continue;
-            $terms = BillableTerms::forContract($this->db, (int)$id);
+            $contract['party_ref'] = InvoiceContractAssignment::partyRef($contract);
+            if (!isset($rentalContracts[$id])) continue;
+            if ($contract['status'] !== 'active' && !isset($preceding[$id])) continue;
+            $allTerms = BillableTerms::forContract($this->db, (int)$id);
+            $terms = PhysicalRentScope::terms($allTerms);
+            if ($allTerms && !$terms) {
+                unset($rentalContracts[$id]);
+                continue;
+            }
+            $sharedRent = self::sharedMonthlyRent($this->db, $contract, $terms);
+            $previousStart = self::previousReplacementTermStart($contract,$terms);
             foreach ($months as $month) {
                 [$first,$last] = InvoicePeriods::bounds($month);
                 if (($contract['start_date'] && $contract['start_date'] > $last)
                     || ($contract['end_date'] && $contract['end_date'] < $first)) continue;
                 $entry = &$this->entry($report[$month], $contract);
                 try {
-                    if (!$terms || !$contract['start_date'] || !$contract['end_date']) {
+                    $billingEnd=ArchivedRentCorrection::confirmedBillingEnd($contract,$month);
+                    if (!$terms || !$contract['start_date'] || !$billingEnd) {
                         throw new RuntimeException('Нужны подтверждённые сроки и цены аренды.');
                     }
                     HandoverQuestion::assertBillingReady($this->db, (int)$id, $month);
-                    $entry['planned'][$contract['number']] = BillableMonthlyPlan::calculate($contract, $terms, [], $month)['amount'];
+                    $openingDate = $previousStart !== null && substr($contract['start_date'],0,7) === $month
+                        ? $previousStart : $contract['start_date'];
+                    $planContract = array_replace($contract,['start_date'=>$openingDate,'end_date'=>$billingEnd]);
+                    $entry['planned'][$contract['number']] = $sharedRent !== null
+                        ? self::prorateSharedRent($sharedRent, $contract, $first, $last)
+                        : BillableMonthlyPlan::calculate($planContract, $terms, [], $month)['amount'];
                 } catch (RuntimeException $error) {
                     if ($error instanceof \PDOException) throw $error;
                     $entry['planned'][$contract['number']] = null;
@@ -91,108 +114,289 @@ final class MonthlyRentReconciliation
         }
         unset($invoice);
 
-        $query = $this->db->prepare("SELECT number,amount,source_id,document_date,raw_path,raw_sha256 FROM external_documents
-            WHERE provider=? AND account_id='invoices' AND status='Проведён' AND document_date<=? ORDER BY document_date,id");
-        $query->execute([YakovlevImport::PROVIDER, $now->format('Y-m-d')]);
+        $manual = InvoiceContractAssignment::index($this->db);
+        $today = $now->format('Y-m-d');
+        $customers = MonthlyInvoiceArchive::customers($this->db);
         $verified = [];
-        foreach ($query->fetchAll() as $archived) {
-            $source = Support::decode($this->store->read($archived['raw_path'], $archived['raw_sha256']))['fields']['record'];
-            if (!YakovlevInvoiceCoverage::hasRentLine($source)) continue;
-            $ids = $bindings[$source['ДоговорКонтрагента_Key'] ?? ''] ?? [];
+        $originals = array_column((new MonthlyInvoiceArchive($this->db,$this->store))->rows(),null,'reference');
+        foreach ($originals as $archived) {
+            $periods = $archived['periods'];
+            if ($archived['status'] !== 'Проведён' || $periods === [] || $archived['document_date'] > $today) continue;
+            $ids = $bindings[$archived['contract_ref'] ?? ''] ?? [];
+            $assigned = InvoiceContractAssignment::contractId($archived,$manual[$archived['id']] ?? null);
+            if ($assigned) $ids = [$assigned];
             $contract = count($ids) === 1 ? ($contracts[$ids[0]] ?? null) : null;
-            try {
-                $periods = self::sourceMonths($source, $archived['amount']);
-            } catch (DomainException) {
-                $issues[] = ['—', $contract['client'] ?? '—', $archived['number'], 'Уточнить период и суммы строк оригинала 1С.'];
+            $sourceParty = $archived['party_ref'];
+            $matchesContract = $contract && $sourceParty && $sourceParty === $contract['party_ref'];
+            if ($matchesContract ? !isset($rentalContracts[$contract['id']]) : !$archived['explicit_rental']) continue;
+            $client = $matchesContract ? $contract['client'] : ($customers[$sourceParty ?? ''] ?? 'Уточнить');
+            if ($periods === null) {
+                $issuedMonth = substr($archived['document_date'],0,7);
+                if (isset($report[$issuedMonth])) $issues[] = ['—', $client, $archived['number'],
+                    'Уточнить период и суммы строк оригинала 1С.', $archived['name']];
                 continue;
             }
             $selected = array_intersect_key($periods, $report);
-            $party = $contract ? Importer::decodeExact($contract['party_source']) : [];
-            $sourceParty = $source['Контрагент_Key'] ?? $source['Контрагент'] ?? null;
-            if (!$contract || !$sourceParty || $sourceParty !== ($party['source_party_guid'] ?? $party['Ref_Key'] ?? null)) {
-                if ($selected) $issues[] = [implode(', ',array_keys($selected)), $contract['client'] ?? '—', $archived['number'],
-                    'Подтвердить связь договора и клиента с 1С.'];
+            if (!$matchesContract) {
+                if ($selected) $issues[] = [implode(', ',array_keys($selected)), $client, $archived['number'],
+                    'Подтвердить объект и договор аренды в реестре. Счёт пока вне итога.', $archived['name']];
                 continue;
             }
-            $linked = array_unique($invoiceLinks[$source['Ref_Key']] ?? []);
-            $invoice = count($linked) === 1 ? ($invoices[reset($linked)] ?? null) : null;
             $invoiceId = null;
-            if ($invoice && (int)$invoice['contract_id'] === $contract['id']
-                && $invoice['number'] === $archived['number'] && $invoice['issued'] === $archived['document_date']
-                && $invoice['amount'] !== null
-                && bccomp($invoice['amount'], $archived['amount'], 2) === 0) {
+            $linked = array_unique($invoiceLinks[$archived['reference']] ?? []);
+            $invoice = count($linked) === 1 ? ($invoices[reset($linked)] ?? null) : null;
+            if ($invoice && (int)$invoice['contract_id'] === $contract['id'] && MonthlyInvoiceArchive::matchesInvoice($archived,$invoice)) {
                 $invoiceId = $invoice['id'];
-                $verified[$invoiceId] = true;
+                $verified[$invoiceId] = $archived;
             } elseif ($selected) {
                 $issues[] = [implode(', ',array_keys($selected)), $contract['client'], $archived['number'],
-                    'Нужна точная связь с карточкой счёта ERP и сроком оплаты.'];
+                    'Нужна точная связь с карточкой счёта ERP и сроком оплаты.', $archived['name']];
             }
-            if ($contract['status'] === 'active') {
+            if (!$reviewOnly) {
                 foreach ($selected as $month => $amount) {
+                    if (!self::includesContract($contract,$month,$preceding)) continue;
                     $entry = &$this->entry($report[$month], $contract);
                     $entry['billed'][$archived['source_id']] = ['number'=>$archived['number'],
-                        'contract'=>$contract['number'],'amount'=>$amount,'invoice_id'=>$invoiceId];
+                        'contract'=>$contract['number'],'amount'=>$amount,'invoice_id'=>$invoiceId,'name'=>$archived['name'],
+                        'reference'=>$archived['reference']];
                     unset($entry);
                 }
             }
         }
-        $paymentQuery = $this->db->prepare("SELECT a.invoice_id,SUM(a.amount) paid,
-            SUM(CASE WHEN EXISTS (SELECT 1 FROM external_documents e WHERE e.provider=? AND e.account_id='bank_in'
-                AND e.status='Проведён' AND (e.source_id IN (
-                    CONCAT('bank_in:',JSON_UNQUOTE(JSON_EXTRACT(p.source_json,'$.bank_external_id'))),
-                    CONCAT('bank_in:',JSON_UNQUOTE(JSON_EXTRACT(p.source_json,'$.Ref_Key')))
-                ) OR EXISTS (
-                    SELECT 1 FROM rental_source_bindings b WHERE b.entity_type='payment' AND b.entity_id=p.id
-                    AND b.collection='Document_ПоступлениеНаРасчетныйСчет' AND b.relation_kind='allocation_no_cash_replay'
-                    AND b.source_id LIKE CONCAT(SUBSTRING(e.source_id,9),':%')
-                ))) THEN a.amount ELSE 0 END) paid_from_1c
-            FROM payment_allocations a JOIN payments p ON p.id=a.payment_id
-            WHERE p.payment_date<=? GROUP BY a.invoice_id");
-        $paymentQuery->execute([YakovlevImport::PROVIDER, $now->format('Y-m-d')]);
-        $allocations = $paymentQuery->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);
+        $credits = $reviewOnly ? [] : (new MonthlyBankEvidence($this->db,$this->store))->rentCredits($originals,$today);
+        $allocations = $reviewOnly ? [] : $this->paymentTotals($today);
         $invoiceFacts = [];
         foreach ($invoices as $id => $invoice) {
+            $original = $verified[$id] ?? null;
+            if ($original === null) continue;
             $contract = $contracts[$invoice['contract_id']];
-            $due = $invoice['due'];
-            $paid = $allocations[$id]['paid'] ?? self::ZERO;
-            $paidFromOnec = $allocations[$id]['paid_from_1c'] ?? self::ZERO;
-            $balance = $invoice['paid'] !== null && bccomp($invoice['paid'], $paid, 2) === 0
-                ? InvoiceFacts::remaining($invoice) : null;
-            $invoiceFacts[$id] = ['due'=>$due,'paid_from_1c'=>$paidFromOnec,'balance'=>$balance];
-            if (!$due) {
-                if (isset($verified[$id]) || isset($report[InvoicePeriods::month($invoice['period'])])) {
-                    $issues[] = ['—', $contract['client'], $invoice['number'], 'В карточке ERP отсутствует срок оплаты.'];
-                }
-                continue;
+            $due = InvoiceDueDate::archivedRent($invoice,$original['periods']);
+            $invoice['due'] = $due;
+            $rentalMonths = array_intersect_key($original['periods'],$report);
+            if (!$rentalMonths) continue;
+            if (!$due) $issues[] = [implode(', ',array_keys($rentalMonths)), $contract['client'], $invoice['number'],
+                'В карточке ERP отсутствует срок оплаты.', $original['name']];
+            if ($invoice['paid'] !== null && MonthlyInvoiceArchive::rentPayment($original,$invoice['paid']) === null) {
+                $issues[] = [implode(', ',array_keys($rentalMonths)), $contract['client'], $invoice['number'],
+                    'Уточнить, какая часть оплаты относится к аренде.', $original['name']];
             }
-            $month = substr($due, 0, 7);
-            if (!isset($report[$month])) continue;
-            $entry = &$this->entry($report[$month], $contract);
-            $invoice['contract'] = $contract['number'];
-            $invoice['verified'] = isset($verified[$id]);
-            $invoice['balance'] = $balance;
-            $invoice['paid_from_1c'] = $paidFromOnec;
-            $invoice['overdue'] = $invoice['verified'] && !$invoice['manual_review'] && $balance !== null
-                && InvoiceFacts::overdueDays(PaymentReview::attach($this->db, $invoice, $now)) > 0;
-            $entry['due'][] = array_intersect_key($invoice,array_flip([
-                'id','number','contract','due','amount','paid','paid_from_1c','balance','verified','overdue',
-            ]));
-            unset($entry);
+            if ($reviewOnly) continue;
+            $paid = $allocations[$id]['paid'] ?? self::ZERO;
+            $rentPaid = MonthlyInvoiceArchive::rentPayment($original,$paid);
+            $rentPaidFromOnec = MonthlyInvoiceArchive::rentPayment($original,$allocations[$id]['paid_from_1c'] ?? self::ZERO);
+            $match = $invoice['paid'] !== null && bccomp($invoice['paid'],$paid,2) === 0;
+            $overdue = $match && !$invoice['manual_review'] && $rentPaid !== null
+                && InvoiceFacts::overdueDays(PaymentReview::attach($this->db,$invoice,$now)) > 0;
+            foreach ($rentalMonths as $month=>$amount) {
+                $monthlyPaid = self::monthlyPortion($original,$amount,$rentPaid);
+                $fromOnec = self::monthlyPortion($original,$amount,$rentPaidFromOnec);
+                $balance = $match && $monthlyPaid !== null
+                    ? InvoiceFacts::remaining(array_replace($invoice,['amount'=>$amount,'paid'=>$monthlyPaid])) : null;
+                $credit=$credits[$original['reference']] ?? null;
+                $advance='0.00';
+                if ($balance!==null && ($credit['month'] ?? null)===$month) {
+                    $advance=self::unusedAdvance($credit['receipts'],$allocations[$id]['by_source'] ?? []);
+                    if (bccomp($advance,$balance,2)>0) $advance=$balance;
+                    $balance=bcsub($balance,$advance,2);
+                }
+                $invoiceFacts[$id][$month] = ['due'=>$due,'paid_from_1c'=>$fromOnec,'balance'=>$balance,'allocated'=>$monthlyPaid];
+                if (!self::includesContract($contract,$month,$preceding)) continue;
+                $entry = &$this->entry($report[$month],$contract);
+                $entry['due'][] = ['id'=>$id,'number'=>$invoice['number'],'contract'=>$contract['number'],
+                    'due'=>$due,'amount'=>$amount,'paid'=>$monthlyPaid,'paid_from_1c'=>$fromOnec,'balance'=>$balance,'advance'=>$advance,
+                    'verified'=>true,'overdue'=>$overdue && $balance !== null && bccomp($balance,self::ZERO,2)>0];
+                unset($entry);
+            }
         }
-        $lastArchive = $this->db->prepare("SELECT MAX(finished_at) FROM integration_runs
-            WHERE provider=? AND operation='yakovlev-load' AND status='success'
-            AND JSON_UNQUOTE(JSON_EXTRACT(coverage_json,'$.scope.kind'))=?");
-        $archive = [];
-        foreach (['invoices','bank'] as $tab) {
-            $lastArchive->execute([YakovlevImport::PROVIDER,'yakovlev-'.$tab]);
-            $archive[$tab] = $lastArchive->fetchColumn() ?: null;
-        }
-        return ['months'=>$report, 'issues'=>$issues, 'archive'=>$archive, 'invoice_facts'=>$invoiceFacts,
+        if (!$reviewOnly) $this->settledBills($report,$invoiceFacts,$originals,$today);
+        return ['months'=>$report, 'issues'=>$issues, 'archive'=>MonthlyInvoiceArchive::lastImports($this->db), 'invoice_facts'=>$invoiceFacts,
             'generated'=>$now->format('d.m.Y H:i:s').' МСК'];
     }
 
+    private function settledBills(array &$report,array $invoiceFacts,array $originals,string $today): void
+    {
+        $targets=[];
+        foreach ($report as $month=>$clients) {
+            foreach ($clients as $client) foreach ($client['billed'] as $bill) {
+                $balance=$invoiceFacts[$bill['invoice_id']][$month]['balance'] ?? null;
+                if ($balance!==self::ZERO) $targets[$bill['reference']]=$originals[$bill['reference']];
+            }
+        }
+        $paid=(new MonthlyBankEvidence($this->db,$this->store))->fullyPaid($targets,$originals,$today);
+        foreach ($report as $month=>&$clients) {
+            foreach ($clients as &$client) foreach ($client['billed'] as &$bill) {
+                $facts=$invoiceFacts[$bill['invoice_id']][$month] ?? [];
+                $bill['due']=$facts['due'] ?? null;
+                $bill['paid_from_1c']=$facts['paid_from_1c'] ?? null;
+                $bill['balance']=$facts['balance'] ?? null;
+                $bill['not_allocated']=self::ZERO;
+                if (!isset($paid[$bill['reference']])) continue;
+                $allocated=$bill['invoice_id'] === null ? self::ZERO : ($facts['allocated'] ?? null);
+                $bill['paid_from_1c']=$bill['amount'];
+                $bill['balance']=self::ZERO;
+                $bill['not_allocated']=$allocated === null ? null
+                    : (bccomp($bill['amount'],$allocated,2)>0 ? bcsub($bill['amount'],$allocated,2) : self::ZERO);
+            }
+            unset($bill,$client);
+        }
+        unset($clients);
+    }
+
+    private static function monthlyPortion(array $original, string $amount, ?string $rentPaid): ?string
+    {
+        if ($rentPaid === null || count($original['periods']) === 1 || bccomp($rentPaid,self::ZERO,2) === 0)
+            return $rentPaid;
+        return bccomp($rentPaid,$original['rent_amount'],2) === 0 ? $amount : null;
+    }
+
+    private static function unusedAdvance(array $receipts,array $allocationsBySource): string
+    {
+        $total=self::ZERO;
+        foreach ($receipts as $ref=>$portion) {
+            $difference=bcsub($portion['amount'],$allocationsBySource[$ref] ?? self::ZERO,2);
+            if (bccomp($difference,self::ZERO,2)>0) $total=bcadd($total,$difference,2);
+        }
+        return $total;
+    }
+
+    private function paymentTotals(string $date): array
+    {
+        $archive = $this->db->prepare("SELECT source_id FROM external_documents
+            WHERE provider=? AND account_id='bank_in' AND status='Проведён'");
+        $archive->execute([YakovlevImport::PROVIDER]);
+        $posted = array_fill_keys(array_map('strtolower', $archive->fetchAll(PDO::FETCH_COLUMN)), true);
+
+        $bankReferences = [];
+        $bindings = $this->db->query("SELECT entity_id,source_id FROM rental_source_bindings WHERE entity_type='payment'
+            AND collection='Document_ПоступлениеНаРасчетныйСчет' AND relation_kind='allocation_no_cash_replay'");
+        foreach ($bindings as $binding) {
+            $reference = strstr($binding['source_id'], ':', true);
+            if ($reference !== false && isset($posted['bank_in:'.strtolower($reference)])) {
+                $bankReferences[$binding['entity_id']][strtolower($reference)] = true;
+            }
+        }
+
+        $query = $this->db->prepare("SELECT a.invoice_id,a.payment_id,a.amount,
+            JSON_UNQUOTE(JSON_EXTRACT(p.source_json,'$.bank_external_id')) bank_ref,
+            JSON_UNQUOTE(JSON_EXTRACT(p.source_json,'$.Ref_Key')) source_ref
+            FROM payment_allocations a JOIN payments p ON p.id=a.payment_id JOIN invoices i ON i.id=a.invoice_id
+            WHERE p.payment_date<=? AND i.status='active' AND i.kind IN ('Аренда','Первый период')");
+        $query->execute([$date]);
+        $totals = [];
+        foreach ($query as $allocation) {
+            $id = $allocation['invoice_id'];
+            $payment = $allocation['payment_id'];
+            $amount = $allocation['amount'];
+            foreach (['bank_ref','source_ref'] as $field) {
+                $ref=strtolower($allocation[$field] ?? '');
+                if (isset($posted['bank_in:'.$ref])) $bankReferences[$payment][$ref]=true;
+            }
+            $totals[$id] ??= ['paid'=>self::ZERO,'paid_from_1c'=>self::ZERO];
+            $totals[$id]['paid'] = bcadd($totals[$id]['paid'], $amount, 2);
+            if (isset($bankReferences[$payment])) {
+                $totals[$id]['paid_from_1c'] = bcadd($totals[$id]['paid_from_1c'], $amount, 2);
+                foreach ($bankReferences[$payment] as $ref=>$_) {
+                    $totals[$id]['by_source'][$ref]=bcadd($totals[$id]['by_source'][$ref] ?? self::ZERO,$amount,2);
+                }
+            }
+        }
+        return $totals;
+    }
+
+    private static function includesContract(array $contract,string $month,array $preceding): bool
+    {
+        return $contract['status']==='active' || $month<=($preceding[$contract['id']] ?? '');
+    }
+
+    /** Include the old object in the month of a confirmed uninterrupted replacement. */
+    private static function previousReplacementTermStart(array $contract, array $terms): ?string
+    {
+        $replacement = Importer::decodeExact($contract['source_json'])['ownerConfirmedReplacement'] ?? [];
+        $boundary = $replacement['date'] ?? null;
+        if (!$boundary || $boundary !== $contract['start_date'] || empty($replacement['from']) || empty($replacement['to'])
+            || $replacement['from'] === $replacement['to']) return null;
+
+        $previousDay = (new DateTimeImmutable($boundary))->modify('-1 day')->format('Y-m-d');
+        $previousStart = null;
+        $newTermExists = false;
+        foreach ($terms as $term) {
+            if ($term['target_kind'] !== 'physical-object' || $term['amount'] === null) continue;
+            if ($term['object_id'] === (int)$replacement['to'] && $term['start_date'] === $boundary
+                && $term['end_date'] >= $boundary && $term['effective_date'] <= $boundary
+                && ($term['superseded_on'] === null || $term['superseded_on'] >= $boundary)) $newTermExists = true;
+            if ($term['object_id'] === (int)$replacement['from'] && $term['end_date'] === $previousDay
+                && $term['start_date'] !== null && $term['start_date'] <= $previousDay
+                && $term['effective_date'] <= $previousDay
+                && ($term['superseded_on'] === null || $term['superseded_on'] >= $previousDay)) {
+                $previousStart = $previousStart === null ? $term['start_date'] : min($previousStart,$term['start_date']);
+            }
+        }
+        return $newTermExists ? $previousStart : null;
+    }
+
+    /** A documented rate for the entire set of leased objects. */
+    public static function sharedMonthlyRent(PDO $db,array $contract,array $terms): ?string
+    {
+        $amount = $contract['amount'] ?? null;
+        if (!$terms || !$contract['start_date'] || !$contract['end_date'] || $amount === null
+            || bccomp($amount, '0', 2) <= 0 || array_column($terms, 'amount') !== array_fill(0, count($terms), null)) {
+            return null;
+        }
+        $mapping = Importer::decodeExact($contract['source_json'])['sourceLegalMapping'] ?? [];
+        $allocations = $mapping['unresolvedComponentAllocation'] ?? [];
+        $conditions = $mapping['sourceConditions'] ?? [];
+        if (count($allocations) !== 1 || count($conditions) !== 1) return null;
+        $allocation = $allocations[0];
+        $condition = $allocation['condition'] ?? [];
+        if (empty($condition['condition_id']) || $condition['condition_id'] !== ($conditions[0]['condition_id'] ?? null)
+            || ($condition['kind'] ?? null) !== 'RENT' || ($condition['monthly_gross'] ?? null) !== $amount
+            || ($condition['start'] ?? null) !== $contract['start_date'] || ($condition['end'] ?? null) !== $contract['end_date']) {
+            return null;
+        }
+        $objects = [];
+        foreach ($terms as $term) {
+            if ($term['target_kind'] !== 'physical-object' || $term['start_date'] !== $contract['start_date']
+                || $term['end_date'] !== $contract['end_date'] || !empty($term['superseded_on'])
+                || (!empty($term['effective_date']) && $term['effective_date'] > $contract['start_date'])) {
+                return null;
+            }
+            $objects[] = $term['object_id'];
+        }
+        $recorded = array_map('intval', $allocation['objects'] ?? []);
+        sort($objects, SORT_NUMERIC);
+        sort($recorded, SORT_NUMERIC);
+        if ($objects !== $recorded) return null;
+
+        $statement = $db->prepare('SELECT object_id FROM contract_objects WHERE contract_id=? ORDER BY object_id');
+        $statement->execute([$contract['id']]);
+        $current = array_map('intval', $statement->fetchAll(PDO::FETCH_COLUMN));
+        return $current === $objects ? $amount : null;
+    }
+
+    private static function prorateSharedRent(string $amount, array $contract, string $first, string $last): string
+    {
+        $start = max($first, $contract['start_date'], $contract['servicing_effective_date'] ?? $first);
+        $end = min($last, $contract['end_date']);
+        if ($start > $end) return self::ZERO;
+        $days = (new DateTimeImmutable($start))->diff(new DateTimeImmutable($end))->days + 1;
+        return Billing::round(bcdiv(bcmul($amount, (string)$days, 12), substr($last, -2), 12));
+    }
+
+    public static function rentLines(array $source): array
+    {
+        return array_values(array_filter(array_merge($source['Товары'] ?? [], $source['Услуги'] ?? []), self::isRentLine(...)));
+    }
+
+    private static function isRentLine(array $line): bool
+    {
+        $description = (string)($line['Содержание'] ?? '');
+        return (YakovlevInvoiceCoverage::hasRentLine(['Услуги'=>[$line]])
+                || PhysicalRentScope::describesObject($description))
+            && !preg_match('/(?<!\p{L})переменн\p{L}*\s+част\p{L}*/iu', $description);
+    }
+
     /** Totals from the priced lines of the original, independent of ERP tariff matching. */
-    public static function sourceMonths(array $source, string $total): array
+    public static function sourceMonths(array $source, string $total, ?string $issued = null, ?array $selectedLines = null): array
     {
         $periods = [];
         $sum = self::ZERO;
@@ -204,8 +408,8 @@ final class MonthlyRentReconciliation
                 $amount = bcadd($amount, YakovlevRentalSync::cents($line['СуммаНДС'] ?? null, true), 2);
             }
             $sum = bcadd($sum, $amount, 2);
-            if (!YakovlevInvoiceCoverage::hasRentLine(['Услуги'=>[$line]])) continue;
-            [$period] = YakovlevInvoiceCoverage::period(trim((string)$line['Содержание']));
+            if ($selectedLines === null ? !self::isRentLine($line) : !in_array($line, $selectedLines, true)) continue;
+            [$period] = YakovlevInvoiceCoverage::period(trim((string)$line['Содержание']), $issued);
             $periods[$period] = bcadd($periods[$period] ?? self::ZERO, $amount, 2);
         }
         if (bccomp($sum, $total, 2) !== 0) throw new DomainException('Суммы строк расходятся с итогом.');

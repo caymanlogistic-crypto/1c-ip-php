@@ -22,4 +22,20 @@ try {
 } catch (DomainException $error) {
     if ($error->getMessage()!=='UNCONFIRMED_AMOUNT') throw $error;
 }
+if (YakovlevInvoiceCoverage::period('Аренда помещения с 18.09.26 по 30.09.26','2026-09-17')
+    !==['2026-09','2026-09-18','2026-09-30'])
+    throw new RuntimeException('Numeric rent coverage was not recognized.');
+$grouped=['Услуги'=>[['Содержание'=>'Арендная плата за парковочные места 1.39, 1.40, 1.12 по договору №46.']]];
+if (YakovlevInvoiceCoverage::parkingReferences($grouped)!==['1.39','1.40','1.12'])
+    throw new RuntimeException('A grouped parking line must retain every listed object.');
+$grouped['Услуги'][0]['Содержание']='Арендная плата за парковочные места №1.43;1.9;2.25;2.26, по договору №18.';
+if (YakovlevInvoiceCoverage::parkingReferences($grouped)!==['1.43','1.9','2.25','2.26'])
+    throw new RuntimeException('A semicolon-separated parking list must retain every listed object.');
+$mentioned=YakovlevRentalSync::invoiceNumbersInPurpose('Оплата по счету № 1099 от 17.09.2026');
+if (YakovlevRentalSync::purposeMatchesInvoiceNumbers($mentioned,['АЯИП-001136'])
+    || !YakovlevRentalSync::purposeMatchesInvoiceNumbers($mentioned,['АЯИП-001099']))
+    throw new RuntimeException('An explicit invoice number in the bank memo must agree with the statement breakdown.');
+$abbreviated=YakovlevRentalSync::invoiceNumbersInPurpose('ПО СЧ 1246 ОТ 05.11.2026');
+if ($abbreviated!==[1246] || !YakovlevRentalSync::purposeMatchesInvoiceNumbers($abbreviated,['АЯИП-001246']))
+    throw new RuntimeException('An abbreviated explicit invoice reference must match the archived number.');
 echo "Yakovlev rental source evidence OK\n";

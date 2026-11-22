@@ -115,7 +115,9 @@ final class InitialBilling
             $source=[];
             if($typed)$source['native_invoice_targets']=BillingInvoiceTargets::producerMarker($plan['invoice_targets'],'initial','contract',(int)$contract['id']);
             if($proof!==null)$source['separate_initial_invoice']=$proof+['from'=>$plan['from'],'to'=>$plan['to'],'due_basis'=>$plan['due_basis'],'due_part'=>$plan['due_part']];
-            $due=$proof!==null ? $plan['due'] : InvoiceDueDate::automatic($issued,$plan['period'],(bool)$plan['initial']);
+            $due=$proof!==null ? $plan['due'] : ($plan['kind']==='Обеспечительный платёж'
+                ? InvoiceDueDate::automatic($issued,$plan['period'],true)
+                : InvoiceDueDate::firstRent($issued));
             $db->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,initial_invoice,coverage_key,source_json) VALUES(?,?,?,?,?,?,0,?,?,'active',?,?,?)")
                 ->execute([$id,'Д-'.$id,$contract['id'],$plan['kind'],$plan['period'],$plan['amount'],$issued,$due,$plan['initial'],$plan['coverage_key'],Importer::json($source ?: new \stdClass())]);
             // Preserve the physical fallback at creation, before a later addendum changes it.

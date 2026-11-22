@@ -54,6 +54,10 @@ final class SecurityDepositEvidence
                 $receipt=FinalSettlement::fact($db,'rental_bank_payment_identity',$key);
                 if (($receipt['payment_id'] ?? 0)===(int)$payment['id'] && (int)$payment['version']===1)
                     $proof=['kind'=>'bank','key'=>$key,'sha256'=>$receipt['sha256']];
+                if (!$proof && (int)$payment['version']===1 && $source['bank_source']===YakovlevImport::PROVIDER
+                    && self::archivedIncoming($db,$invoice,$source)) {
+                    $proof=['kind'=>'bank','key'=>$key,'sha256'=>$source['archived_security']['bank_sha']];
+                }
             }
             $order=null;
             if ($valid) {
@@ -84,6 +88,19 @@ final class SecurityDepositEvidence
         }
         $unverified=$unverified || $invoice['paid']===null || bccomp($received,$invoice['paid'],2)!==0;
         return compact('received','rows','unverified');
+    }
+
+    private static function archivedIncoming(PDO $db,array $invoice,array $paymentSource): bool
+    {
+        $proof=$paymentSource['archived_security'] ?? [];
+        $invoiceSource=Importer::decodeExact($invoice['source_json']);
+        if ($paymentSource['bank_external_id']!==($proof['bank_ref'] ?? null)
+            || ($invoiceSource['Ref_Key'] ?? null)!==($proof['invoice_ref'] ?? null)) return false;
+        $q=$db->prepare("SELECT raw_sha256 FROM external_documents WHERE provider=? AND source_id=? AND status='Проведён'");
+        $q->execute([YakovlevImport::PROVIDER,'bank_in:'.$proof['bank_ref']]);
+        if ($q->fetchColumn()!==($proof['bank_sha'] ?? null)) return false;
+        $q->execute([YakovlevImport::PROVIDER,'invoices:'.$proof['invoice_ref']]);
+        return $q->fetchColumn()===($proof['invoice_sha'] ?? null);
     }
 
     public static function agreement(PDO $db,array $contract): array

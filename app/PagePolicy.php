@@ -5,20 +5,21 @@ final class PagePolicy {
     public static function catalog():array {
         $pages = [
         ];
-        foreach (Menu::GROUPS as $group => $items)foreach ($items as $key => $label)$pages['rental.'
-        . $key] = [
-            'title' => $label,
-            'module' => 'Аренда',
-            'url' => '/rental/'
-            . $key,
-            'read' => 'rental.read',
-            'edit' => [
-                'rental.write',
-                'rental.approve.legal',
-                'finance.write',
-                'rental.approve.executive'
-            ]
-        ];
+        foreach (Menu::GROUPS as $items) foreach ($items as $key => $label) {
+            if (Menu::permissionPage($key) !== $key) continue;
+            $pages['rental.'.$key] = [
+                'title' => $label,
+                'module' => 'Аренда',
+                'url' => '/rental/'.$key,
+                'read' => 'rental.read',
+                'edit' => [
+                    'rental.write',
+                    'rental.approve.legal',
+                    'finance.write',
+                    'rental.approve.executive'
+                ]
+            ];
+        }
         foreach ([
             'onec' => '1С',
             'onec-yakovlev' => '1С ИП Яковлев',

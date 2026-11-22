@@ -218,7 +218,7 @@ final class MonthlyBilling {
             $plan['period'],
             $plan['amount'],
             $date,
-            $single['due'] ?? InvoiceDueDate::automatic($date,$plan['period'],false),
+            $single['due'] ?? InvoiceDueDate::monthlyRent($plan['period']),
             $plan['key'],
             $single ? Importer::json(['regular_invoice'=>$single['source']]) : '{}',
             $single['purpose'] ?? null,
