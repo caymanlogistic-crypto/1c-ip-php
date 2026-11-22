@@ -19,7 +19,7 @@ final class MonthlyInvoiceAssignments
         $archiveLinks = $db->query("SELECT DISTINCT source_id,entity_id FROM rental_source_bindings WHERE entity_type='invoice'
             AND collection='Document_СчетНаОплатуПокупателю' AND relation_kind='invoice_control'")
             ->fetchAll(PDO::FETCH_GROUP|PDO::FETCH_COLUMN);
-        $invoices = $db->query("SELECT i.id,i.number,i.period,i.issued,i.amount,i.paid,i.contract_id,i.kind,i.source_json,
+        $invoices = $db->query("SELECT i.id,i.number,i.issued,i.amount,i.paid,i.contract_id,
             JSON_UNQUOTE(JSON_EXTRACT(i.source_json,'$.Ref_Key')) source_ref FROM invoices i WHERE i.status<>'revoked'")
             ->fetchAll(PDO::FETCH_UNIQUE|PDO::FETCH_ASSOC);
         foreach ($invoices as $id=>$invoice) {
@@ -32,39 +32,28 @@ final class MonthlyInvoiceAssignments
         }
         unset($lease);
         $assignments = InvoiceContractAssignment::index($db);
-        $rows = $seen = [];
+        $rows = [];
         foreach ((new MonthlyInvoiceArchive($db, Config::store()))->rows() as $archive) {
-            $matched = array_values(array_unique(array_filter($archiveLinks[$archive['reference']] ?? [],
-                static fn($id): bool=>isset($invoices[$id]))));
-            foreach ($matched as $id) $seen[$id] = true;
             if ($archive['periods'] === []) continue;
             $periods = array_keys($archive['periods'] ?? []);
             if (!array_intersect($months, $periods ?: [substr($archive['document_date'],0,7)])) continue;
+            $matched = array_values(array_unique(array_filter($archiveLinks[$archive['reference']] ?? [],
+                static fn($id): bool=>isset($invoices[$id]))));
             $owner = $archive['party_ref'];
             $manual = InvoiceContractAssignment::contractId($archive,$assignments[$archive['id']] ?? null);
             $ids = $bindings[$archive['contract_ref'] ?? ''] ?? [];
             $invoice = count($matched) === 1 ? $invoices[$matched[0]] : null;
+            if ($invoice && !MonthlyInvoiceArchive::matchesInvoice($archive,$invoice)) $invoice = null;
             $linked = $invoice['contract_id'] ?? null;
             $lease = $contracts[$linked ?? $manual ?? (count($ids) === 1 ? $ids[0] : 0)] ?? null;
             if (!$owner || !$lease || $lease['party_ref'] !== $owner || count($matched)>1) $lease = null;
-            $paid = $invoice && $invoice['amount'] !== null && bccomp($invoice['amount'],$archive['amount'],2) === 0
-                ? MonthlyInvoiceArchive::rentPayment($archive,$invoice['paid']) : null;
-            $rows[] = ['archive'=>$archive['id'],'invoice_id'=>count($matched)===1?$matched[0]:null,
+            $paid = $invoice && $lease ? MonthlyInvoiceArchive::rentPayment($archive,$invoice['paid']) : null;
+            $rows[] = ['archive'=>$archive['id'],'invoice_id'=>$invoice && $lease ? $matched[0] : null,
                 'number'=>$archive['number'],'name'=>$archive['name'],'issued'=>$archive['document_date'],
                 'amount'=>$archive['rent_amount'],'paid'=>$paid,
                 'months'=>$periods,'client'=>$lease['name'] ?? $customers[$owner] ?? 'Уточнить',
                 'contract'=>$lease['number'] ?? null,'origin'=>'1С','status'=>$archive['status'],
                 'editable'=>!$matched && $archive['status']==='Проведён'];
-        }
-        foreach ($invoices as $id=>$invoice) {
-            if (isset($seen[$id]) || !in_array($invoice['kind'],['Аренда','Первый период'],true)) continue;
-            $period = InvoicePeriods::month($invoice['period']);
-            if (!in_array($period ?: substr((string)$invoice['issued'],0,7),$months,true)) continue;
-            $lease = $contracts[$invoice['contract_id']] ?? null;
-            $rows[] = ['archive'=>null,'invoice_id'=>$id,'number'=>$invoice['number'],
-                'name'=>MonthlyInvoiceArchive::erpName($invoice),'issued'=>$invoice['issued'],
-                'amount'=>$invoice['amount'],'paid'=>$invoice['paid'],'months'=>$period?[$period]:[],'client'=>$lease['name'] ?? 'Уточнить',
-                'contract'=>$lease['number'] ?? null,'origin'=>'ERP','status'=>'Учтён','editable'=>false];
         }
         usort($rows,static fn($a,$b)=>[$b['issued'],$b['number'],$b['archive'],$b['invoice_id']]
             <=> [$a['issued'],$a['number'],$a['archive'],$a['invoice_id']]);

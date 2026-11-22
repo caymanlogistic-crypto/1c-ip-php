@@ -34,18 +34,24 @@ final class MonthlyRentReconciliationPage
         $requested = $_GET['flag'] ?? '';
         $tab = in_array($requested,['review','bills'],true) ? $requested : 'main';
         $unlinked = ($_GET['unlinked'] ?? '') === '1';
+        $requestedMonth = $_GET['month'] ?? 'all';
+        $search = is_string($_GET['q'] ?? null) ? trim($_GET['q']) : '';
+        $tokens = preg_split('/\s+/u', mb_strtolower($search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $context = ['first'=>$first,'last'=>$last,'unlinked'=>(int)$unlinked,'month'=>'all','q'=>$search];
         $body = Controller::heading(self::TITLE, 'Расчёт по договорам, выставленные счета 1С и сроки оплаты.',
             '<a class="btn btn-secondary" href="/rental/invoice-list">Счета и оплаты</a>');
         try {
             $months = MonthlyRentReconciliation::range($first, $last);
         } catch (RuntimeException $error) {
-            return View::page(self::TITLE, $body.self::tabs($tab,$first,$last,$unlinked,0,0)
-                .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last,$unlinked)
+            return View::page(self::TITLE, $body.self::tabs($tab,$context,0,0)
+                .'<section class="table-card registry-ui-card">'.self::filters($tab,$context,[])
                 .'<section class="panel-section">'
                 .RentalUI::alert($error->getMessage(), '', 'error').'</section></section>', self::MENU_KEY);
         }
-        $query = ['flag'=>$tab,'first'=>$first,'last'=>$last,'unlinked'=>(int)$unlinked];
-        $url = self::ROUTE.'?'.http_build_query($query);
+        $month = in_array($requestedMonth,$months,true) ? $requestedMonth : 'all';
+        $context['month'] = $month;
+        $selectedMonths = $month === 'all' ? $months : [$month];
+        $url = self::ROUTE.'?'.http_build_query(['flag'=>$tab]+$context);
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             if ($tab !== 'bills') throw new RuntimeException('Откройте вкладку «Счета и разнесения».',405);
             Http::checkCsrf();
@@ -64,21 +70,33 @@ final class MonthlyRentReconciliationPage
         }
         $db = DB::pdo();
         $report = null;
-        $rows = [];
+        $rows = $issues = $monthRows = [];
         if ($tab === 'bills') {
-            $rows = MonthlyInvoiceAssignments::listing($db, $months);
-            if ($unlinked) $rows = array_values(array_filter($rows, static fn(array $row): bool=>$row['contract'] === null));
+            $rows = MonthlyInvoiceAssignments::listing($db, $selectedMonths);
+            $rows = array_values(array_filter($rows, static fn(array $row): bool=>(!$unlinked || $row['contract'] === null)
+                && self::matches($tokens,[$row['number'],$row['name'],$row['client'],$row['contract'],
+                    $row['contract'] === null ? 'Не привязан' : '№'.$row['contract'],
+                    ...array_map(self::monthLabel(...),$row['months']),Documents::dateText($row['issued']),
+                    $row['amount'],$row['paid'],$row['status'],$row['origin']])));
         } else {
-            $report = (new MonthlyRentReconciliation($db, Config::store()))->capture($months, $tab === 'review');
+            $report = (new MonthlyRentReconciliation($db, Config::store()))->capture($selectedMonths, $tab === 'review');
+            $issues = array_values(array_filter($report['issues'], static function(array $issue) use ($month,$tokens): bool {
+                $periods = explode(', ', $issue[0]);
+                return ($month === 'all' || in_array($month,$periods,true))
+                    && self::matches($tokens, [...$issue,...array_map(self::monthLabel(...),$periods)]);
+            }));
             if ($tab === 'review') {
-                $rows = $report['issues'];
+                $rows = $issues;
                 usort($rows, static fn(array $left, array $right): int=>($left[0] === '—') <=> ($right[0] === '—'));
+            } else {
+                $monthRows = self::filterClients($report['months'],$tokens);
             }
         }
         $archive = $report['archive'] ?? MonthlyInvoiceArchive::lastImports($db);
-        $issueCount = $report === null ? null : count($report['issues']);
-        $body .= self::tabs($tab,$first,$last,$unlinked,count($months),$issueCount,$tab === 'bills' ? count($rows) : null)
-            .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last,$unlinked,$archive);
+        $issueCount = $report === null ? null : count($issues);
+        $body .= self::tabs($tab,$context,$tab === 'main' ? count($monthRows) : count($selectedMonths),
+                $issueCount,$tab === 'bills' ? count($rows) : null)
+            .'<section class="table-card registry-ui-card">'.self::filters($tab,$context,$months,$archive);
         if ($tab === 'bills') {
             $document = $_GET['document'] ?? '';
             $body .= RentalUI::notice();
@@ -86,29 +104,68 @@ final class MonthlyRentReconciliationPage
             $body .= MonthlyInvoiceAssignments::table($rows,$url);
         } else {
             $body .= $tab === 'review' ? self::reviewTable($rows)
-                : self::monthlyTable($report['months'], $report['invoice_facts']);
+                : self::monthlyTable($monthRows, $report['invoice_facts']);
         }
         return View::page(self::TITLE, $body.'</section>', self::MENU_KEY);
     }
 
-    private static function tabs(string $tab, string $first, string $last, bool $unlinked, int $months, ?int $issues, ?int $bills = null): string
+    private static function tabs(string $tab, array $context, int $months, ?int $issues, ?int $bills = null): string
     {
         return Controller::tabs(['main'=>['Основное',$months], 'review'=>['Требует сверки',$issues], 'bills'=>['Счета и разнесения',$bills]],
-            $tab, context:['first'=>$first,'last'=>$last,'unlinked'=>(int)$unlinked]);
+            $tab, context:$context);
     }
 
-    private static function filters(string $tab, string $first, string $last, bool $unlinked, array $archive = []): string
+    private static function filters(string $tab, array $context, array $months, array $archive = []): string
     {
         $summary = $archive ? '<div class="found-label registry-ui-toolbar-summary">'
             .'Загрузка 1С (МСК) · счета '.self::archiveTime($archive['invoices'], 'ожидаются')
             .' · банк '.self::archiveTime($archive['bank'], 'ожидается').'</div>' : '';
-        return '<form class="table-toolbar registry-ui-toolbar" method="get" action="'.self::ROUTE.'">'
-            .'<input type="hidden" name="flag" value="'.View::e($tab).'">'.$summary
-            .'<div class="toolbar-right">'.($tab === 'bills' ? DirectoryUi::checkbox('unlinked','Показать непривязанные',$unlinked)
-                : '<input type="hidden" name="unlinked" value="'.(int)$unlinked.'">')
-            .Controller::input('first', 'Первый месяц', $first, 'month')
-            .Controller::input('last', 'Последний месяц', $last, 'month')
-            .'<button class="btn btn-primary" type="submit">Показать</button></div></form>';
+        $selector = '<select class="toolbar-select" name="month" aria-label="Месяц аренды"><option value="all">Все месяцы</option>';
+        foreach ($months as $month) {
+            $selector .= '<option value="'.View::e($month).'"'.($context['month'] === $month ? ' selected' : '').'>'
+                .View::e(self::monthLabel($month)).'</option>';
+        }
+        return '<form class="table-toolbar registry-ui-toolbar" method="get" action="'.self::ROUTE.'" data-rental-registry-filter>'
+            .'<input type="hidden" name="flag" value="'.View::e($tab).'">'
+            .'<input type="hidden" name="first" value="'.View::e($context['first']).'">'
+            .'<input type="hidden" name="last" value="'.View::e($context['last']).'">'.$summary
+            .'<div class="toolbar-right">'.($tab === 'bills' ? DirectoryUi::checkbox('unlinked','Показать непривязанные',(bool)$context['unlinked'])
+                : '<input type="hidden" name="unlinked" value="'.$context['unlinked'].'">')
+            .$selector.'</select>'.DirectoryUi::search($context['q'],true).'</div></form>';
+    }
+
+    private static function matches(array $tokens, array $fields): bool
+    {
+        if (!$tokens) return true;
+        $text = mb_strtolower(implode(' ',$fields));
+        foreach ($tokens as $token) {
+            if (!str_contains($text,$token)) return false;
+        }
+        return true;
+    }
+
+    private static function filterClients(array $months, array $tokens): array
+    {
+        if (!$tokens) return $months;
+        $filtered = [];
+        foreach ($months as $month=>$clients) {
+            $label = self::monthLabel($month);
+            if (self::matches($tokens,[$month,$label])) {
+                $filtered[$month] = $clients;
+                continue;
+            }
+            foreach ($clients as $id=>$client) {
+                $contracts = array_keys($client['planned']);
+                $fields = [$client['name'],$month,$label,...$contracts];
+                foreach (array_merge($client['billed'],$client['due']) as $invoice) {
+                    $fields[] = $invoice['number'];
+                    $contracts[] = $invoice['contract'];
+                }
+                foreach ($contracts as $number) $fields[] = '№'.$number;
+                if (self::matches($tokens,$fields)) $filtered[$month][$id] = $client;
+            }
+        }
+        return $filtered;
     }
 
     private static function reviewTable(array $issues): string

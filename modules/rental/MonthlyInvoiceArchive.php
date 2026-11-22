@@ -89,10 +89,12 @@ final class MonthlyInvoiceArchive
         return bccomp($payment,$archive['amount'],2) === 0 ? $rent : null;
     }
 
-    public static function erpName(array $invoice): string
+    public static function matchesInvoice(array $archive, array $invoice): bool
     {
-        $print = InvoiceDocument::capturedPrint($invoice);
-        return self::nameFromLines($print['lines'] ?? [], 'description') ?: (string)($invoice['kind'] ?? '');
+        return $invoice['number'] === $archive['number']
+            && $invoice['issued'] === $archive['document_date']
+            && $invoice['amount'] !== null
+            && bccomp($invoice['amount'],$archive['amount'],2) === 0;
     }
 
     private static function nameFromLines(array $lines, string $field): string
