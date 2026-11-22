@@ -110,6 +110,7 @@ final class Service {
     public static function command(string $action, array $in, ?int &$freshCommittedEventId=null): array {
         $freshCommittedEventId=null;
         if ($action === TermEndCorrection::ACTION) TermEndCorrection::requireOperator();
+        if ($action === ArchivedRentCorrection::ACTION) ArchivedRentCorrection::requireOperator();
         if ($action === SavedReceipt408::ACTION) SavedReceipt408::requireOperator();
         if (in_array($action,ExpiryNotice::ACTIONS,true)) ExpiryNotice::access((int)($in['id'] ?? 0),2);
         if ($action === UpdRegister::SAVE) RegularInvoice::requireAccess(2);
@@ -281,6 +282,7 @@ final class Service {
         if (in_array($action,RentalServices::ACTIONS,true)) return RentalServices::execute($p,$action,$in);
         if(in_array($action,['workspace.reset','workspace.undo','workspace.remove-test-object'],true))return WorkspaceReset::execute($p,$u,$action,$in);
         if ($action===TermEndCorrection::ACTION) return TermEndCorrection::execute($p,$u,$in);
+        if ($action===ArchivedRentCorrection::ACTION) return ArchivedRentCorrection::execute($p,$u,$in);
         if ($action===SavedReceipt408::ACTION) return SavedReceipt408::execute($p,$u,$in);
         if ($action===OccupiedBilling::SAVE) return OccupiedBilling::saveActive($p,$u,$in);
         if ($action==='zero-point.correct') return ZeroPointCorrection::execute($p,$in);

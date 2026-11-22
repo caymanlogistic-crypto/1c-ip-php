@@ -50,10 +50,17 @@ final class MonthlyRentReconciliation
         $contracts = $this->db->query('SELECT c.*,p.name client,p.source_json party_source FROM contracts c JOIN parties p ON p.id=c.party_id ORDER BY p.name,c.number')
             ->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);
         $issues = [];
+        $preceding = [];
+        foreach ($contracts as $successor) {
+            $predecessor = Importer::decodeExact($successor['source_json'])['archiveContinuity']['predecessor'] ?? null;
+            if (isset($contracts[$predecessor]) && $contracts[$predecessor]['status']==='ended') {
+                $preceding[$predecessor] = substr($contracts[$predecessor]['end_date'],0,7);
+            }
+        }
         foreach ($contracts as $id => &$contract) {
             $contract['id'] = (int)$id;
             $contract['party_ref'] = InvoiceContractAssignment::partyRef($contract);
-            if ($contract['status'] !== 'active') continue;
+            if ($contract['status'] !== 'active' && !isset($preceding[$id])) continue;
             $terms = BillableTerms::forContract($this->db, (int)$id);
             $sharedRent = $this->sharedMonthlyRent($contract, $terms);
             $previousStart = self::previousReplacementTermStart($contract,$terms);
@@ -135,8 +142,9 @@ final class MonthlyRentReconciliation
                 $issues[] = [implode(', ',array_keys($selected)), $contract['client'], $archived['number'],
                     'Нужна точная связь с карточкой счёта ERP и сроком оплаты.', $archived['name']];
             }
-            if (!$reviewOnly && $contract['status'] === 'active') {
+            if (!$reviewOnly) {
                 foreach ($selected as $month => $amount) {
+                    if (!self::includesContract($contract,$month,$preceding)) continue;
                     $entry = &$this->entry($report[$month], $contract);
                     $entry['billed'][$archived['source_id']] = ['number'=>$archived['number'],
                         'contract'=>$contract['number'],'amount'=>$amount,'invoice_id'=>$invoiceId,'name'=>$archived['name']];
@@ -173,7 +181,7 @@ final class MonthlyRentReconciliation
                 $balance = $match && $monthlyPaid !== null
                     ? InvoiceFacts::remaining(array_replace($invoice,['amount'=>$amount,'paid'=>$monthlyPaid])) : null;
                 $invoiceFacts[$id][$month] = ['due'=>$due,'paid_from_1c'=>$fromOnec,'balance'=>$balance];
-                if ($contract['status'] !== 'active') continue;
+                if (!self::includesContract($contract,$month,$preceding)) continue;
                 $entry = &$this->entry($report[$month],$contract);
                 $entry['due'][] = ['id'=>$id,'number'=>$invoice['number'],'contract'=>$contract['number'],
                     'due'=>$due,'amount'=>$amount,'paid'=>$monthlyPaid,'paid_from_1c'=>$fromOnec,'balance'=>$balance,
@@ -229,6 +237,11 @@ final class MonthlyRentReconciliation
             }
         }
         return $totals;
+    }
+
+    private static function includesContract(array $contract,string $month,array $preceding): bool
+    {
+        return $contract['status']==='active' || $month<=($preceding[$contract['id']] ?? '');
     }
 
     /** Include the old object in the month of a confirmed uninterrupted replacement. */

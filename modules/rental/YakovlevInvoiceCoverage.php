@@ -24,6 +24,8 @@ final class YakovlevInvoiceCoverage
             JOIN rental_objects o ON o.id=r.object_id
             LEFT JOIN contract_terms t ON t.contract_id=r.contract_id AND t.object_id=r.object_id
                 AND t.start_date<=? AND t.end_date>=?
+                AND (t.effective_date IS NULL OR t.effective_date<=?)
+                AND (t.superseded_on IS NULL OR t.superseded_on>=?)
             WHERE r.contract_id=? ORDER BY r.object_id,t.id');
         $lines=[]; $segments=[]; $period=null; $sum='0.00';
         foreach ($rows as $line) {
@@ -37,7 +39,7 @@ final class YakovlevInvoiceCoverage
             $period=$month;
             if (!$contract['start_date'] || !$contract['end_date'] || $contract['start_date']>$from || $contract['end_date']<$until)
                 throw new DomainException('INVOICE_OUTSIDE_CONTRACT');
-            $q->execute([$until,$from,$contract['id']]);
+            $q->execute([$from,$until,$from,$until,$contract['id']]);
             $terms=self::objects($q->fetchAll(PDO::FETCH_ASSOC),$text,$recheckArchivedInvoice);
             if (!$recheckArchivedInvoice && (count($terms)!==1 ||
                 !in_array((string)($line['Количество'] ?? ''),['1','1.0','1.00'],true)))
