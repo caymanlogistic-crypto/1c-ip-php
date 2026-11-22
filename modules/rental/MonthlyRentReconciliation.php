@@ -54,6 +54,7 @@ final class MonthlyRentReconciliation
             $contract['id'] = (int)$id;
             if ($contract['status'] !== 'active') continue;
             $terms = BillableTerms::forContract($this->db, (int)$id);
+            $sharedRent = $this->sharedMonthlyRent($contract, $terms);
             foreach ($months as $month) {
                 [$first,$last] = InvoicePeriods::bounds($month);
                 if (($contract['start_date'] && $contract['start_date'] > $last)
@@ -64,7 +65,9 @@ final class MonthlyRentReconciliation
                         throw new RuntimeException('Нужны подтверждённые сроки и цены аренды.');
                     }
                     HandoverQuestion::assertBillingReady($this->db, (int)$id, $month);
-                    $entry['planned'][$contract['number']] = BillableMonthlyPlan::calculate($contract, $terms, [], $month)['amount'];
+                    $entry['planned'][$contract['number']] = $sharedRent !== null
+                        ? self::prorateSharedRent($sharedRent, $contract, $first, $last)
+                        : BillableMonthlyPlan::calculate($contract, $terms, [], $month)['amount'];
                 } catch (RuntimeException $error) {
                     if ($error instanceof \PDOException) throw $error;
                     $entry['planned'][$contract['number']] = null;
@@ -215,6 +218,54 @@ final class MonthlyRentReconciliation
             }
         }
         return $totals;
+    }
+
+    /** A recorded whole-contract rate can be used for forecasting without pricing its objects. */
+    private function sharedMonthlyRent(array $contract, array $terms): ?string
+    {
+        $amount = $contract['amount'] ?? null;
+        if (!$terms || !$contract['start_date'] || !$contract['end_date'] || $amount === null
+            || bccomp($amount, '0', 2) <= 0 || array_column($terms, 'amount') !== array_fill(0, count($terms), null)) {
+            return null;
+        }
+        $mapping = Importer::decodeExact($contract['source_json'])['sourceLegalMapping'] ?? [];
+        $allocations = $mapping['unresolvedComponentAllocation'] ?? [];
+        $conditions = $mapping['sourceConditions'] ?? [];
+        if (count($allocations) !== 1 || count($conditions) !== 1) return null;
+        $allocation = $allocations[0];
+        $condition = $allocation['condition'] ?? [];
+        if (empty($condition['condition_id']) || $condition['condition_id'] !== ($conditions[0]['condition_id'] ?? null)
+            || ($condition['kind'] ?? null) !== 'RENT' || ($condition['monthly_gross'] ?? null) !== $amount
+            || ($condition['start'] ?? null) !== $contract['start_date'] || ($condition['end'] ?? null) !== $contract['end_date']) {
+            return null;
+        }
+        $objects = [];
+        foreach ($terms as $term) {
+            if ($term['target_kind'] !== 'physical-object' || $term['start_date'] !== $contract['start_date']
+                || $term['end_date'] !== $contract['end_date'] || !empty($term['superseded_on'])
+                || (!empty($term['effective_date']) && $term['effective_date'] > $contract['start_date'])) {
+                return null;
+            }
+            $objects[] = $term['object_id'];
+        }
+        $recorded = array_map('intval', $allocation['objects'] ?? []);
+        sort($objects, SORT_NUMERIC);
+        sort($recorded, SORT_NUMERIC);
+        if ($objects !== $recorded) return null;
+
+        $statement = $this->db->prepare('SELECT object_id FROM contract_objects WHERE contract_id=? ORDER BY object_id');
+        $statement->execute([$contract['id']]);
+        $current = array_map('intval', $statement->fetchAll(PDO::FETCH_COLUMN));
+        return $current === $objects ? $amount : null;
+    }
+
+    private static function prorateSharedRent(string $amount, array $contract, string $first, string $last): string
+    {
+        $start = max($first, $contract['start_date'], $contract['servicing_effective_date'] ?? $first);
+        $end = min($last, $contract['end_date']);
+        if ($start > $end) return self::ZERO;
+        $days = (new DateTimeImmutable($start))->diff(new DateTimeImmutable($end))->days + 1;
+        return Billing::round(bcdiv(bcmul($amount, (string)$days, 12), substr($last, -2), 12));
     }
 
     /** Totals from the priced lines of the original, independent of ERP tariff matching. */

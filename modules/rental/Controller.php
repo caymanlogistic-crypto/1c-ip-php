@@ -117,7 +117,7 @@ final class Controller {
         return $q->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public static function table(array $headers, array $rows, ?array $columnOverride = null, array $details = []): string {
+    public static function table(array $headers, array $rows, ?array $columnOverride = null, array $details = [], array $columnWidths = []): string {
         $profile = $headers[0] === 'Кадастровый номер'?'rental-cadastre':'rental-contracts';
         $columns = $headers[0] === 'Кадастровый номер'?[
             'flex',
@@ -156,8 +156,8 @@ final class Controller {
         . '">';
         if ($columns || $details) {
             $h.='<colgroup>';
-            foreach ($columns as $size)$h.='<col class="registry-column-'
-            . $size
+            foreach ($columns as $index=>$size)$h.='<col class="registry-column-'
+            . ($columnWidths[$index] ?? $size)
             . '">';
             if ($details) $h.='<col class="registry-ui-disclosure-column">';
             $h.='</colgroup>';

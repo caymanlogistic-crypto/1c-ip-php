@@ -15,6 +15,7 @@ final class MonthlyRentReconciliationPage
     public const MENU_KEY = 'monthly-reconciliation';
     public const ROUTE = '/rental/'.self::MENU_KEY;
     private const TITLE = 'Помесячная сверка аренды';
+    private const PLAN_COLUMN = 'Расчёт по договорам';
 
     public static function available(array $user): bool
     {
@@ -31,7 +32,7 @@ final class MonthlyRentReconciliationPage
         $first = is_string($first) ? $first : '';
         $last = is_string($last) ? $last : '';
         $tab = ($_GET['flag'] ?? '') === 'review' ? 'review' : 'main';
-        $body = Controller::heading(self::TITLE, 'План по договорам, счета из 1С и сроки оплаты.',
+        $body = Controller::heading(self::TITLE, 'Расчёт по договорам, выставленные счета 1С и сроки оплаты.',
             '<a class="btn btn-secondary" href="/rental/invoice-list">Счета и оплаты</a>');
         try {
             $months = MonthlyRentReconciliation::range($first, $last);
@@ -96,8 +97,8 @@ final class MonthlyRentReconciliationPage
                 $details[$index] = self::details('reconciliation-'.$month, 'Клиенты · '.$label, self::clients($month, $clients, $invoiceFacts));
             }
         }
-        return Controller::table(['Месяц','По договорам','Счета 1С','Разница','Счета к сроку','Остаток'],
-            $rows, ['text','money','money','money','money','money'], $details);
+        return Controller::table(['Месяц',self::PLAN_COLUMN,'Счета 1С','Разница','Счета к сроку','Остаток'],
+            $rows, ['text','money','money','money','money','money'], $details, columnWidths:[1=>'text']);
     }
 
     private static function clients(string $month, array $clients, array $invoiceFacts): string
@@ -110,8 +111,8 @@ final class MonthlyRentReconciliationPage
             $key = 'reconciliation-'.$month.'-'.$id;
             $details[$index] = self::details($key, 'Счета · '.$client['name'], self::clientDetails($key, $client, $invoiceFacts));
         }
-        return Controller::table(['Клиент','По договорам','Счета 1С','Разница','Счета к сроку','Остаток'],
-            $rows, ['flex','money','money','money','money','money'], $details);
+        return Controller::table(['Клиент',self::PLAN_COLUMN,'Счета 1С','Разница','Счета к сроку','Остаток'],
+            $rows, ['flex','money','money','money','money','money'], $details, columnWidths:[1=>'text']);
     }
 
     private static function clientDetails(string $key, array $client, array $invoiceFacts): string
@@ -175,8 +176,8 @@ final class MonthlyRentReconciliationPage
                 View::e($deadline), $bills ? self::money(self::sum(array_column($paymentFacts,'paid_from_1c'))) : '—',
                 $bills ? self::money(self::sum(array_column($paymentFacts,'balance'))) : '—'];
         }
-        return Controller::table(['Договор','Счёт 1С','По договору','Выставлено','Разница','Срок оплаты','Оплата из 1С','Остаток'],
-            $rows, ['short','flex','money','money','money','code','money','money'], $details);
+        return Controller::table(['Договор','Номер счёта',self::PLAN_COLUMN,'Счета 1С','Разница','Срок оплаты','Оплата из 1С','Остаток'],
+            $rows, ['short','flex','money','money','money','code','money','money'], $details, columnWidths:[2=>'text']);
     }
 
     private static function summary(array $plans, array $billed, array $due): array
