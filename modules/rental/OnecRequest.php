@@ -53,14 +53,15 @@ final class OnecRequest
 
     public static function reviewers(PDO $db): array
     {
-        $users=$db->query("SELECT u.id,u.name,u.role role_id,r.grants_configured,rp.kind role FROM users u JOIN roles r ON r.id=u.role
+        $users=$db->query("SELECT u.id,u.name,u.username,u.role role_id,r.grants_configured,rp.kind role,
+            COUNT(*) OVER (PARTITION BY u.name) name_count FROM users u JOIN roles r ON r.id=u.role
             JOIN role_profiles rp ON rp.role_id=u.role WHERE u.active=1 AND rp.kind='accountant' ORDER BY u.name,u.id")->fetchAll();
         $choices=[];
         foreach ($users as $user) {
             if (Auth::canFor($user,'finance.write') && Auth::canFor($user,'rental.read')
                 && PagePolicy::level('rental.'.self::PAGE,$user)>=2
                 && PagePolicy::level('rental.approvals',$user)>=1) {
-                $choices[(int)$user['id']]=$user['name'];
+                $choices[(int)$user['id']]=$user['name'].((int)$user['name_count']>1?' ('.$user['username'].')':'');
             }
         }
         return $choices;
