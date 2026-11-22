@@ -96,7 +96,7 @@ final class Service {
             'admin'=>'*','director'=>'rental.approve.executive',
             'lawyer'=>'rental.approve.legal','accountant'=>'finance.write',default=>'rental.write',
         };
-        if (in_array($action,InitialInvoice::ACTIONS,true)) return InitialInvoice::grant($action);
+        if (in_array($action,InitialInvoice::ACTIONS,true)) return InitialInvoice::grant($action,$actor['role']);
         if (in_array($action,RentalServices::ACTIONS,true)) {
             return in_array($action,[RentalServices::CONFIRM,RentalServices::BOOK],true)?'finance.write':'rental.write';
         }

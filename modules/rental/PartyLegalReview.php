@@ -57,16 +57,16 @@ final class PartyLegalReview
         return hash('sha256',Importer::canonicalJson([array_intersect_key($party,array_flip($fields)),$details,$bank->fetch()?:null]));
     }
 
-    public static function assertCurrent(PDO $db,int $id): void
+    public static function assertCurrent(PDO $db,int $id,bool $requireApproval=false): void
     {
         $party=Service::get($db,'parties',$id);
         if ($party['blocked']) throw new RuntimeException('Работа с контрагентом заблокирована.',409);
         $review=self::state($db,$id);
-        if (!$review) return;
-        if ($review['status']!=='accepted' || !hash_equals($review['signature'],self::signature($db,$party)))
+        if (!$review && !$requireApproval) return;
+        if (($review['status']??null)!=='accepted' || !hash_equals((string)($review['signature']??''),self::signature($db,$party)))
             throw new RuntimeException('Юрист должен отдельно согласовать актуальные реквизиты клиента.',409);
-        $file=self::findFile($db,$id,$review['file_id']);
-        if (!$file || !hash_equals($review['file_sha256'],$file['sha256']))
+        $file=self::findFile($db,$id,(string)($review['file_id']??''));
+        if (!$file || !hash_equals((string)($review['file_sha256']??''),$file['sha256']))
             throw new RuntimeException('Исходная карточка согласованного клиента недоступна.',409);
         Evidence::integrity($file);
     }
