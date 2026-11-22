@@ -64,7 +64,7 @@ final class InvoiceContractAssignment
             FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status IN ('active','reconciling','ended','closed')
             AND p.blocked=0 ORDER BY c.document_date DESC,c.id DESC")->fetchAll();
         return array_values(array_filter($rows, static fn(array $lease): bool=>self::partyRef($lease)===$owner
-            && OfficeRentScope::contract($lease)));
+            && PhysicalRentScope::contract($lease)));
     }
 
     public static function invoiceMatches(PDO $db, string $ref, bool $lock = false): array
@@ -93,8 +93,8 @@ final class InvoiceContractAssignment
         $store = Config::store();
         $document = Support::decode($store->read($archive['raw_path'],$archive['raw_sha256']));
         $source = $document['fields']['record'];
-        if (!OfficeRentScope::lines($source)) {
-            throw new RuntimeException('В помесячной сверке доступны счета за офисную аренду.',422);
+        if (!PhysicalRentScope::lines($source)) {
+            throw new RuntimeException('В помесячной сверке доступны счета за аренду объектов.',422);
         }
         $query = $db->prepare('SELECT c.*,p.blocked,p.source_json party_source
             FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.id=? FOR UPDATE');
@@ -105,7 +105,7 @@ final class InvoiceContractAssignment
             || !in_array($lease['status'],self::STATUSES,true) || !$owner || $owner !== self::partyRef($lease)) {
             throw new RuntimeException('Договор изменился или принадлежит другому контрагенту.',409);
         }
-        if (!OfficeRentScope::contract($lease)) throw new RuntimeException('Выберите офисный договор из реестра.',422);
+        if (!PhysicalRentScope::contract($lease)) throw new RuntimeException('Выберите договор аренды объекта из реестра.',422);
         $existing = self::invoiceMatches($db,$source['Ref_Key'],true);
         if (count($existing)>1 || ($existing && (int)$existing[0]['contract_id'] !== (int)$lease['id'])) {
             throw new RuntimeException('Счёт уже учтён в ERP по другой связи. Сверьте его карточку.',409);

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-use Modules\Rental\{MonthlyInvoiceArchive, MonthlyRentReconciliation, OfficeRentScope};
+use Modules\Rental\{MonthlyInvoiceArchive, MonthlyRentReconciliation, PhysicalRentScope};
 
 require dirname(__DIR__).'/app/bootstrap.php';
 
@@ -85,22 +85,45 @@ $source = ['СуммаВключаетНДС'=>true, 'Услуги'=>[
     ['Содержание'=>'Аренда офиса за ноябрь 2026 г.', 'Сумма'=>'100.00'],
     ['Содержание'=>'Аренда офиса (юр) за ноябрь 2026 г.', 'Сумма'=>'50.00'],
     ['Содержание'=>'Аренда машино–места за ноябрь 2026 г.', 'Сумма'=>'20.00'],
-    ['Содержание'=>'Аренда оборудования для офиса за ноябрь 2026 г.', 'Сумма'=>'15.00'],
+    ['Содержание'=>'Арендная плата за оборудование для офиса за ноябрь 2026 г.', 'Сумма'=>'15.00'],
     ['Содержание'=>'Клининг за ноябрь 2026 г.', 'Сумма'=>'10.00'],
+    ['Содержание'=>'Услуги по аренде апартаментов за ноябрь 2026 г.', 'Сумма'=>'30.00'],
+    ['Содержание'=>'Арендная плата за парк.место №2.33 за ноябрь 2026 г.', 'Сумма'=>'40.00'],
+    ['Содержание'=>'Обеспечительный платёж за парковочное место №2.33.', 'Сумма'=>'25.00'],
+    ['Содержание'=>'Переменная часть арендной платы за офис.', 'Сумма'=>'10.00'],
 ]];
-$officeLines = OfficeRentScope::lines($source);
-if ($officeLines !== [$source['Услуги'][0]] || !OfficeRentScope::explicitlyOffice($officeLines)
-    || MonthlyRentReconciliation::sourceMonths($source, '195.00', '2026-10-19', $officeLines) !== ['2026-11'=>'100.00']) {
-    throw new RuntimeException('An office invoice must contribute only its fixed office line.');
+$rentalLines = PhysicalRentScope::lines($source);
+if ($rentalLines !== array_values(array_intersect_key($source['Услуги'],array_flip([0,2,5,6])))
+    || MonthlyRentReconciliation::sourceMonths($source, '300.00', '2026-10-19', $rentalLines) !== ['2026-11'=>'190.00']) {
+    throw new RuntimeException('A mixed invoice must contribute only fixed rent of physical objects.');
+}
+if (!PhysicalRentScope::explicitlyPhysical([$source['Услуги'][6]])) {
+    throw new RuntimeException('An unmatched parking invoice must remain visible for review.');
 }
 $source['Услуги'] = [$source['Услуги'][0]];
-if (OfficeRentScope::lines($source + ['Комментарий'=>'офис (юр) ноябрь 2026']) !== []) {
-    throw new RuntimeException('A legal address marked in the original comment must stay outside the office report.');
+if (PhysicalRentScope::lines($source + ['Комментарий'=>'офис (юр) ноябрь 2026']) !== []) {
+    throw new RuntimeException('A legal address marked in the original comment must stay outside the rent report.');
 }
-$office = ['template_type'=>'office', 'source_json'=>'{}'];
-if (!OfficeRentScope::contract($office) || OfficeRentScope::contract(array_replace($office, ['template_type'=>'parking']))
-    || OfficeRentScope::contract(array_replace($office, ['source_json'=>'{"archivedRentRestoration":{"use":"billing-only"}}']))
-    || OfficeRentScope::contract(array_replace($office, ['source_json'=>'{"archivedRentRestoration":{"use":"legal"}}']))) {
-    throw new RuntimeException('Legal address, parking, and historical-only contracts must stay outside the office register report.');
+$lease = ['source_json'=>'{}'];
+foreach (['office', 'office-person', 'parking', 'parking-person', 'apartment-person'] as $template) {
+    if (!PhysicalRentScope::contract($lease + ['template_type'=>$template])) {
+        throw new RuntimeException('The rent scope must include every physical lease template.');
+    }
+}
+$office = $lease + ['template_type'=>'office'];
+if (PhysicalRentScope::contract($lease + ['template_type'=>'services'])
+    || PhysicalRentScope::contract(array_replace($office, ['source_json'=>'{"archivedRentRestoration":{"use":"billing-only"}}']))
+    || PhysicalRentScope::contract(array_replace($office, ['source_json'=>'{"archivedRentRestoration":{"use":"legal"}}']))) {
+    throw new RuntimeException('Service, legal address and historical-only contracts must stay outside the rent report.');
+}
+$terms = [
+    ['target_kind'=>'physical-object', 'type'=>'Офис', 'physical_occupancy'=>1],
+    ['target_kind'=>'physical-object', 'type'=>'Машино-место', 'physical_occupancy'=>null],
+    ['target_kind'=>'physical-object', 'type'=>'Апартаменты', 'physical_occupancy'=>1],
+    ['target_kind'=>'physical-object', 'type'=>'Офис', 'physical_occupancy'=>0],
+    ['target_kind'=>'billing-part', 'type'=>'LEGAL_ADDRESS', 'physical_occupancy'=>0],
+];
+if (PhysicalRentScope::terms($terms) !== array_slice($terms,0,3)) {
+    throw new RuntimeException('Only fixed rent terms for physical objects belong in the plan.');
 }
 echo "Monthly rent reconciliation source totals OK\n";

@@ -21,7 +21,7 @@ final class MonthlyInvoiceArchive
         $path = APP_ROOT.'/runtime/monthly-rent-invoice-archive.json';
         // Rebuild when the source interpretation changes, including after rollout or rollback.
         $revision = hash_file('sha256', __FILE__)
-            .hash_file('sha256', __DIR__.'/OfficeRentScope.php')
+            .hash_file('sha256', __DIR__.'/PhysicalRentScope.php')
             .hash_file('sha256', __DIR__.'/MonthlyRentReconciliation.php')
             .hash_file('sha256', __DIR__.'/YakovlevInvoiceCoverage.php')
             .hash_file('sha256', __DIR__.'/YakovlevRentalSync.php')
@@ -50,7 +50,7 @@ final class MonthlyInvoiceArchive
     private function summarize(array $row): array
     {
         $source = Support::decode($this->store->read($row['raw_path'], $row['raw_sha256']))['fields']['record'];
-        $rentLines = OfficeRentScope::lines($source);
+        $rentLines = PhysicalRentScope::lines($source);
         $wholeInvoice = count($rentLines) === count($source['Товары'] ?? []) + count($source['Услуги'] ?? []);
         $periods = [];
         $rentAmount = null;
@@ -72,7 +72,7 @@ final class MonthlyInvoiceArchive
             'name'=>self::nameFromLines($rentLines, 'Содержание'),
             'rent_amount'=>$rentAmount,
             'periods'=>$periods,
-            'explicit_office'=>OfficeRentScope::explicitlyOffice($rentLines),
+            'explicit_rental'=>PhysicalRentScope::explicitlyPhysical($rentLines),
         ];
     }
 

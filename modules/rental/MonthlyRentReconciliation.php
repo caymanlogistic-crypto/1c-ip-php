@@ -11,7 +11,7 @@ use Modules\Integrations\{PrivateStore, YakovlevImport};
 use PDO;
 use RuntimeException;
 
-/** Read-only comparison of office contract accruals, posted 1C invoices, and ERP allocations. */
+/** Read-only comparison of physical lease accruals, posted 1C invoices, and ERP allocations. */
 final class MonthlyRentReconciliation
 {
     private const ZERO = '0.00';
@@ -49,24 +49,24 @@ final class MonthlyRentReconciliation
         $report = array_fill_keys($months, []);
         $contracts = $this->db->query('SELECT c.*,p.name client,p.source_json party_source FROM contracts c JOIN parties p ON p.id=c.party_id ORDER BY p.name,c.number')
             ->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);
-        $offices = array_filter($contracts, OfficeRentScope::contract(...));
+        $rentalContracts = array_filter($contracts, PhysicalRentScope::contract(...));
         $issues = [];
         $preceding = [];
-        foreach ($offices as $successor) {
+        foreach ($rentalContracts as $successor) {
             $predecessor = Importer::decodeExact($successor['source_json'])['archiveContinuity']['predecessor'] ?? null;
-            if (isset($offices[$predecessor]) && $offices[$predecessor]['status']==='ended') {
-                $preceding[$predecessor] = substr($offices[$predecessor]['end_date'],0,7);
+            if (isset($rentalContracts[$predecessor]) && $rentalContracts[$predecessor]['status']==='ended') {
+                $preceding[$predecessor] = substr($rentalContracts[$predecessor]['end_date'],0,7);
             }
         }
         foreach ($contracts as $id => &$contract) {
             $contract['id'] = (int)$id;
             $contract['party_ref'] = InvoiceContractAssignment::partyRef($contract);
-            if (!isset($offices[$id])) continue;
+            if (!isset($rentalContracts[$id])) continue;
             if ($contract['status'] !== 'active' && !isset($preceding[$id])) continue;
             $allTerms = BillableTerms::forContract($this->db, (int)$id);
-            $terms = OfficeRentScope::terms($allTerms);
+            $terms = PhysicalRentScope::terms($allTerms);
             if ($allTerms && !$terms) {
-                unset($offices[$id]);
+                unset($rentalContracts[$id]);
                 continue;
             }
             $sharedRent = self::sharedMonthlyRent($this->db, $contract, $terms);
@@ -128,7 +128,7 @@ final class MonthlyRentReconciliation
             $contract = count($ids) === 1 ? ($contracts[$ids[0]] ?? null) : null;
             $sourceParty = $archived['party_ref'];
             $matchesContract = $contract && $sourceParty && $sourceParty === $contract['party_ref'];
-            if ($matchesContract ? !isset($offices[$contract['id']]) : !$archived['explicit_office']) continue;
+            if ($matchesContract ? !isset($rentalContracts[$contract['id']]) : !$archived['explicit_rental']) continue;
             $client = $matchesContract ? $contract['client'] : ($customers[$sourceParty ?? ''] ?? 'Уточнить');
             if ($periods === null) {
                 $issuedMonth = substr($archived['document_date'],0,7);
@@ -139,7 +139,7 @@ final class MonthlyRentReconciliation
             $selected = array_intersect_key($periods, $report);
             if (!$matchesContract) {
                 if ($selected) $issues[] = [implode(', ',array_keys($selected)), $client, $archived['number'],
-                    'Подтвердить офис и договор в реестре. Счёт вне офисного итога.', $archived['name']];
+                    'Подтвердить объект и договор аренды в реестре. Счёт пока вне итога.', $archived['name']];
                 continue;
             }
             $invoiceId = null;
@@ -391,7 +391,7 @@ final class MonthlyRentReconciliation
     {
         $description = (string)($line['Содержание'] ?? '');
         return (YakovlevInvoiceCoverage::hasRentLine(['Услуги'=>[$line]])
-                || preg_match('/^\s*услуги\s+по\s+аренде\s+нежилых\s+помещений(?:\s|$)/iu',$description))
+                || PhysicalRentScope::describesObject($description))
             && !preg_match('/(?<!\p{L})переменн\p{L}*\s+част\p{L}*/iu', $description);
     }
 

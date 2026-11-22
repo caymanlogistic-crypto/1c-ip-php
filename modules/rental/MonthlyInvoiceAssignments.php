@@ -47,7 +47,7 @@ final class MonthlyInvoiceAssignments
             $linked = $invoice['contract_id'] ?? null;
             $lease = $contracts[$linked ?? $manual ?? (count($ids) === 1 ? $ids[0] : 0)] ?? null;
             if (!$owner || !$lease || $lease['party_ref'] !== $owner || count($matched)>1) $lease = null;
-            if ($lease ? !OfficeRentScope::contract($lease) : !$archive['explicit_office']) continue;
+            if ($lease ? !PhysicalRentScope::contract($lease) : !$archive['explicit_rental']) continue;
             $paid = $invoice && $lease ? MonthlyInvoiceArchive::rentPayment($archive,$invoice['paid']) : null;
             $rows[] = ['archive'=>$archive['id'],'invoice_id'=>$invoice && $lease ? $matched[0] : null,
                 'number'=>$archive['number'],'name'=>$archive['name'],'issued'=>$archive['document_date'],
@@ -91,8 +91,8 @@ final class MonthlyInvoiceAssignments
         $db = DB::pdo();
         $archive = InvoiceContractAssignment::archive($db,$documentId);
         $source = Support::decode(Config::store()->read($archive['raw_path'],$archive['raw_sha256']))['fields']['record'];
-        if (!OfficeRentScope::lines($source)) {
-            throw new \RuntimeException('В помесячной сверке доступны счета за офисную аренду.',404);
+        if (!PhysicalRentScope::lines($source)) {
+            throw new \RuntimeException('В помесячной сверке доступны счета за аренду объектов.',404);
         }
         $assignment = InvoiceContractAssignment::index($db)[$archive['id']] ?? [];
         $options = InvoiceContractAssignment::options($db,$source);
