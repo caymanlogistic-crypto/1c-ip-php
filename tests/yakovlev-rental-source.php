@@ -32,4 +32,7 @@ $mentioned=YakovlevRentalSync::invoiceNumbersInPurpose('Оплата по сче
 if (YakovlevRentalSync::purposeMatchesInvoiceNumbers($mentioned,['АЯИП-001136'])
     || !YakovlevRentalSync::purposeMatchesInvoiceNumbers($mentioned,['АЯИП-001099']))
     throw new RuntimeException('An explicit invoice number in the bank memo must agree with the statement breakdown.');
+$abbreviated=YakovlevRentalSync::invoiceNumbersInPurpose('ПО СЧ 1246 ОТ 05.11.2026');
+if ($abbreviated!==[1246] || !YakovlevRentalSync::purposeMatchesInvoiceNumbers($abbreviated,['АЯИП-001246']))
+    throw new RuntimeException('An abbreviated explicit invoice reference must match the archived number.');
 echo "Yakovlev rental source evidence OK\n";

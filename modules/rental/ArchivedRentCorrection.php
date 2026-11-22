@@ -31,6 +31,10 @@ final class ArchivedRentCorrection
         return match ([$contract['number'],$contract['document_date']]) {
             ['120','2025-10-07']=>self::indexation($db,$actor,$input,$contract),
             ['127','2025-11-18']=>self::continuation($db,$actor,$input,$contract),
+            ['24','2023-02-17']=>self::settleParkingInvoices($db,$actor,$contract,
+                ['АЯИП-001246'=>'20930.00','АЯИП-001273'=>'48150.00'],['2.40'=>'2.12']),
+            ['33','2024-02-01']=>self::settleParkingInvoices($db,$actor,$contract,
+                ['АЯИП-001298'=>'24000.00'],['1.34'=>'1.14']),
             default=>throw new RuntimeException('По договору отсутствует проверенное основание коррекции.',409),
         };
     }
@@ -66,6 +70,31 @@ final class ArchivedRentCorrection
             throw new RuntimeException('Плательщик или состояние оригинала расходится: '.$number,409);
         }
         return [$archive,$document];
+    }
+
+    private static function settleParkingInvoices(PDO $db,array $actor,array $contract,array $invoices,array $map): array
+    {
+        if ($contract['number']==='33') {
+            $replacement=Importer::decodeExact($contract['source_json'])['ownerConfirmedReplacement'] ?? [];
+            if (($replacement['date'] ?? '')!=='2026-10-23' || ($replacement['to'] ?? null)!==1044)
+                throw new RuntimeException('Не подтверждена замена машино-места по договору №33.',409);
+        }
+        $sync=new YakovlevRentalSync($db,Config::store());
+        $settled=[];
+        foreach ($invoices as $number=>$amount) {
+            [$archive,$document]=self::sourceInvoice($db,(int)$contract['party_id'],$number,$amount);
+            $result=$sync->accountAssignedInvoice($archive,$document,$map);
+            if (!in_array($result['state'],['created','existing'],true)
+                || $result['created']+$result['existing']!==1 || $result['review']!==0) {
+                throw new RuntimeException('Не прошла сверка оригинала или банковского прихода '.$number.'.',409);
+            }
+            $settled[]=['number'=>$number,'amount'=>$amount,'source_invoice'=>$archive['source_id'],
+                'source_sha256'=>$archive['raw_sha256'],'result'=>$result];
+        }
+        $result=['id'=>(int)$contract['id'],'invoices'=>$settled,'parking_accounting_map'=>$map];
+        Audit::record(self::ACTION,'contract',$contract['id'],null,$result);
+        Service::event($db,$actor,self::ACTION,'Разнесены оплаты по проверенным архивным счетам за машино-места.',(int)$contract['id'],$result);
+        return $result;
     }
 
     private static function indexation(PDO $db,array $actor,array $input,array $contract): array

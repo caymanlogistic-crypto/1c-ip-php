@@ -38,7 +38,7 @@ final class YakovlevRentalSync
     }
 
     /** Recheck this exact invoice and only archived bank rows that name it. */
-    public function accountAssignedInvoice(array $archive, array $document): array
+    public function accountAssignedInvoice(array $archive, array $document, array $parkingAccountingMap = []): array
     {
         if (!$this->db->inTransaction()) throw new RuntimeException('YAKOVLEV_ASSIGNMENT_TRANSACTION_REQUIRED');
         $source = $document['fields']['record'];
@@ -48,7 +48,7 @@ final class YakovlevRentalSync
             return ['state'=>'linked','created'=>0,'existing'=>0,'review'=>0];
         }
         if (!$scope) return ['state'=>'accounting-disabled','created'=>0,'existing'=>0,'review'=>0];
-        $state = $this->apply($scope,$document,true);
+        $state = $this->apply($scope,$document,true,$parkingAccountingMap);
         $result = ['state'=>$state,'created'=>0,'existing'=>0,'review'=>0];
         if (!in_array($state,['existing','created'],true)) return $result;
         $bank = $this->rows("SELECT raw_path,raw_sha256 FROM external_documents WHERE provider=?
@@ -102,7 +102,7 @@ final class YakovlevRentalSync
         return $result;
     }
 
-    private function apply(array $scope,array $record,bool $recheckArchivedInvoice = false): string
+    private function apply(array $scope,array $record,bool $recheckArchivedInvoice = false,array $parkingAccountingMap = []): string
     {
         $ref = YakovlevImport::normalize($record);
         $ownTransaction = !$this->db->inTransaction();
@@ -143,7 +143,7 @@ final class YakovlevRentalSync
                     $effect = 'existing';
                 } else {
                     $evidence = $ref['account_id']==='invoices'
-                        ? $this->invoice($scope,$data,$ref,$row,$contract,$recheckArchivedInvoice)
+                        ? $this->invoice($scope,$data,$ref,$row,$contract,$recheckArchivedInvoice,$parkingAccountingMap)
                         : $this->payment($scope,$data,$ref,(string)$row['id'],$contract);
                     $effect = $evidence['effect'];
                     $this->save(self::BOOKED,$key,['sha'=>$fingerprint,'contract_id'=>$contract]+$evidence);
@@ -189,7 +189,7 @@ final class YakovlevRentalSync
         $this->assertExistingPayment($ids,$contract,$ref,$this->paymentLines($data,$contractId,self::cents($ref['amount'])));
     }
 
-    private function invoice(array $scope,array $data,array $ref,array $archive,int $contractId,bool $recheckArchivedInvoice): array
+    private function invoice(array $scope,array $data,array $ref,array $archive,int $contractId,bool $recheckArchivedInvoice,array $parkingAccountingMap): array
     {
         $existing = $this->invoicesFor($data['Ref_Key']);
         $contract = $this->contract($contractId,$data,$scope,$this->invoiceContracts($data,$archive));
@@ -201,7 +201,7 @@ final class YakovlevRentalSync
         }
         if ($contract['status']!=='active') throw new DomainException('CONTRACT_NOT_ACTIVE');
         $proof = YakovlevInvoiceCoverage::prove($this->db,$contract,$data,self::cents($ref['amount']),
-            $recheckArchivedInvoice ? $ref['document_date'] : null,$recheckArchivedInvoice);
+            $recheckArchivedInvoice ? $ref['document_date'] : null,$recheckArchivedInvoice,$parkingAccountingMap);
         if ($this->one('SELECT id FROM invoices WHERE number=? LIMIT 1',[$ref['number']]))
             throw new DomainException('INVOICE_WITHOUT_SOURCE_LINK');
         YakovlevInvoiceCoverage::assertVacant($this->db,$contractId,$proof);
@@ -209,6 +209,8 @@ final class YakovlevRentalSync
         $id = BusinessIds::next($this->db,'invoices',9000000,false);
         $snapshot = ['Ref_Key'=>$data['Ref_Key'],'currency'=>$scope['currency'],'yakovlev_archive'=>['document_id'=>$archive['id']],
             'printDetails'=>['number'=>$ref['number'],'issued'=>$ref['document_date'],'lines'=>$proof['lines']]];
+        if ($parkingAccountingMap)
+            $snapshot['yakovlev_archive']['owner_confirmed_parking_accounting_map']=$parkingAccountingMap;
         $this->db->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,source_json)
             VALUES(?,?,?,'Аренда',?,?,0,?,?,'active',?)")->execute([$id,$ref['number'],$contractId,$proof['period'],
                 self::cents($ref['amount']),$ref['document_date'],InvoiceDueDate::monthlyRent($proof['period']),Support::json($snapshot)]);
@@ -274,7 +276,7 @@ final class YakovlevRentalSync
 
     public static function invoiceNumbersInPurpose(string $purpose): array
     {
-        preg_match_all('/(?:\bсч[её]т(?:у|а|ом)?\b\s*(?:на оплату\s*)?(?:№\s*)?(?:аяип[- ]*)?|аяип[- –—]+)0*(\d{3,6})(?![\d-])/iu',$purpose,$mentions);
+        preg_match_all('/(?:(?:\bсч[её]т(?:у|а|ом)?\b|\bсч\b\.?)\s*(?:на оплату\s*)?(?:№\s*)?(?:аяип[- ]*)?|аяип[- –—]+)0*(\d{3,6})(?![\d-])/iu',$purpose,$mentions);
         return array_map('intval',$mentions[1]);
     }
 

@@ -14,7 +14,7 @@ final class YakovlevInvoiceCoverage
     private const MONTHS=['январ'=>1,'феврал'=>2,'март'=>3,'апрел'=>4,'ма[йя]'=>5,'июн'=>6,'июл'=>7,
         'август'=>8,'сентябр'=>9,'октябр'=>10,'ноябр'=>11,'декабр'=>12];
 
-    public static function prove(PDO $db,array $contract,array $source,string $total,?string $issued = null,bool $recheckArchivedInvoice = false): array
+    public static function prove(PDO $db,array $contract,array $source,string $total,?string $issued = null,bool $recheckArchivedInvoice = false,array $parkingAccountingMap = []): array
     {
         $rows=array_merge($source['Товары'] ?? [],$source['Услуги'] ?? []);
         $includesVat=$source['СуммаВключаетНДС'] ?? null;
@@ -40,7 +40,7 @@ final class YakovlevInvoiceCoverage
             if (!$contract['start_date'] || !$contract['end_date'] || $contract['start_date']>$from || $contract['end_date']<$until)
                 throw new DomainException('INVOICE_OUTSIDE_CONTRACT');
             $q->execute([$from,$until,$from,$until,$contract['id']]);
-            $terms=self::objects($q->fetchAll(PDO::FETCH_ASSOC),$text,$recheckArchivedInvoice);
+            $terms=self::objects($q->fetchAll(PDO::FETCH_ASSOC),$text,$recheckArchivedInvoice,$parkingAccountingMap);
             if (!$recheckArchivedInvoice && (count($terms)!==1 ||
                 !in_array((string)($line['Количество'] ?? ''),['1','1.0','1.00'],true)))
                 throw new DomainException('INVOICE_OBJECT_UNCONFIRMED');
@@ -84,11 +84,12 @@ final class YakovlevInvoiceCoverage
         return array_map(static fn(string $label): string=>str_replace(',','.',$label),$labels[0]);
     }
 
-    private static function objects(array $terms,string $text,bool $recheckArchivedInvoice): array
+    private static function objects(array $terms,string $text,bool $recheckArchivedInvoice,array $parkingAccountingMap): array
     {
         $wanted=$recheckArchivedInvoice ? self::parkingLabels($text)
             : (preg_match(self::SINGLE_PARKING,$text,$legacy) ? [mb_strtolower($legacy[1])] : []);
         if ($wanted) {
+            $wanted=array_map(static fn(string $label): string=>$parkingAccountingMap[$label] ?? $label,$wanted);
             $categories=['Машиноместо'=>'parking'];
         } elseif (preg_match('/^аренда\s+(офиса|нежилого помещения|апартаментов|помещения)\s+(?:(?:№\s*|помещения\s+)([\p{L}\d.\/-]+)(?=[\s,;]))?/iu',$text,$scope)) {
             $categories=match(mb_strtolower($scope[1])) {
