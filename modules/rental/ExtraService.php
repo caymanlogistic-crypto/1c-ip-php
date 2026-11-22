@@ -298,7 +298,7 @@ final class ExtraService {
             }
             else throw new RuntimeException('Неизвестное действие резервирования.');
             $current=Service::get($p,'reservations',$id);
-            CustomerBookings::history($p,$action,$old,$current,$reason,isset($stopped['id'])?(int)$stopped['id']:null);
+            CustomerBookings::history($p,$action,$old,$current,$reason,isset($stopped['id'])?(int)$stopped['id']:null,null,false,(string)$in['command_key']);
             Service::event($p,$u,$action,'Резервирование №'.$id.($reason!==''?' · '.$reason:''),isset($stopped['id'])?(int)$stopped['id']:null);
             return [
                 'id' => $id,

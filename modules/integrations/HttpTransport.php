@@ -5,7 +5,7 @@ namespace Modules\Integrations;
 /** HTTPS only, bounded responses, no redirects/proxies, explicit project authorization. */
 final class HttpTransport
 {
-    public static function request(string $method,string $url,array $headers=[],?string $body=null,int $limit=8388608,int $timeoutSeconds=30,?WorkflowMaxEvent $workflowEvent=null,?callable $observer=null,MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|DadataLookup|null $readCheck=null): array
+    public static function request(string $method,string $url,array $headers=[],?string $body=null,int $limit=8388608,int $timeoutSeconds=30,?WorkflowMaxEvent $workflowEvent=null,?callable $observer=null,MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|DadataLookup|BookingMax|null $readCheck=null): array
     {
         $mark=static function(string $stage,array $facts=[])use($observer):void{
             if($observer!==null)try{$observer($stage,$facts);}catch(\Throwable){} // Diagnostics never mask the original result.
@@ -23,7 +23,7 @@ final class HttpTransport
         curl_setopt_array($ch,[CURLOPT_CUSTOMREQUEST=>$method,CURLOPT_HTTPHEADER=>$headers,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_PROXY=>'',CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_TIMEOUT=>$timeoutSeconds,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_WRITEFUNCTION=>static function($c,$chunk)use(&$bytes,&$tooLarge,$limit){if(strlen($bytes)+strlen($chunk)>$limit){$tooLarge=true;return 0;}$bytes.=$chunk;return strlen($chunk);}]);
         if($readCheck instanceof DadataLookup && ($resolve=$readCheck->resolve()))curl_setopt($ch,CURLOPT_RESOLVE,$resolve);
         $mark('ca_select',['ca_configured'=>(bool)(getenv('IPPHP_CAFILE')?:getenv('APP_INTEGRATION_CAFILE')?:ini_get('curl.cainfo'))]);
-        $ca=$readCheck instanceof ServerObjectMax||$readCheck instanceof ServerWorkflowMax?$readCheck->caFile():Support::caFile();
+        $ca=$readCheck instanceof ServerObjectMax||$readCheck instanceof ServerWorkflowMax||$readCheck instanceof BookingMax?$readCheck->caFile():Support::caFile();
         $effectiveCa=$ca?:ini_get('curl.cainfo');
         $ssl='';
         if($observer!==null)try{$ssl=curl_version()['ssl_version']??'';}catch(\Throwable){}

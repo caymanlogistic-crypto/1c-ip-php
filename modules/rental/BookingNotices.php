@@ -19,13 +19,15 @@ final class BookingNotices
         'reservation.expire'=>['reservationExpired','Резервирование снято по истечении срока'],
     ];
 
-    public static function record(PDO $db,string $action,array $evidence): void
+    public static function record(PDO $db,string $action,array $evidence,int $auditId,string $origin,?array $actor): void
     {
         if (!isset(self::TEMPLATES[$action])) return;
         if (!$db->inTransaction()) throw new RuntimeException('Reservation notice requires its business transaction.');
         $epoch=(string)$db->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn();
         $key=hash('sha256',implode(':',[$epoch,$action,$evidence['reservation_id'],$evidence['version']]));
-        $notice=$evidence+['epoch'=>$epoch,'action'=>$action];
+        $notice=$evidence+['schema'=>1,'epoch'=>$epoch,'action'=>$action,'audit_id'=>$auditId,'origin'=>$origin,
+            'actor_id'=>$actor?(int)$actor['id']:null,'auth_version'=>$actor?(int)$actor['auth_version']:null,'recorded_at'=>time()];
+        $notice['sha256']=hash('sha256',Importer::canonicalJson($notice));
         $db->prepare('INSERT IGNORE INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,1)')
             ->execute([self::NS,$key,Importer::json($notice)]);
     }
@@ -67,7 +69,7 @@ final class BookingNotices
                     $after['status']='expired';
                     $after['version']=(int)$row['version']+1;
                 }
-                CustomerBookings::history($db,$item['action'],$row,$after,$reason,null,null,true);
+                CustomerBookings::history($db,$item['action'],$row,$after,$reason,null,null,true,$item['key']);
                 $done[]=$item['key'];
             }
             return ['plan'=>$plan,'applied'=>$done];

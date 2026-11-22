@@ -51,7 +51,7 @@ final class CustomerBookings
         return trim((string)($row['client_name'] ?? '')) ?: trim((string)($row['party_name'] ?? '')) ?: 'Не указан';
     }
 
-    public static function history(PDO $db,string $action,?array $before,array $after,string $reason='',?int $basis=null,?int $document=null,bool $system=false): void
+    public static function history(PDO $db,string $action,?array $before,array $after,string $reason='',?int $basis=null,?int $document=null,bool $system=false,?string $origin=null): void
     {
         $q=$db->prepare('SELECT o.name object_name,p.name party_name,u.name responsible FROM rental_objects o
             LEFT JOIN parties p ON p.id=? LEFT JOIN users u ON u.id=? WHERE o.id=?');
@@ -70,7 +70,11 @@ final class CustomerBookings
                 VALUES(NULL,?,'reservation',?,?,?)")
                 ->execute([$action,$after['id'],Importer::json($before),Importer::json($evidence)]);
         } else Audit::record($action,'reservation',(int)$after['id'],$before,$evidence);
-        BookingNotices::record($db,$action,$evidence);
+        if (isset(BookingNotices::TEMPLATES[$action])) {
+            $auditId=(int)$db->lastInsertId();
+            $actor=$system?null:Auth::user();
+            BookingNotices::record($db,$action,$evidence,$auditId,(string)$origin,$actor);
+        }
     }
 
     public static function bind(PDO $db,array $booking,int $contract,int $party): void

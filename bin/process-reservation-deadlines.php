@@ -4,7 +4,7 @@ if (PHP_SAPI!=='cli') exit(2);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\DB;
-use Modules\Integrations\{Config, Support};
+use Modules\Integrations\{BookingMax, Config, Support};
 use Modules\Rental\BookingNotices;
 
 try {
@@ -31,7 +31,8 @@ try {
             throw new RuntimeException('RESERVATION_DEADLINE_ADMISSION_REQUIRED');
     }
     $result=BookingNotices::dated($date,$apply);
-    echo Support::json(['date'=>$date,'mode'=>$apply?'apply':'plan','external_sends'=>0]+$result),PHP_EOL;
+    $max=$apply && $production ? (new BookingMax($db))->run($date) : ['state'=>'disabled'];
+    echo Support::json(['date'=>$date,'mode'=>$apply?'apply':'plan','max'=>$max]+$result),PHP_EOL;
 } catch (Throwable $e) {
     fwrite(STDERR,$e->getMessage().PHP_EOL);exit(1);
 }
