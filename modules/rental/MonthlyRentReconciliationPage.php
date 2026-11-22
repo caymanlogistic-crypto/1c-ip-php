@@ -16,6 +16,7 @@ final class MonthlyRentReconciliationPage
     public const ROUTE = '/rental/'.self::MENU_KEY;
     private const TITLE = 'Помесячная сверка аренды';
     private const PLAN_COLUMN = 'Расчёт по договорам';
+    private const PAGE_SIZE = 50;
 
     public static function available(array $user): bool
     {
@@ -44,7 +45,10 @@ final class MonthlyRentReconciliationPage
                 .'<section class="panel-section">'
                 .RentalUI::alert($error->getMessage(), '', 'error').'</section></section>', self::MENU_KEY);
         }
-        $url = self::ROUTE.'?'.http_build_query(['flag'=>'bills','first'=>$first,'last'=>$last,'unlinked'=>(int)$unlinked]);
+        $query = ['flag'=>$tab,'first'=>$first,'last'=>$last,'unlinked'=>(int)$unlinked];
+        $url = self::ROUTE.'?'.http_build_query($query);
+        $requestedPage = $_GET['page'] ?? '1';
+        $page = is_string($requestedPage) && ctype_digit($requestedPage) ? max(1, (int)$requestedPage) : 1;
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             if ($tab !== 'bills') throw new RuntimeException('Откройте вкладку «Счета и разнесения».',405);
             Http::checkCsrf();
@@ -59,25 +63,43 @@ final class MonthlyRentReconciliationPage
                 in_array($payment['state'],['created','existing'],true) => 'Привязка сохранена. В загруженных платежах нет прямой ссылки на этот счёт.',
                 default => 'Привязка счёта сохранена.',
             };
-            Http::redirect($url);
+            Http::redirect($url.'&page='.$page);
         }
-        $report = (new MonthlyRentReconciliation(DB::pdo(), Config::store()))->capture($months);
-        $bills = $tab === 'bills' ? MonthlyInvoiceAssignments::listing(DB::pdo(),$months) : null;
-        $body .= self::tabs($tab,$first,$last,$unlinked,count($months),count($report['issues']),$bills === null ? null : count($bills))
-            .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last,$unlinked,$report['archive']);
+        $db = DB::pdo();
+        $report = null;
+        $rows = [];
+        if ($tab === 'bills') {
+            $rows = MonthlyInvoiceAssignments::listing($db, $months);
+            if ($unlinked) $rows = array_values(array_filter($rows, static fn(array $row): bool=>$row['contract'] === null));
+        } else {
+            $report = (new MonthlyRentReconciliation($db, Config::store()))->capture($months, $tab === 'review');
+            if ($tab === 'review') {
+                $rows = $report['issues'];
+                usort($rows, static fn(array $left, array $right): int=>($left[0] === '—') <=> ($right[0] === '—'));
+            }
+        }
+        $archive = $report['archive'] ?? MonthlyInvoiceArchive::lastImports($db);
+        $issueCount = $report === null ? null : count($report['issues']);
+        $count = count($rows);
+        $page = min($page, max(1, (int)ceil($count / self::PAGE_SIZE)));
+        $rows = array_slice($rows, ($page - 1) * self::PAGE_SIZE, self::PAGE_SIZE);
+        $pageUrl = $url.'&page='.$page;
+        $body .= self::tabs($tab,$first,$last,$unlinked,count($months),$issueCount,$tab === 'bills' ? $count : null)
+            .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last,$unlinked,$archive);
         if ($tab === 'bills') {
             $document = $_GET['document'] ?? '';
             $body .= RentalUI::notice();
-            if (is_string($document) && $document !== '') $body .= MonthlyInvoiceAssignments::editor($document,$url);
-            $body .= MonthlyInvoiceAssignments::table($bills,$url,$unlinked);
+            if (is_string($document) && $document !== '') $body .= MonthlyInvoiceAssignments::editor($document,$pageUrl);
+            $body .= MonthlyInvoiceAssignments::table($rows,$pageUrl);
         } else {
-            $body .= $tab === 'review' ? self::reviewTable($report['issues'])
+            $body .= $tab === 'review' ? self::reviewTable($rows)
                 : self::monthlyTable($report['months'], $report['invoice_facts']);
         }
+        $body .= self::pagination($url, $page, $count);
         return View::page(self::TITLE, $body.'</section>', self::MENU_KEY);
     }
 
-    private static function tabs(string $tab, string $first, string $last, bool $unlinked, int $months, int $issues, ?int $bills = null): string
+    private static function tabs(string $tab, string $first, string $last, bool $unlinked, int $months, ?int $issues, ?int $bills = null): string
     {
         return Controller::tabs(['main'=>['Основное',$months], 'review'=>['Требует сверки',$issues], 'bills'=>['Счета и разнесения',$bills]],
             $tab, context:['first'=>$first,'last'=>$last,'unlinked'=>(int)$unlinked]);
@@ -100,13 +122,38 @@ final class MonthlyRentReconciliationPage
     private static function reviewTable(array $issues): string
     {
         if (!$issues) return '<section class="panel-section">'.RentalUI::alert('За выбранный период вопросов на сверку нет.').'</section>';
-        $rows = [];
-        foreach ($issues as [$periods,$client,$document,$reason]) {
+        $rows = $details = [];
+        foreach ($issues as $index=>$issue) {
+            [$periods,$client,$document,$reason] = $issue;
+            $name = $issue[4] ?? '';
             $months = array_map(self::monthLabel(...), explode(', ', $periods));
-            $rows[] = array_map(View::e(...), [implode(', ', $months),$client,$document,$reason]);
+            $rows[] = [View::e(implode(', ', $months)),View::e($client),View::e($document),self::invoiceNameCell($name),View::e($reason)];
+            if ($name !== '') $details[$index] = self::invoiceNameDetails('review-name-'.$index, $document, $name);
         }
-        return Controller::table(['Месяц аренды','Клиент','Документ','Что уточнить'],
-            $rows, ['text','flex','code','flex']);
+        return Controller::table(['Месяц аренды','Клиент','Документ','Наименование счёта','Что уточнить'],
+            $rows, ['text','text','code','flex','flex'], $details);
+    }
+
+    public static function invoiceNameCell(string $name): string
+    {
+        return $name === '' ? '—' : '<span class="registry-ui-name">'.View::e(mb_strimwidth($name,0,100,'…')).'</span>';
+    }
+
+    public static function invoiceNameDetails(string $id, string $number, string $name): array
+    {
+        return self::details($id, 'Полное наименование · '.$number,
+            '<section class="panel-section"><p class="registry-ui-primary text-prewrap">'.View::e($name).'</p></section>');
+    }
+
+    private static function pagination(string $url, int $page, int $count): string
+    {
+        if ($count <= self::PAGE_SIZE) return '';
+        $end = min($page * self::PAGE_SIZE, $count);
+        $first = ($page - 1) * self::PAGE_SIZE + 1;
+        $back = $page > 1 ? '<a class="btn btn-toolbar" href="'.View::e($url.'&page='.($page-1)).'">Назад</a>' : '';
+        $next = $end < $count ? '<a class="btn btn-toolbar" href="'.View::e($url.'&page='.($page+1)).'">Далее</a>' : '';
+        return '<nav class="pagination" aria-label="Страницы списка">'
+            .'<span>'.$first.'–'.$end.' из '.$count.'</span><div class="inline-actions">'.$back.$next.'</div></nav>';
     }
 
     private static function monthlyTable(array $months, array $invoiceFacts): string
@@ -246,9 +293,13 @@ final class MonthlyRentReconciliationPage
 
     public static function monthLabel(string $month): string
     {
+        static $labels = [];
         if (!InvoicePeriods::month($month)) return $month;
-        $label = IntlDateFormatter::formatObject(new DateTimeImmutable($month.'-01'), 'LLLL yyyy', 'ru_RU');
-        return $label ? mb_strtoupper(mb_substr($label,0,1)).mb_substr($label,1) : $month;
+        if (!isset($labels[$month])) {
+            $label = IntlDateFormatter::formatObject(new DateTimeImmutable($month.'-01'), 'LLLL yyyy', 'ru_RU');
+            $labels[$month] = $label ? mb_strtoupper(mb_substr($label,0,1)).mb_substr($label,1) : $month;
+        }
+        return $labels[$month];
     }
 
     private static function details(string $id, string $label, string $body): array

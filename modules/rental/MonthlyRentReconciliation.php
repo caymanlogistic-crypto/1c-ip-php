@@ -7,7 +7,7 @@ use App\BillableTerms;
 use DateTimeImmutable;
 use DateTimeZone;
 use DomainException;
-use Modules\Integrations\{PrivateStore, Support, YakovlevImport};
+use Modules\Integrations\{PrivateStore, YakovlevImport};
 use PDO;
 use RuntimeException;
 
@@ -32,19 +32,19 @@ final class MonthlyRentReconciliation
         return $months;
     }
 
-    public function capture(array $months): array
+    public function capture(array $months, bool $reviewOnly = false): array
     {
         $now = new DateTimeImmutable('now', new DateTimeZone('Europe/Moscow'));
         $this->db->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
         $this->db->beginTransaction();
         try {
-            return $this->collect($months, $now);
+            return $this->collect($months, $now, $reviewOnly);
         } finally {
             $this->db->rollBack();
         }
     }
 
-    private function collect(array $months, DateTimeImmutable $now): array
+    private function collect(array $months, DateTimeImmutable $now, bool $reviewOnly = false): array
     {
         $report = array_fill_keys($months, []);
         $contracts = $this->db->query('SELECT c.*,p.name client,p.source_json party_source FROM contracts c JOIN parties p ON p.id=c.party_id ORDER BY p.name,c.number')
@@ -52,6 +52,7 @@ final class MonthlyRentReconciliation
         $issues = [];
         foreach ($contracts as $id => &$contract) {
             $contract['id'] = (int)$id;
+            $contract['party_ref'] = InvoiceContractAssignment::partyRef($contract);
             if ($contract['status'] !== 'active') continue;
             $terms = BillableTerms::forContract($this->db, (int)$id);
             $sharedRent = $this->sharedMonthlyRent($contract, $terms);
@@ -95,32 +96,28 @@ final class MonthlyRentReconciliation
         unset($invoice);
 
         $manual = InvoiceContractAssignment::index($this->db);
-        $query = $this->db->prepare("SELECT id,number,amount,source_id,document_date,raw_path,raw_sha256 FROM external_documents
-            WHERE provider=? AND account_id='invoices' AND status='Проведён' AND document_date<=? ORDER BY document_date,id");
-        $query->execute([YakovlevImport::PROVIDER, $now->format('Y-m-d')]);
+        $today = $now->format('Y-m-d');
         $verified = [];
-        foreach ($query->fetchAll() as $archived) {
-            $source = Support::decode($this->store->read($archived['raw_path'], $archived['raw_sha256']))['fields']['record'];
-            if (!YakovlevInvoiceCoverage::hasRentLine($source)) continue;
-            $ids = $bindings[$source['ДоговорКонтрагента_Key'] ?? ''] ?? [];
+        foreach ((new MonthlyInvoiceArchive($this->db, $this->store))->rows() as $archived) {
+            $periods = $archived['periods'];
+            if ($archived['status'] !== 'Проведён' || $archived['document_date'] > $today || $periods === []) continue;
+            $ids = $bindings[$archived['contract_ref'] ?? ''] ?? [];
             $assigned = InvoiceContractAssignment::contractId($archived,$manual[$archived['id']] ?? null);
             if ($assigned) $ids = [$assigned];
             $contract = count($ids) === 1 ? ($contracts[$ids[0]] ?? null) : null;
-            try {
-                $periods = self::sourceMonths($source, $archived['amount'], $archived['document_date']);
-            } catch (DomainException) {
-                $issues[] = ['—', $contract['client'] ?? '—', $archived['number'], 'Уточнить период и суммы строк оригинала 1С.'];
+            if ($periods === null) {
+                $issues[] = ['—', $contract['client'] ?? '—', $archived['number'],
+                    'Уточнить период и суммы строк оригинала 1С.', $archived['name']];
                 continue;
             }
             $selected = array_intersect_key($periods, $report);
-            $party = $contract ? Importer::decodeExact($contract['party_source']) : [];
-            $sourceParty = $source['Контрагент_Key'] ?? $source['Контрагент'] ?? null;
-            if (!$contract || !$sourceParty || $sourceParty !== ($party['source_party_guid'] ?? $party['Ref_Key'] ?? null)) {
+            $sourceParty = $archived['party_ref'];
+            if (!$contract || !$sourceParty || $sourceParty !== $contract['party_ref']) {
                 if ($selected) $issues[] = [implode(', ',array_keys($selected)), $contract['client'] ?? '—', $archived['number'],
-                    'Подтвердить связь договора и клиента с 1С.'];
+                    'Подтвердить связь договора и клиента с 1С.', $archived['name']];
                 continue;
             }
-            $linked = array_unique($invoiceLinks[$source['Ref_Key']] ?? []);
+            $linked = array_unique($invoiceLinks[$archived['reference']] ?? []);
             $invoice = count($linked) === 1 ? ($invoices[reset($linked)] ?? null) : null;
             $invoiceId = null;
             if ($invoice && (int)$invoice['contract_id'] === $contract['id']
@@ -128,12 +125,12 @@ final class MonthlyRentReconciliation
                 && $invoice['amount'] !== null
                 && bccomp($invoice['amount'], $archived['amount'], 2) === 0) {
                 $invoiceId = $invoice['id'];
-                $verified[$invoiceId] = true;
+                $verified[$invoiceId] = $archived['name'];
             } elseif ($selected) {
                 $issues[] = [implode(', ',array_keys($selected)), $contract['client'], $archived['number'],
-                    'Нужна точная связь с карточкой счёта ERP и сроком оплаты.'];
+                    'Нужна точная связь с карточкой счёта ERP и сроком оплаты.', $archived['name']];
             }
-            if ($contract['status'] === 'active') {
+            if (!$reviewOnly && $contract['status'] === 'active') {
                 foreach ($selected as $month => $amount) {
                     $entry = &$this->entry($report[$month], $contract);
                     $entry['billed'][$archived['source_id']] = ['number'=>$archived['number'],
@@ -142,22 +139,22 @@ final class MonthlyRentReconciliation
                 }
             }
         }
-        $allocations = $this->paymentTotals($now->format('Y-m-d'));
+        $allocations = $reviewOnly ? [] : $this->paymentTotals($today);
         $invoiceFacts = [];
         foreach ($invoices as $id => $invoice) {
             $contract = $contracts[$invoice['contract_id']];
             $due = $invoice['due'];
+            if (!$due && (isset($verified[$id]) || isset($report[InvoicePeriods::month($invoice['period'])]))) {
+                $issues[] = ['—', $contract['client'], $invoice['number'], 'В карточке ERP отсутствует срок оплаты.',
+                    ($verified[$id] ?? '') ?: MonthlyInvoiceArchive::erpName($invoice)];
+            }
+            if ($reviewOnly) continue;
             $paid = $allocations[$id]['paid'] ?? self::ZERO;
             $paidFromOnec = $allocations[$id]['paid_from_1c'] ?? self::ZERO;
             $balance = $invoice['paid'] !== null && bccomp($invoice['paid'], $paid, 2) === 0
                 ? InvoiceFacts::remaining($invoice) : null;
             $invoiceFacts[$id] = ['due'=>$due,'paid_from_1c'=>$paidFromOnec,'balance'=>$balance];
-            if (!$due) {
-                if (isset($verified[$id]) || isset($report[InvoicePeriods::month($invoice['period'])])) {
-                    $issues[] = ['—', $contract['client'], $invoice['number'], 'В карточке ERP отсутствует срок оплаты.'];
-                }
-                continue;
-            }
+            if (!$due) continue;
             $month = substr($due, 0, 7);
             if (!isset($report[$month])) continue;
             $entry = &$this->entry($report[$month], $contract);
@@ -172,15 +169,7 @@ final class MonthlyRentReconciliation
             ]));
             unset($entry);
         }
-        $lastArchive = $this->db->prepare("SELECT MAX(finished_at) FROM integration_runs
-            WHERE provider=? AND operation='yakovlev-load' AND status='success'
-            AND JSON_UNQUOTE(JSON_EXTRACT(coverage_json,'$.scope.kind'))=?");
-        $archive = [];
-        foreach (['invoices','bank'] as $tab) {
-            $lastArchive->execute([YakovlevImport::PROVIDER,'yakovlev-'.$tab]);
-            $archive[$tab] = $lastArchive->fetchColumn() ?: null;
-        }
-        return ['months'=>$report, 'issues'=>$issues, 'archive'=>$archive, 'invoice_facts'=>$invoiceFacts,
+        return ['months'=>$report, 'issues'=>$issues, 'archive'=>MonthlyInvoiceArchive::lastImports($this->db), 'invoice_facts'=>$invoiceFacts,
             'generated'=>$now->format('d.m.Y H:i:s').' МСК'];
     }
 
