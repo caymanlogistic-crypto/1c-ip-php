@@ -30,7 +30,11 @@ try {
         $size=is_file($argv[5]) && is_readable($argv[5]) ? filesize($argv[5]) : false;
         if (!$size || $size>16384) throw new RuntimeException('Укажите файл подтверждения из архива.');
         $proof=json_decode(file_get_contents($argv[5]),true,32,JSON_THROW_ON_ERROR);
-        $input+=isset($proof['rent_credit']) ? ['rent_credit'=>$proof['rent_credit']] : ['payer_agreement'=>$proof];
+        $input+=match (true) {
+            isset($proof['rent_credit']) => ['rent_credit'=>$proof['rent_credit']],
+            isset($proof['parking_register_sha']) => ['parking_register_sha'=>$proof['parking_register_sha']],
+            default => ['payer_agreement'=>$proof],
+        };
     }
     $result=Service::command(ArchivedRentCorrection::ACTION,$input);
     echo Importer::json($result),PHP_EOL;

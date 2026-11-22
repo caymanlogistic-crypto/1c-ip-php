@@ -59,9 +59,10 @@ final class OccupiedBilling
         }
         $q=$db->prepare('SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id
             WHERE co.object_id=? AND c.id<>? AND '.ContractOccupancy::contractPredicate('co')
+            .' AND '.Occupancy::beforeOwnerRelease()
             ." AND (c.status='reconciling' OR c.status='active') AND c.return_confirmed IS NULL
             AND ".Occupancy::boundary('start_date').'<=? AND '.Occupancy::boundary('end_date').'>=? ORDER BY c.id LIMIT 2 FOR UPDATE');
-        $q->execute([$objectId,$except,$end,$start]);
+        $q->execute([$objectId,$except,$start,$end,$start]);
         $occupiers=$q->fetchAll(PDO::FETCH_COLUMN);
         if (!$previous && count($occupiers)!==1) {
             throw new RuntimeException('Для исключения нужен один действующий физический договор по этому объекту.',409);

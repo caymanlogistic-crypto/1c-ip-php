@@ -51,10 +51,10 @@ final class Occupancy
             FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN parties p ON p.id=c.party_id
             LEFT JOIN contract_terms t ON t.id=(SELECT MAX(t2.id) FROM contract_terms t2 WHERE t2.contract_id=c.id AND t2.object_id=co.object_id
                 AND (t2.effective_date IS NULL OR t2.effective_date<=?))
-            WHERE '.ContractOccupancy::contractPredicate('co')." AND (? IS NULL OR co.object_id=?)
+            WHERE '.ContractOccupancy::contractPredicate('co').' AND '.self::beforeOwnerRelease()." AND (? IS NULL OR co.object_id=?)
             AND (c.status='reconciling' OR (c.status='active' AND COALESCE(t.start_date,c.start_date)<=? AND COALESCE(t.end_date,c.end_date)>=?)
                 OR ".self::expiredWithoutReturn('COALESCE(t.end_date,c.end_date)','?','?').')
-            ORDER BY c.id DESC',[$date,$object,$object,$date,$date,$date,$date]);
+            ORDER BY c.id DESC',[$date,$date,$object,$object,$date,$date,$date,$date]);
         $leases=[];
         foreach($rows as $row) {
             $id=$row['object_id'];
@@ -62,6 +62,13 @@ final class Occupancy
             $leases[$id]??=$row;
         }
         return $leases;
+    }
+
+    /** A dated owner decision affects physical availability only. The caller binds the requested start date. */
+    public static function beforeOwnerRelease(): string
+    {
+        return "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(c.source_json,CONCAT('$.ownerConfirmedPhysicalRelease.\"',
+            co.object_id,'\".effective_on'))),'9999-12-31')>?";
     }
 
     /** A recorded, signed successor displaces only this predecessor and physical object from its first day. */

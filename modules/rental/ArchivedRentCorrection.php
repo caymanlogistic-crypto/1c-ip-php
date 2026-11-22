@@ -33,7 +33,8 @@ final class ArchivedRentCorrection
             ['120','2025-10-07']=>self::indexation($db,$actor,$input,$contract),
             ['127','2025-11-18']=>self::continuation($db,$actor,$input,$contract),
             ['24','2023-02-17']=>self::settleParkingInvoices($db,$actor,$contract,
-                ['АЯИП-001246'=>'20930.00','АЯИП-001273'=>'48150.00'],['2.40'=>'2.12']),
+                ['АЯИП-001246'=>'20930.00','АЯИП-001273'=>'48150.00'],
+                isset(Importer::decodeExact($contract['source_json'])['ownerParkingRegisterAssignment']) ? [] : ['2.40'=>'2.12']),
             ['33','2024-02-01']=>self::settleParkingInvoices($db,$actor,$contract,
                 ['АЯИП-001298'=>'24000.00'],['1.34'=>'1.14']),
             ['34','2024-02-28']=>self::decemberParkingRates($db,$actor,$input,$contract),
@@ -48,7 +49,9 @@ final class ArchivedRentCorrection
                 : self::settleThirdPartyParking($db,$actor,$contract),
             ['144','2026-03-10']=>self::recordRentCredit($db,$actor,$contract,$input['rent_credit'] ?? []),
             ['164','2026-11-11']=>self::settleRstroySecurity($db,$actor,$contract),
-            ['65','2026-11-11']=>self::extendRstroyParking($db,$actor,$contract),
+            ['65','2026-11-11']=>isset($input['parking_register_sha'])
+                ? ArchivedParkingAssignment::correct($db,$actor,$input,$contract)
+                : self::extendRstroyParking($db,$actor,$contract),
             default=>throw new RuntimeException('По договору отсутствует проверенное основание коррекции.',409),
         };
     }
