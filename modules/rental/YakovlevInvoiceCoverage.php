@@ -37,7 +37,8 @@ final class YakovlevInvoiceCoverage
             [$month,$from,$until]=self::period($text,$issued);
             if ($period!==null && $period!==$month) throw new DomainException('INVOICE_PERIOD_UNCONFIRMED');
             $period=$month;
-            if (!$contract['start_date'] || !$contract['end_date'] || $contract['start_date']>$from || $contract['end_date']<$until)
+            $billingEnd=$recheckArchivedInvoice ? ArchivedRentCorrection::confirmedBillingEnd($contract,$month) : $contract['end_date'];
+            if (!$contract['start_date'] || !$billingEnd || $contract['start_date']>$from || $billingEnd<$until)
                 throw new DomainException('INVOICE_OUTSIDE_CONTRACT');
             $q->execute([$from,$until,$from,$until,$contract['id']]);
             $terms=self::objects($q->fetchAll(PDO::FETCH_ASSOC),$text,$recheckArchivedInvoice,$parkingAccountingMap);

@@ -35,12 +35,117 @@ final class ArchivedRentCorrection
                 ['АЯИП-001246'=>'20930.00','АЯИП-001273'=>'48150.00'],['2.40'=>'2.12']),
             ['33','2024-02-01']=>self::settleParkingInvoices($db,$actor,$contract,
                 ['АЯИП-001298'=>'24000.00'],['1.34'=>'1.14']),
+            ['34','2024-02-28']=>self::decemberParkingRates($db,$actor,$input,$contract),
+            ['140','2026-02-03']=>self::decemberSuccessor($db,$actor,$input,$contract,
+                ['number'=>'162','signed'=>'2026-11-03','from'=>'2026-12-01','party'=>1010,'object'=>1095,
+                    'invoice'=>'АЯИП-001307','amount'=>'275000.00','rate'=>'275000.00','prior_end'=>'2027-01-09','paid'=>false]),
+            ['133','2026-01-16']=>self::decemberSuccessor($db,$actor,$input,$contract,
+                ['number'=>'163','signed'=>'2026-11-10','from'=>'2026-12-25','party'=>(int)$contract['party_id'],'object'=>1073,
+                    'invoice'=>'АЯИП-001297','amount'=>'58709.68','rate'=>'260000.00','prior_end'=>'2027-01-15','paid'=>true]),
             ['55','2025-10-20']=>isset($input['payer_agreement'])
                 ? self::recordPayerAgreement($db,$actor,$input,$contract)
                 : self::settleThirdPartyParking($db,$actor,$contract),
             ['144','2026-03-10']=>self::recordRentCredit($db,$actor,$contract,$input['rent_credit'] ?? []),
             default=>throw new RuntimeException('По договору отсутствует проверенное основание коррекции.',409),
         };
+    }
+
+    public static function confirmedBillingEnd(array $contract,string $period): ?string
+    {
+        if ($contract['end_date']) return $contract['end_date'];
+        $continuity=Importer::decodeExact($contract['source_json'])['archiveContinuity'] ?? [];
+        $through=$continuity['confirmed_rent_through'] ?? null;
+        return !empty($continuity['owner_confirmed']) && is_string($through)
+            && substr($through,0,7)===$period ? $through : null;
+    }
+
+    private static function decemberParkingRates(PDO $db,array $actor,array $input,array $contract): array
+    {
+        $from='2026-12-01';
+        $rate='25410.00';
+        $monthly='76230.00';
+        $query=$db->prepare('SELECT t.*,o.name FROM contract_terms t JOIN contract_objects co
+            ON co.contract_id=t.contract_id AND co.object_id=t.object_id JOIN rental_objects o ON o.id=t.object_id
+            WHERE t.contract_id=? AND t.superseded_on IS NULL ORDER BY o.name FOR UPDATE');
+        $query->execute([$contract['id']]);
+        $terms=$query->fetchAll(PDO::FETCH_ASSOC);
+        if ($contract['amount']!=='71610.00' || $contract['end_date']<'2026-12-31'
+            || array_column($terms,'amount','name')!==['1.44'=>'23100.00','2.92'=>$rate,'2.93'=>'23100.00']) {
+            throw new RuntimeException('Состав или прежние ставки договора №34 изменились.',409);
+        }
+        [$archive,$document]=self::sourceInvoice($db,(int)$contract['party_id'],'АЯИП-001287',$monthly);
+        $basis=['effective_date'=>$from,'owner_confirmed'=>true,'source_invoice'=>$archive['source_id'],
+            'source_sha256'=>$archive['raw_sha256'],'rates'=>['1.44'=>$rate,'2.92'=>$rate,'2.93'=>$rate]];
+        ContractHistory::remember($db,$contract,$actor,$input['command_key'],$basis);
+        $supersede=$db->prepare('UPDATE contract_terms SET superseded_on=? WHERE id=?');
+        $put=$db->prepare('INSERT INTO contract_terms(contract_id,object_id,start_date,end_date,amount,effective_date,source_json)
+            VALUES(?,?,?,?,?,?,?)');
+        foreach ($terms as $term) {
+            if ($term['amount']===$rate) continue;
+            if ($term['end_date']<'2026-12-31' || ($term['effective_date'] ?? $term['start_date'])>=$from)
+                throw new RuntimeException('Не подтверждён декабрьский срок машино-места '.$term['name'].'.',409);
+            $supersede->execute(['2026-11-30',$term['id']]);
+            $put->execute([$contract['id'],$term['object_id'],$from,$term['end_date'],$rate,$from,Importer::json($basis)]);
+        }
+        $db->prepare('UPDATE contracts SET amount=?,version=version+1 WHERE id=?')->execute([$monthly,$contract['id']]);
+        $invoice=(new YakovlevRentalSync($db,Config::store()))->accountAssignedInvoice($archive,$document);
+        if (!in_array($invoice['state'],['created','existing'],true) || $invoice['review']!==0)
+            throw new RuntimeException('Декабрьский счёт №34 не прошёл проверку ставок и объектов.',409);
+        $result=$basis+['id'=>(int)$contract['id'],'amount'=>$monthly,'invoice'=>$invoice];
+        Audit::record(self::ACTION,'contract',$contract['id'],['amount'=>$contract['amount']],$result);
+        Service::event($db,$actor,self::ACTION,'Подтверждены декабрьские ставки по трём машино-местам.',(int)$contract['id'],$result);
+        return $result;
+    }
+
+    private static function decemberSuccessor(PDO $db,array $actor,array $input,array $prior,array $terms): array
+    {
+        $number=$terms['number'];
+        $object=$terms['object'];
+        $from=$terms['from'];
+        $knownThrough='2026-12-31';
+        $priorEnd=(new \DateTimeImmutable($from))->modify('-1 day')->format('Y-m-d');
+        if ($prior['end_date']!==$terms['prior_end']) throw new RuntimeException('Прежний срок договора изменился.',409);
+        $priorTerm=self::terms($db,$prior,$object);
+        [$archive,$document]=self::sourceInvoice($db,$terms['party'],$terms['invoice'],$terms['amount']);
+        $source=$document['fields']['record'];
+        $sourceRef=OnecMapping::guid($source['ДоговорКонтрагента_Key'] ?? null);
+        $rent=MonthlyRentReconciliation::rentLines($source);
+        if (count($rent)!==1 || YakovlevInvoiceCoverage::period($rent[0]['Содержание'],$archive['document_date'])
+            !==['2026-12',$from,$knownThrough])
+            throw new RuntimeException('В оригинале не подтверждён декабрьский период нового договора.',409);
+        $conflict=$db->prepare("SELECT id FROM contracts WHERE number=? OR EXISTS (
+            SELECT 1 FROM rental_source_bindings b WHERE b.entity_type='contract' AND b.entity_id=contracts.id AND b.source_id=?)");
+        $conflict->execute([$number,$sourceRef]);
+        if ($conflict->fetchColumn()) throw new RuntimeException('Новый договор или его исходная привязка уже существуют.',409);
+        Service::available($db,[$object],$from,$knownThrough,(int)$prior['id'], $terms['party']);
+        $basis=['predecessor'=>(int)$prior['id'],'previous_end'=>$prior['end_date'],'handover_from'=>$from,
+            'confirmed_rent_through'=>$knownThrough,'owner_confirmed'=>true,'source_invoice'=>$archive['source_id'],
+            'source_sha256'=>$archive['raw_sha256'],'key_1c'=>$sourceRef];
+        ContractHistory::remember($db,$prior,$actor,$input['command_key'],$basis);
+        $db->prepare('UPDATE contracts SET end_date=?,version=version+1 WHERE id=?')->execute([$priorEnd,$prior['id']]);
+        $db->prepare('UPDATE contract_terms SET end_date=? WHERE id=?')->execute([$priorEnd,$priorTerm['id']]);
+        $id=BusinessIds::next($db,'contracts',900000,false);
+        $origin=['imported'=>true,'sourceLegalMapping'=>['legalDate'=>$terms['signed'],'legalNumber'=>$number,
+            'party1CRef_Key'=>$source['Контрагент_Key']],'archiveContinuity'=>$basis];
+        $db->prepare("INSERT INTO contracts(id,number,party_id,document_date,start_date,end_date,amount,status,template_type,source_json)
+            VALUES(?,?,?,?,?,NULL,?,'active',?,?)")->execute([
+                $id,$number,$terms['party'],$terms['signed'],$from,$terms['rate'],$prior['template_type'],Importer::json($origin)
+            ]);
+        $db->prepare('INSERT INTO contract_objects(contract_id,object_id) VALUES(?,?)')->execute([$id,$object]);
+        $db->prepare('INSERT INTO contract_terms(contract_id,object_id,start_date,end_date,amount,effective_date,source_json)
+            VALUES(?,?,?,?,?,?,?)')->execute([$id,$object,$from,$knownThrough,$terms['rate'],$from,Importer::json($basis)]);
+        $evidence=Importer::canonicalJson($basis);
+        $db->prepare("INSERT INTO rental_source_bindings(namespace,collection,source_id,entity_type,entity_id,relation_kind,evidence_json,mapping_hash)
+            VALUES('verified-rent-register','Catalog_ДоговорыКонтрагентов',?,'contract',?,'rental_contract',?,?)")
+            ->execute([$sourceRef,$id,$evidence,hash('sha256',$evidence)]);
+        $settled=(new YakovlevRentalSync($db,Config::store()))->accountAssignedInvoice($archive,$document);
+        if ($settled['state']!=='created' || $settled['review']!==0 || ($terms['paid'] && $settled['created']!==1))
+            throw new RuntimeException('Счёт или оплата нового договора №'.$number.' не прошли сверку.',409);
+        $result=$basis+['id'=>$id,'number'=>$number,'prior_number'=>$prior['number'],'prior_end'=>$priorEnd,
+            'rate'=>$terms['rate'],'amount'=>$terms['amount'],'settled'=>$settled];
+        Audit::record(self::ACTION,'contract',$id,['predecessor'=>$prior['id']],$result);
+        Service::event($db,$actor,self::ACTION,'Подтверждено продолжение аренды по договору №'.$number.'.',$id,$result);
+        return $result;
     }
 
     private static function settleThirdPartyParking(PDO $db,array $actor,array $contract): array

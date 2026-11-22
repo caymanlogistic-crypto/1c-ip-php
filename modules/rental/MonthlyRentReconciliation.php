@@ -70,13 +70,14 @@ final class MonthlyRentReconciliation
                     || ($contract['end_date'] && $contract['end_date'] < $first)) continue;
                 $entry = &$this->entry($report[$month], $contract);
                 try {
-                    if (!$terms || !$contract['start_date'] || !$contract['end_date']) {
+                    $billingEnd=ArchivedRentCorrection::confirmedBillingEnd($contract,$month);
+                    if (!$terms || !$contract['start_date'] || !$billingEnd) {
                         throw new RuntimeException('Нужны подтверждённые сроки и цены аренды.');
                     }
                     HandoverQuestion::assertBillingReady($this->db, (int)$id, $month);
                     $openingDate = $previousStart !== null && substr($contract['start_date'],0,7) === $month
                         ? $previousStart : $contract['start_date'];
-                    $planContract = array_replace($contract,['start_date'=>$openingDate]);
+                    $planContract = array_replace($contract,['start_date'=>$openingDate,'end_date'=>$billingEnd]);
                     $entry['planned'][$contract['number']] = $sharedRent !== null
                         ? self::prorateSharedRent($sharedRent, $contract, $first, $last)
                         : BillableMonthlyPlan::calculate($planContract, $terms, [], $month)['amount'];
