@@ -21,6 +21,7 @@ final class HttpTransport
         $mark('curl_init');
         $ch=curl_init($url);$bytes='';$tooLarge=false;
         curl_setopt_array($ch,[CURLOPT_CUSTOMREQUEST=>$method,CURLOPT_HTTPHEADER=>$headers,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_PROXY=>'',CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_TIMEOUT=>$timeoutSeconds,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_WRITEFUNCTION=>static function($c,$chunk)use(&$bytes,&$tooLarge,$limit){if(strlen($bytes)+strlen($chunk)>$limit){$tooLarge=true;return 0;}$bytes.=$chunk;return strlen($chunk);}]);
+        if($readCheck instanceof DadataLookup && ($resolve=$readCheck->resolve()))curl_setopt($ch,CURLOPT_RESOLVE,$resolve);
         $mark('ca_select',['ca_configured'=>(bool)(getenv('IPPHP_CAFILE')?:getenv('APP_INTEGRATION_CAFILE')?:ini_get('curl.cainfo'))]);
         $ca=$readCheck instanceof ServerObjectMax||$readCheck instanceof ServerWorkflowMax?$readCheck->caFile():Support::caFile();
         $effectiveCa=$ca?:ini_get('curl.cainfo');

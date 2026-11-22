@@ -1,0 +1,16 @@
+[Unit]
+Description=Restore the approved DaData-only application route
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+ConditionPathExists=/srv/1c-ip-php/ui/data/local/dadata-network.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ipphp-dadata-network
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
