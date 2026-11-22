@@ -56,6 +56,7 @@ final class MonthlyRentReconciliation
             if ($contract['status'] !== 'active') continue;
             $terms = BillableTerms::forContract($this->db, (int)$id);
             $sharedRent = $this->sharedMonthlyRent($contract, $terms);
+            $previousStart = self::previousReplacementTermStart($contract,$terms);
             foreach ($months as $month) {
                 [$first,$last] = InvoicePeriods::bounds($month);
                 if (($contract['start_date'] && $contract['start_date'] > $last)
@@ -66,9 +67,12 @@ final class MonthlyRentReconciliation
                         throw new RuntimeException('Нужны подтверждённые сроки и цены аренды.');
                     }
                     HandoverQuestion::assertBillingReady($this->db, (int)$id, $month);
+                    $openingDate = $previousStart !== null && substr($contract['start_date'],0,7) === $month
+                        ? $previousStart : $contract['start_date'];
+                    $planContract = array_replace($contract,['start_date'=>$openingDate]);
                     $entry['planned'][$contract['number']] = $sharedRent !== null
                         ? self::prorateSharedRent($sharedRent, $contract, $first, $last)
-                        : BillableMonthlyPlan::calculate($contract, $terms, [], $month)['amount'];
+                        : BillableMonthlyPlan::calculate($planContract, $terms, [], $month)['amount'];
                 } catch (RuntimeException $error) {
                     if ($error instanceof \PDOException) throw $error;
                     $entry['planned'][$contract['number']] = null;
@@ -225,6 +229,32 @@ final class MonthlyRentReconciliation
             }
         }
         return $totals;
+    }
+
+    /** Include the old object in the month of a confirmed uninterrupted replacement. */
+    private static function previousReplacementTermStart(array $contract, array $terms): ?string
+    {
+        $replacement = Importer::decodeExact($contract['source_json'])['ownerConfirmedReplacement'] ?? [];
+        $boundary = $replacement['date'] ?? null;
+        if (!$boundary || $boundary !== $contract['start_date'] || empty($replacement['from']) || empty($replacement['to'])
+            || $replacement['from'] === $replacement['to']) return null;
+
+        $previousDay = (new DateTimeImmutable($boundary))->modify('-1 day')->format('Y-m-d');
+        $previousStart = null;
+        $newTermExists = false;
+        foreach ($terms as $term) {
+            if ($term['target_kind'] !== 'physical-object' || $term['amount'] === null) continue;
+            if ($term['object_id'] === (int)$replacement['to'] && $term['start_date'] === $boundary
+                && $term['end_date'] >= $boundary && $term['effective_date'] <= $boundary
+                && ($term['superseded_on'] === null || $term['superseded_on'] >= $boundary)) $newTermExists = true;
+            if ($term['object_id'] === (int)$replacement['from'] && $term['end_date'] === $previousDay
+                && $term['start_date'] !== null && $term['start_date'] <= $previousDay
+                && $term['effective_date'] <= $previousDay
+                && ($term['superseded_on'] === null || $term['superseded_on'] >= $previousDay)) {
+                $previousStart = $previousStart === null ? $term['start_date'] : min($previousStart,$term['start_date']);
+            }
+        }
+        return $newTermExists ? $previousStart : null;
     }
 
     /** A recorded whole-contract rate can be used for forecasting without pricing its objects. */
