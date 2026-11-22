@@ -43,6 +43,16 @@ final class ArchivedRentRestoration
         $number=(string)$input['restore_number'];
         $spec=self::LEASES[$number] ?? throw new RuntimeException('В реестре нет проверенного основания восстановления.',409);
         [$signed,$from,$until,$rate,$object,$knownParty,$use,$registerRow,$invoices]=$spec;
+        $sharedParking=null;
+        if (array_key_exists('shared_parking_reservation',$input)) {
+            $reservation=filter_var($input['shared_parking_reservation'],FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);
+            if ($number!=='64' || $reservation===false) {
+                throw new RuntimeException('Укажите подтверждённую бронь совместной аренды по договору №64.',409);
+            }
+            $from='2026-11-03';
+            $sharedParking=self::flyLedgerSharedParking($db,$reservation,(int)$object,$from);
+            $invoices=['АЯИП-001243'=>['23520.00',true]]+$invoices;
+        }
         $objectRates=is_array($object) ? $object : [$object=>$rate];
         $store=Config::store();
         $query=$db->prepare("SELECT * FROM external_documents WHERE provider=? AND account_id='invoices' AND number=?
@@ -72,6 +82,10 @@ final class ArchivedRentRestoration
         $contractRef=\Modules\Integrations\OnecMapping::guid($contracts[0]);
         $basis=['register_row'=>$registerRow,'source_contract'=>$contractRef,'payer'=>$partyRef,
             'accounting_from'=>$from,'use'=>$use,'source_invoices'=>array_map(static fn($entry)=>$entry[0]['raw_sha256'],$documents)];
+        if ($sharedParking!==null) {
+            $basis['first_invoice']='АЯИП-001243';
+            $basis['shared_parking']=$sharedParking;
+        }
         if ($number==='164') {
             $basis['register_as_of']='2026-11-18';
             $basis['register_sha256']='328caf9a55923613b1845cce03fd65b0fe1e9f7d795a6c1d2f6193443f192fb2';
@@ -93,6 +107,7 @@ final class ArchivedRentRestoration
             if ($target['type']!==($use==='parking'?'Машиноместо':'Офис'))
                 throw new RuntimeException('Тип объекта расходится с реестром аренды.',409);
             $reason=match (true) {
+                $sharedParking!==null=>'Владелец подтвердил совместную аренду машино-места 1.13 по №64 и №115. Бронь ДЛТК сохраняется.',
                 $use==='legal'=>'Юридический адрес указан в оригинале 1С. Помещение учитывается только для начислений.',
                 $use==='billing-only'=>'Счёт подтверждён. Физическое закрепление офиса 304 выясняется по договорам №75 и №143.',
                 $number==='65' && $objectId===1015=>'Счёт подтверждён. Физическое закрепление машино-места 2.12 выясняется по договорам №65 и №24.',
@@ -153,6 +168,24 @@ final class ArchivedRentRestoration
         Audit::record(ArchivedRentCorrection::ACTION,'contract',$id,null,$result);
         Service::event($db,$actor,ArchivedRentCorrection::ACTION,'Восстановлен договор '.$number.' по проверенному реестру и счёту 1С.',$id,$result);
         return $result;
+    }
+
+    private static function flyLedgerSharedParking(PDO $db,int $reservation,int $object,string $from): array
+    {
+        $query=$db->prepare("SELECT r.id,r.version,r.contract_id,r.document_id FROM reservations r
+            JOIN rental_documents d ON d.id=r.document_id AND d.contract_id=r.contract_id
+            JOIN document_terms t ON t.document_id=d.id AND t.object_id=r.object_id
+            JOIN contracts c ON c.id=r.contract_id AND c.party_id=r.party_id
+            JOIN rental_objects o ON o.id=r.object_id
+            WHERE r.id=? AND r.object_id=? AND r.status='active' AND r.start_date<=?
+                AND r.end_date>='2026-12-31' AND r.until_date>='2026-12-31'
+                AND c.number='115' AND c.party_id=1002 AND c.status='active'
+                AND d.number='11' AND d.kind='renewal' AND d.applied=0 AND d.status='returned'
+                AND o.name='1.13' AND o.active=1 FOR UPDATE");
+        $query->execute([$reservation,$object,$from]);
+        $rows=$query->fetchAll();
+        if (count($rows)!==1) throw new RuntimeException('Изменилась проверенная бронь ДЛТК по месту 1.13. Сверьте ДС №11.',409);
+        return $rows[0]+['owner_confirmed'=>true];
     }
 
     private static function party(PDO $db,string $ref,?int $known): int
