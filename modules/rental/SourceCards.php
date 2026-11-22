@@ -114,7 +114,7 @@ final class SourceCards {
         $body.=RentalUI::pairs($pairs);
         $body.=OccupiedBillingCard::summary($c,$rows);
         if (OccupiedBilling::canEdit($c)) $body.='<p>'.RentalUI::button('Исключение по объекту','/rental/occupied-billing?id='.$id).'</p>';
-        $body.=PremisesActsCard::summary($c);
+        $body.=CustomerBookings::contractOrigin($c).PremisesActsCard::summary($c);
         $body.=SecurityDepositCard::section($c);
         $body.=InitialInvoiceCard::entry($c);
         if (!in_array($c['status'],['draft','cancelled'],true)) $body.=LeasePaymentTermsCard::summary($c);

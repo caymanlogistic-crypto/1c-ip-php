@@ -42,6 +42,7 @@ $routes['/rental/operation-manual']=[\Modules\Rental\OperationActionController::
 $routes['/rental/journal']=[\Modules\Rental\JournalController::class,'page'];
 $routes['/rental/journal-entry']=[\Modules\Rental\JournalController::class,'entry'];
 $routes['/rental/reservations']=[\Modules\Rental\BookingController::class,'create'];
+$routes['/rental/booking-list']=[\Modules\Rental\BookingController::class,'listing'];
 $routes['/rental/booking']=[\Modules\Rental\BookingController::class,'card'];
 $routes['/rental/booking-action']=[\Modules\Rental\BookingController::class,'action'];
 $routes['/rental/availability']=[\Modules\Rental\Availability::class,'endpoint'];

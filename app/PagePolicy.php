@@ -213,6 +213,10 @@ final class PagePolicy {
             $key = 'auxiliary.'
             . ($name === ''?'index':str_replace('/', '-', $name));
         }
+        elseif(in_array($path,['/rental/booking-list','/rental/booking'],true)) {
+            \Modules\Rental\CustomerBookings::readAccess();
+            return;
+        }
         elseif(str_starts_with($path, '/rental/')) {
             if (empty($u['workflow_role']))throw new \RuntimeException('Роль не участвует в рабочем процессе аренды.', 403);
             $route = substr($path, 8);

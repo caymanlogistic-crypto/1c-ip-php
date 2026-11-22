@@ -6,16 +6,20 @@ use RuntimeException;
 final class BookingController {
 
     public static function record(int $id): array {
-        Access::pages([
-            'contracts',
-            'summary'
-        ]);
-        $r = Controller::query('SELECT r.*,o.name object_name FROM reservations r JOIN rental_objects o ON o.id=r.object_id WHERE r.id=?', [
-            $id
-        ])[0] ?? throw new RuntimeException('Резервирование не найдено.', 404);
+        CustomerBookings::readAccess();
+        $r=Controller::query('SELECT r.*,o.name object_name,p.name party_name,u.name responsible FROM reservations r
+            JOIN rental_objects o ON o.id=r.object_id LEFT JOIN parties p ON p.id=r.party_id
+            LEFT JOIN users u ON u.id=r.author_id WHERE r.id=?',[$id])[0] ?? throw new RuntimeException('Резервирование не найдено.',404);
         if(WorkspaceReset::hidden($r))throw new RuntimeException('Резервирование не найдено.',404);
         if ($r['document_id'] !== null)throw new RuntimeException('Резервирование относится к допсоглашению.', 403);
         return $r;
+    }
+
+    public static function listing(): string
+    {
+        $registry=WorkRegistry::render(true);
+        $actions=CustomerBookings::canWrite()?RentalUI::button('Резервирование помещения','/rental/reservations',true):'';
+        return View::page('Резервирование',Controller::heading('Резервирование','',$actions).$registry,'booking-list');
     }
 
     private static function form(string $action, int $id, int $version, string $fields, string $label): array {
@@ -70,86 +74,80 @@ final class BookingController {
 
     public static function card(): string {
         $r = self::record((int)($_GET['id'] ?? 0));
-        $pending=CustomerBookings::openForDecision($r);
         $expired=CustomerBookings::expired($r,date('Y-m-d'));
-        $active=$pending && !$expired;
-        $body = RentalUI::pairs([
-            [
-                'Клиент',
-                $r['client_name']?:'—'
-            ],
-            [
-                'Помещение',
-                $r['object_name']
-            ],
-            [
-                'Планируемое начало',
-                Documents::dateText($r['start_date'])
-            ],
-            [
-                'Резервирование действует до',
-                Documents::dateText($r['until_date'])
-            ],
-            [
-                'Описание',
-                $r['comment']
-            ],
-            [
-                'Состояние',
-                $expired?'Срок истёк · требуется решение':($active?'Резервирование действует':match ($r['status']) {
-                    'cancelled' => 'Резервирование снято',
-                    'expired' => 'Срок резервирования истёк',
-                    'consumed',
-                    'converted' => 'Оформлен договор',
-                    default => 'Резервирование завершено'
-                })
-            ]
+        $active=CustomerBookings::openForDecision($r) && !$expired;
+        $stopped=CustomerBookings::stopped(\App\DB::pdo(),$r);
+        $body=RentalUI::pairs([
+            ['Заявка','№'.$r['id']],['Клиент',CustomerBookings::client($r)],['Помещение заявки',$r['object_name']],
+            ['Планируемое начало',Documents::dateText($r['start_date'])],
+            ['Резервирование действует до',Documents::dateText($r['until_date'])],
+            ['Ответственный',$r['responsible'] ?: People::label('manager')],['Комментарий',$r['comment']],
+            ['Состояние',$stopped?'Оформление договора прекращено':($expired?'Срок резервирования истёк':match ($r['status']) {
+                'active'=>'Резервирование действует', 'cancelled'=>'Резервирование снято',
+                'consumed','converted'=>'Заявка связана с договором', default=>'Резервирование завершено',
+            })],
         ]);
-        $source=json_decode($r['source_json'],true) ?: [];
-        if(!empty($source['cancellation']['reason']))$body.=RentalUI::alert($source['cancellation']['reason']);
-        $actions = '';
-        if ($pending && in_array(Auth::user()['role'], [
-            'admin',
-            'manager'
-        ], true))$actions = ($active?RentalUI::button('Оформить договор', '/rental/new-contract?booking_id='
-        . $r['id'], true):'')
-        . RentalUI::button('Продлить резервирование', '/rental/booking-action?id='
-        . $r['id']
-        . '&action=reservation.extend')
-        . RentalUI::button('Снять резервирование', '/rental/booking-action?id='
-        . $r['id']
-        . '&action=reservation.cancel');
-        return RentalUI::modal('Резервирование помещения', $body, $actions, 'contracts');
+        $source=Importer::decodeExact($r['source_json']);
+        if (!empty($source['cancellation']['reason'])) $body.=RentalUI::alert($source['cancellation']['reason']);
+        if ($r['contract_id']) {
+            $contract=Controller::query('SELECT number FROM contracts WHERE id=?',[$r['contract_id']])[0] ?? null;
+            if ($contract) $body.=RentalUI::pairs([['Связанный договор','№'.$contract['number']]]);
+            try {
+                Access::contract((int)$r['contract_id']);
+                $body.=RentalUI::button('Открыть договор','/rental/contract?id='.$r['contract_id']);
+            } catch (RuntimeException $e) {
+                if (!in_array($e->getCode(),[403,404],true)) throw $e;
+            }
+        }
+        $history=[];
+        foreach (Controller::query("SELECT created_at,after_json FROM audit_log
+            WHERE entity_type='reservation' AND entity_id=? ORDER BY id DESC",[$r['id']]) as $entry) {
+            $step=Importer::decodeExact($entry['after_json']);
+            $history[]=array_map(View::e(...),[$entry['created_at'],$step['actor'] ?? '—',
+                $step['before_until'] ?? '—',$step['until'] ?? '—',($step['reason'] ?? '') ?: ($step['status'] ?? '—')]);
+        }
+        if ($history) $body.='<details><summary>История заявки</summary>'
+            .Controller::table(['Дата','Кто','Прежний срок','Новый срок','Причина'],$history,['short','text','short','short','flex']).'</details>';
+        $actions='';
+        if (CustomerBookings::canWrite() && ($active || $stopped)) {
+            if ($active) $actions=RentalUI::button('Оформить договор','/rental/new-contract?booking_id='.$r['id'],true)
+                .self::actionButton($r,'extend','Продлить резервирование');
+            if ($stopped && $r['until_date']>=date('Y-m-d')) $actions=self::actionButton($r,'reopen','Вернуть заявку в работу');
+            $actions.=self::actionButton($r,'cancel',$stopped?'Клиент отказался':'Снять резервирование');
+        }
+        return RentalUI::modal('Резервирование помещения',$body,$actions,'booking-list');
+    }
+
+    private static function actionButton(array $row,string $action,string $label): string
+    {
+        return RentalUI::button($label,'/rental/booking-action?id='.$row['id'].'&action=reservation.'.$action);
     }
 
     public static function action(): string {
         $r = self::record((int)($_GET['id'] ?? 0));
         $action = (string)($_GET['action'] ?? '');
-        if (!in_array($action, [
-            'reservation.extend',
-            'reservation.cancel'
-        ], true))throw new RuntimeException('Действие не найдено.', 404);
+        $labels=['reservation.extend'=>'Продлить резервирование','reservation.cancel'=>'Снять резервирование',
+            'reservation.reopen'=>'Вернуть заявку в работу'];
+        if (!isset($labels[$action])) throw new RuntimeException('Действие не найдено.',404);
         Auth::requirePermission('rental.write');
-        Service::roles([
-            'manager'
-        ]);
+        Service::roles(['manager']);
         \App\PagePolicy::requireCommand($action);
-        if (!CustomerBookings::openForDecision($r)) throw new RuntimeException('Резервирование уже завершено.',409);
-        $fields = RentalUI::pairs([
-            [
-                'Помещение',
-                $r['object_name']
-            ],
-            [
-                'Описание',
-                $r['comment']
-            ]
-        ]);
-        if ($action === 'reservation.extend')$fields.=Controller::input('until_date', 'Резервирование действует до', $r['until_date'], 'date', true);
-        [
-            $body,
-            $actions
-        ] = self::form($action, (int)$r['id'], (int)$r['version'], $fields, $action === 'reservation.extend'?'Продлить резервирование':'Снять резервирование');
-        return RentalUI::modal($action === 'reservation.extend'?'Продлить резервирование':'Снять резервирование', $body, $actions, 'contracts');
+        $stopped=CustomerBookings::stopped(\App\DB::pdo(),$r);
+        $active=CustomerBookings::openForDecision($r) && !CustomerBookings::expired($r,date('Y-m-d'));
+        if (($action==='reservation.reopen' && (!$stopped || $r['until_date']<date('Y-m-d'))) || ($action==='reservation.extend' && !$active)
+            || ($action==='reservation.cancel' && !$active && !$stopped))
+            throw new RuntimeException('Действие недоступно для этой заявки.',409);
+        $fields=RentalUI::pairs([['Помещение',$r['object_name']],['Клиент',CustomerBookings::client($r)]]);
+        if ($action==='reservation.extend') {
+            $fields.=Controller::input('until_date','Резервирование действует до',max(date('Y-m-d'),$r['until_date']),'date',true);
+        }
+        if ($action==='reservation.reopen') $fields.=RentalUI::pairs([['Действует до',Documents::dateText($r['until_date'])]]).'<label class="field"><span><input type="checkbox" name="still_interested" value="1" required> Клиент по-прежнему заинтересован</span></label>'
+            .Controller::input('reason','Основание возврата в работу','','text',true);
+        if ($action==='reservation.cancel') $fields.=($stopped?'<input type="hidden" name="client_declined" value="1">':
+            '<label class="field"><span><input type="checkbox" name="client_declined" value="1"> Клиент отказался</span></label>')
+            .Controller::input('reason','Причина снятия','','text',false);
+        $label=$action==='reservation.cancel' && $stopped?'Зафиксировать отказ клиента':$labels[$action];
+        [$body,$actions]=self::form($action,(int)$r['id'],(int)$r['version'],$fields,$label);
+        return RentalUI::modal($label,$body,$actions,'booking-list');
     }
 }

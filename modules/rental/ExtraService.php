@@ -230,22 +230,45 @@ final class ExtraService {
                 Service::version($old, $in);
                 if ($old['document_id'] !== null)throw new RuntimeException('Резервирование по допсоглашению меняется через само ДС.');
             }
+            if ($old && WorkspaceReset::hidden($old)) throw new RuntimeException('Резервирование не найдено.',404);
+            $stopped=$old ? CustomerBookings::stopped($p,$old) : null;
+            $reason='';
             if ($action === 'reservation.cancel') {
-                if (!$old || !CustomerBookings::openForDecision($old)) throw new RuntimeException('Резервирование уже завершено.');
-                $p->prepare("UPDATE reservations SET status='cancelled',version=version+1 WHERE id=?")->execute([
-                    $id
-                ]);
+                if (!$old || (!CustomerBookings::openForDecision($old) && !$stopped)
+                    || (!$stopped && CustomerBookings::expired($old,date('Y-m-d'))))
+                    throw new RuntimeException('Резервирование уже завершено.',409);
+                if ($stopped && ($in['client_declined'] ?? null)!=='1')
+                    throw new RuntimeException('Подтвердите отказ клиента или верните заявку в работу.',422);
+                $reason=trim((string)($in['reason'] ?? '')) ?: 'Снято менеджером';
+                if (($in['client_declined'] ?? '')==='1') $reason='Клиент отказался. '.$reason;
+                $source=Importer::decodeExact($old['source_json']);
+                $source['cancellation']=['reason'=>$reason,'contract_id'=>$stopped['id'] ?? null];
+                $p->prepare("UPDATE reservations SET status='cancelled',source_json=?,version=version+1 WHERE id=?")
+                    ->execute([Importer::json($source),$id]);
             }
-            elseif($action === 'reservation.extend') {
-                if (!$old || !CustomerBookings::openForDecision($old)) throw new RuntimeException('Резервирование уже завершено.');
-                $until = Service::date($in['until_date'] ?? '');
-                if ($until<date('Y-m-d') || $until<=$old['until_date'])throw new RuntimeException('Укажите новую дату окончания резервирования.');
+            elseif (in_array($action,['reservation.extend','reservation.reopen'],true)) {
+                $reopen=$action==='reservation.reopen';
+                if (!$old || ($reopen ? !$stopped : !CustomerBookings::openForDecision($old) || CustomerBookings::expired($old,date('Y-m-d'))))
+                    throw new RuntimeException('Действие недоступно для этой заявки.',409);
+                $until=$reopen ? $old['until_date'] : Service::date($in['until_date'] ?? '');
+                if ($reopen && $until<date('Y-m-d'))
+                    throw new RuntimeException('Исходный срок истёк. Создайте новое резервирование.',409);
+                if (!$reopen && ($until<date('Y-m-d') || $until<=$old['until_date']))
+                    throw new RuntimeException('Укажите новую дату окончания резервирования.',422);
+                if ($old['party_id'] && Service::blockedPartyForNew($p,Service::get($p,'parties',(int)$old['party_id'])))
+                    throw new RuntimeException('Контрагент заблокирован.',409);
                 $start=max(date('Y-m-d'),$old['start_date']);
                 Service::available($p,[(int)$old['object_id']],$start,$start,null,null,false,null,true);
-                $p->prepare("UPDATE reservations SET until_date=?,status='active',version=version+1 WHERE id=?")->execute([
-                    $until,
-                    $id
-                ]);
+                $reason=$reopen ? trim((string)($in['reason'] ?? '')) : 'Срок продлён менеджером';
+                if ($reopen && ($reason==='' || ($in['still_interested'] ?? null)!=='1'))
+                    throw new RuntimeException('Подтвердите интерес клиента и укажите основание.',422);
+                $source=Importer::decodeExact($old['source_json']);
+                if ($reopen) {
+                    $source['last_reopened']=['contract_id'=>(int)$stopped['id'],'reason'=>$reason];
+                    unset($source['cancellation']);
+                }
+                $p->prepare("UPDATE reservations SET until_date=?,status='active',contract_id=NULL,source_json=?,version=version+1 WHERE id=?")
+                    ->execute([$until,Importer::json($source),$id]);
             }
             elseif($action === 'reservation.create') {
                 if (trim((string)($in['client_name'] ?? '')) === '' && empty($in['party_id']))throw new RuntimeException('Укажите предварительное имя клиента.',422);
@@ -274,8 +297,9 @@ final class ExtraService {
                 ]);
             }
             else throw new RuntimeException('Неизвестное действие резервирования.');
-            Service::event($p, $u, $action, 'Изменено резервирование #'
-            . $id);
+            $current=Service::get($p,'reservations',$id);
+            CustomerBookings::history($p,$action,$old,$current,$reason,isset($stopped['id'])?(int)$stopped['id']:null);
+            Service::event($p,$u,$action,'Резервирование №'.$id.($reason!==''?' · '.$reason:''),isset($stopped['id'])?(int)$stopped['id']:null);
             return [
                 'id' => $id,
                 'message' => $action === 'reservation.cancel'?'Резервирование снято.':'Резервирование сохранено.'

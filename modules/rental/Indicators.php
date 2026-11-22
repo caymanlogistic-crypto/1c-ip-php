@@ -285,7 +285,7 @@ final class Indicators {
             'manager',
             'director',
             'admin'
-        ], true))$pages['contracts'][3] = (int)DB::pdo()->query("SELECT COUNT(*) FROM reservations WHERE status='active' AND document_id IS NULL AND until_date>=CURRENT_DATE")->fetchColumn();
+        ], true))$pages['contracts'][3] = (int)DB::pdo()->query("SELECT COUNT(*) FROM reservations r WHERE status='active' AND document_id IS NULL AND contract_id IS NULL AND until_date>=CURRENT_DATE AND ".WorkspaceReset::visibleSql('r'))->fetchColumn();
         if (in_array($role, [
             'director',
             'admin'

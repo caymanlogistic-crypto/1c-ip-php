@@ -42,6 +42,16 @@ final class TemplateCatalog
         self::validateFormat($entry['format'], $entry['body']);
         $this->importRecord('max', 'staffHandoff', $entry, hash('sha256', $bytes), 'bundled', 'staff-handoff-v1');
     }
+    public function installReservationNotices(): void
+    {
+        foreach (\Modules\Rental\BookingNotices::TEMPLATES as [$key,$title]) {
+            $body=$title.". Заявка №{number}. Помещение: {context}. Клиент: {party}. Срок: {effective}. Ответственный: {manager}. {reason}";
+            $entry=['id'=>$key,'name'=>$title,'format'=>'plain','body'=>$body,'version'=>1];
+            self::validateFormat($entry['format'],$entry['body']);
+            $this->importRecord('max',$key,$entry,hash('sha256',Support::canonical($entry)),'bundled','reservation-notices-v1');
+        }
+    }
+
     private function importRecord(string $channel,string $key,array $record,string $sha,string $sourcePath,string $sourceVersion): void {
         if(!preg_match('/^[A-Za-z0-9_.-]{1,100}$/D',$key)||!is_int($record['version']??1)||($record['version']??1)<1)throw new \RuntimeException('CATALOG_ID_VERSION_INVALID');Support::business($record);$q=$this->db->prepare('SELECT source_sha256 FROM integration_template_catalog WHERE channel=? AND source_key=?');$q->execute([$channel,$key]);$old=$q->fetchColumn();if($old!==false){if($old!==$sha)throw new \RuntimeException('CATALOG_RECONCILIATION_REQUIRED');return;}$original=$this->store->put('catalog-records',Support::json($record));$this->db->prepare('INSERT INTO integration_template_catalog(channel,source_key,source_id,name,trigger_text,format,subject,body_text,title,tone,recipients_policy,attachment_policy,version,actor_label,changed_at,source_sha256,source_path,source_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')->execute([$channel,$key,(string)($record['id']??$key),(string)($record['name']??$key),(string)($record['trigger']??$record['when']??''),$channel==='top'?'plain':($record['format']??'plain'),$record['subject']??'',$record['body']??$record['message']??'',$record['title']??'',$record['tone']??null,$record['recipientsPolicy']??null,$record['attachmentPolicy']??null,$record['version']??1,$record['actor']??null,$record['changedAt']??null,$sha,$original,$sourceVersion]);
         // Source history remains immutable and individually addressable; it is never applied twice.

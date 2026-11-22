@@ -62,7 +62,7 @@ final class Service {
 
     private const BLOCK_PROJECT_STATUSES=['draft','legal','accounting','returned','approved','sent'];
 
-    private static function blockedPartyForNew(PDO $p,array $party):bool {
+    public static function blockedPartyForNew(PDO $p,array $party):bool {
         if(!empty($party['blocked']))return true;
         $inn=preg_replace('/\D/','',(string)($party['inn']??''));
         if($inn==='')return false; // Empty identities never merge unrelated counterparties.
@@ -455,11 +455,7 @@ final class Service {
                     $template,
                     $id
                 ]);
-                if ($booking)$p->prepare("UPDATE reservations SET contract_id=?,party_id=?,status='consumed',version=version+1 WHERE id=?")->execute([
-                    $id,
-                    $party,
-                    $booking['id']
-                ]);
+                if ($booking) CustomerBookings::bind($p,$booking,$id,$party);
                 $p->prepare("UPDATE contracts SET source_json=JSON_REMOVE(source_json,'$.draft_input') WHERE id=?")->execute([$id]);
                 if (($in['intent'] ?? '') === 'submit')$p->prepare("UPDATE contracts SET status='legal',return_to=NULL,reason=NULL WHERE id=?")->execute([
                     $id

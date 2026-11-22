@@ -91,6 +91,7 @@ final class ContractForm {
         . '. ':'')
         . 'Выберите или создайте карточку клиента.')
         . '</span>':'';
+        if ($c) $fields.=CustomerBookings::contractOrigin($c);
         if ($continuation) $fields.=ExpiryContinuation::editorNote($continuation);
         $fields.='<div class="field"'.$section('party').'>'
         . '<label class="field-label" for="contract-party">Контрагент <span class="req">*</span>'
