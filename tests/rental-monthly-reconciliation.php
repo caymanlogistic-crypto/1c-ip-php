@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-use Modules\Rental\MonthlyRentReconciliation;
+use Modules\Rental\{MonthlyInvoiceArchive, MonthlyRentReconciliation};
 
 require dirname(__DIR__).'/app/bootstrap.php';
 
@@ -54,5 +54,30 @@ $source['Услуги'] = [
 if (MonthlyRentReconciliation::sourceMonths($source, '38640.00', '2026-09-11')
     !== ['2026-09'=>'13440.00','2026-10'=>'25200.00']) {
     throw new RuntimeException('The separately priced September and October lines must keep their own amounts.');
+}
+
+$source['Услуги'] = [
+    ['Содержание'=>'Аренда офиса за ноябрь 2026г.', 'Сумма'=>'100.00'],
+    ['Содержание'=>'Переменная часть арендной платы за ноябрь 2026г.', 'Сумма'=>'30.00'],
+    ['Содержание'=>'Арендная плата (переменная часть) за ноябрь 2026г.', 'Сумма'=>'40.00'],
+    ['Содержание'=>'Предоставление ключа доступа', 'Сумма'=>'20.00'],
+    ['Содержание'=>'Услуги клининга за ноябрь 2026г.', 'Сумма'=>'10.00'],
+    ['Содержание'=>'Обеспечительный платёж по договору аренды', 'Сумма'=>'60.00'],
+];
+if (MonthlyRentReconciliation::rentLines($source) !== [$source['Услуги'][0]]
+    || MonthlyRentReconciliation::sourceMonths($source, '260.00', '2026-10-19') !== ['2026-11'=>'100.00']) {
+    throw new RuntimeException('Only fixed rent should contribute to the reconciliation.');
+}
+$source['Услуги'] = [
+    ['Содержание'=>'Услуги по аренде нежилых помещений по Договору №108 от 01.05.2025г. за сентябрь 2026г.', 'Сумма'=>'674520.00'],
+];
+if (MonthlyRentReconciliation::sourceMonths($source, '674520.00', '2026-08-17') !== ['2026-09'=>'674520.00']) {
+    throw new RuntimeException('The fixed office rent described as rental services is still rent.');
+}
+$mixed = ['amount'=>'260.00','rent_amount'=>'100.00'];
+if (MonthlyInvoiceArchive::rentPayment($mixed,'260.00') !== '100.00'
+    || MonthlyInvoiceArchive::rentPayment($mixed,'0.00') !== '0.00'
+    || MonthlyInvoiceArchive::rentPayment($mixed,'100.00') !== null) {
+    throw new RuntimeException('A partial payment of a mixed invoice must not be presumed to cover rent.');
 }
 echo "Monthly rent reconciliation source totals OK\n";

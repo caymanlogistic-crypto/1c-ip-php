@@ -25,10 +25,10 @@ final class MonthlyInvoiceAssignments
         foreach ($invoices as $id=>$invoice) {
             if ($invoice['source_ref']) $archiveLinks[$invoice['source_ref']][] = $id;
         }
-        $customers = [];
+        $customers = MonthlyInvoiceArchive::customers($db);
         foreach ($contracts as &$lease) {
             $lease['party_ref'] = InvoiceContractAssignment::partyRef($lease);
-            if ($ref = $lease['party_ref']) $customers[$ref] = $lease['name'];
+            if ($ref = $lease['party_ref']) $customers[$ref] ??= $lease['name'];
         }
         unset($lease);
         $assignments = InvoiceContractAssignment::index($db);
@@ -37,6 +37,7 @@ final class MonthlyInvoiceAssignments
             $matched = array_values(array_unique(array_filter($archiveLinks[$archive['reference']] ?? [],
                 static fn($id): bool=>isset($invoices[$id]))));
             foreach ($matched as $id) $seen[$id] = true;
+            if ($archive['periods'] === []) continue;
             $periods = array_keys($archive['periods'] ?? []);
             if (!array_intersect($months, $periods ?: [substr($archive['document_date'],0,7)])) continue;
             $owner = $archive['party_ref'];
@@ -46,15 +47,17 @@ final class MonthlyInvoiceAssignments
             $linked = $invoice['contract_id'] ?? null;
             $lease = $contracts[$linked ?? $manual ?? (count($ids) === 1 ? $ids[0] : 0)] ?? null;
             if (!$owner || !$lease || $lease['party_ref'] !== $owner || count($matched)>1) $lease = null;
+            $paid = $invoice && $invoice['amount'] !== null && bccomp($invoice['amount'],$archive['amount'],2) === 0
+                ? MonthlyInvoiceArchive::rentPayment($archive,$invoice['paid']) : null;
             $rows[] = ['archive'=>$archive['id'],'invoice_id'=>count($matched)===1?$matched[0]:null,
                 'number'=>$archive['number'],'name'=>$archive['name'],'issued'=>$archive['document_date'],
-                'amount'=>$archive['amount'],'paid'=>$invoice['paid'] ?? null,
+                'amount'=>$archive['rent_amount'],'paid'=>$paid,
                 'months'=>$periods,'client'=>$lease['name'] ?? $customers[$owner] ?? 'Уточнить',
                 'contract'=>$lease['number'] ?? null,'origin'=>'1С','status'=>$archive['status'],
                 'editable'=>!$matched && $archive['status']==='Проведён'];
         }
         foreach ($invoices as $id=>$invoice) {
-            if (isset($seen[$id])) continue;
+            if (isset($seen[$id]) || !in_array($invoice['kind'],['Аренда','Первый период'],true)) continue;
             $period = InvoicePeriods::month($invoice['period']);
             if (!in_array($period ?: substr((string)$invoice['issued'],0,7),$months,true)) continue;
             $lease = $contracts[$invoice['contract_id']] ?? null;
@@ -87,7 +90,7 @@ final class MonthlyInvoiceAssignments
                 $row['number'], $row['name']);
         }
         return $items ? Controller::table(['Счёт','Наименование счёта','Источник','Клиент','Договор','Период аренды','Выставлен',
-            'Сумма','Разнесено','Состояние','Действие'], $items,['code','long','short','text','code','text','short','money','money','short','text'],
+            'Сумма аренды','Разнесено','Состояние','Действие'], $items,['code','long','short','text','code','text','short','money','money','short','text'],
             $details, columnWidths:[5=>'code',10=>'code'])
             : '<section class="panel-section">'.RentalUI::alert('По выбранным условиям счетов нет.').'</section>';
     }
@@ -98,6 +101,9 @@ final class MonthlyInvoiceAssignments
         $db = DB::pdo();
         $archive = InvoiceContractAssignment::archive($db,$documentId);
         $source = Support::decode(Config::store()->read($archive['raw_path'],$archive['raw_sha256']))['fields']['record'];
+        if (!MonthlyRentReconciliation::rentLines($source)) {
+            throw new \RuntimeException('В помесячной сверке доступны счета за аренду.',404);
+        }
         $assignment = InvoiceContractAssignment::index($db)[$archive['id']] ?? [];
         $options = InvoiceContractAssignment::options($db,$source);
         $header = '<section class="panel-section"><h2 class="section-title">Счёт '.View::e($archive['number']).'</h2>';

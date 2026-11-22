@@ -92,6 +92,9 @@ final class InvoiceContractAssignment
         $store = Config::store();
         $document = Support::decode($store->read($archive['raw_path'],$archive['raw_sha256']));
         $source = $document['fields']['record'];
+        if (!MonthlyRentReconciliation::rentLines($source)) {
+            throw new RuntimeException('В помесячной сверке доступны счета за аренду.',422);
+        }
         $query = $db->prepare('SELECT c.*,p.blocked,p.source_json party_source
             FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.id=? FOR UPDATE');
         $query->execute([(int)$choice[1]]);

@@ -49,22 +49,44 @@ final class MonthlyInvoiceArchive
     private function summarize(array $row): array
     {
         $source = Support::decode($this->store->read($row['raw_path'], $row['raw_sha256']))['fields']['record'];
+        $rentLines = MonthlyRentReconciliation::rentLines($source);
+        $wholeInvoice = count($rentLines) === count($source['Товары'] ?? []) + count($source['Услуги'] ?? []);
         $periods = [];
-        if (YakovlevInvoiceCoverage::hasRentLine($source)) {
+        $rentAmount = null;
+        if ($rentLines) {
+            if ($wholeInvoice) $rentAmount = $row['amount'];
             try {
                 $periods = MonthlyRentReconciliation::sourceMonths($source, $row['amount'], $row['document_date']);
+                $rentAmount = array_reduce($periods, static fn(string $sum, string $amount): string=>bcadd($sum,$amount,2), '0.00');
             } catch (DomainException) {
                 $periods = null;
             }
         }
-        $name = self::nameFromLines(array_merge($source['Товары'] ?? [], $source['Услуги'] ?? []), 'Содержание');
+        $partyRef = $source['Контрагент_Key'] ?? $source['Контрагент'] ?? null;
         return [
             'reference'=>$source['Ref_Key'],
-            'party_ref'=>$source['Контрагент_Key'] ?? $source['Контрагент'] ?? null,
+            'party_ref'=>is_string($partyRef) ? $partyRef : null,
             'contract_ref'=>$source['ДоговорКонтрагента_Key'] ?? null,
-            'name'=>$name !== '' ? $name : trim((string)($source['Description'] ?? '')),
+            'name'=>self::nameFromLines($rentLines, 'Содержание'),
+            'rent_amount'=>$rentAmount,
             'periods'=>$periods,
         ];
+    }
+
+    public static function customers(PDO $db): array
+    {
+        $query = $db->prepare("SELECT SUBSTRING(source_id,9) ref,title FROM external_documents
+            WHERE provider=? AND account_id='parties' AND source_id LIKE 'parties:%' AND title<>'Без наименования'");
+        $query->execute([YakovlevImport::PROVIDER]);
+        return $query->fetchAll(PDO::FETCH_KEY_PAIR);
+    }
+
+    public static function rentPayment(array $archive, ?string $payment): ?string
+    {
+        $rent = $archive['rent_amount'];
+        if ($rent === null || $payment === null) return null;
+        if (bccomp($rent,$archive['amount'],2) === 0 || bccomp($payment,'0',2) === 0) return $payment;
+        return bccomp($payment,$archive['amount'],2) === 0 ? $rent : null;
     }
 
     public static function erpName(array $invoice): string

@@ -97,33 +97,39 @@ final class MonthlyRentReconciliation
 
         $manual = InvoiceContractAssignment::index($this->db);
         $today = $now->format('Y-m-d');
-        $verified = [];
+        $customers = MonthlyInvoiceArchive::customers($this->db);
+        $verified = $invoiceSources = [];
         foreach ((new MonthlyInvoiceArchive($this->db, $this->store))->rows() as $archived) {
+            if ($archived['document_date'] > $today) continue;
+            $linked = array_unique($invoiceLinks[$archived['reference']] ?? []);
+            $invoice = count($linked) === 1 ? ($invoices[reset($linked)] ?? null) : null;
+            if ($invoice && ($invoice['number'] !== $archived['number'] || $invoice['issued'] !== $archived['document_date']
+                || $invoice['amount'] === null || bccomp($invoice['amount'],$archived['amount'],2) !== 0)) {
+                $invoice = null;
+            }
+            if ($invoice) $invoiceSources[$invoice['id']] = $archived;
             $periods = $archived['periods'];
-            if ($archived['status'] !== 'Проведён' || $archived['document_date'] > $today || $periods === []) continue;
+            if ($archived['status'] !== 'Проведён' || $periods === []) continue;
             $ids = $bindings[$archived['contract_ref'] ?? ''] ?? [];
             $assigned = InvoiceContractAssignment::contractId($archived,$manual[$archived['id']] ?? null);
             if ($assigned) $ids = [$assigned];
             $contract = count($ids) === 1 ? ($contracts[$ids[0]] ?? null) : null;
+            $sourceParty = $archived['party_ref'];
+            $matchesContract = $contract && $sourceParty && $sourceParty === $contract['party_ref'];
+            $client = $matchesContract ? $contract['client'] : ($customers[$sourceParty ?? ''] ?? 'Уточнить');
             if ($periods === null) {
-                $issues[] = ['—', $contract['client'] ?? '—', $archived['number'],
+                $issues[] = ['—', $client, $archived['number'],
                     'Уточнить период и суммы строк оригинала 1С.', $archived['name']];
                 continue;
             }
             $selected = array_intersect_key($periods, $report);
-            $sourceParty = $archived['party_ref'];
-            if (!$contract || !$sourceParty || $sourceParty !== $contract['party_ref']) {
-                if ($selected) $issues[] = [implode(', ',array_keys($selected)), $contract['client'] ?? '—', $archived['number'],
+            if (!$matchesContract) {
+                if ($selected) $issues[] = [implode(', ',array_keys($selected)), $client, $archived['number'],
                     'Подтвердить связь договора и клиента с 1С.', $archived['name']];
                 continue;
             }
-            $linked = array_unique($invoiceLinks[$archived['reference']] ?? []);
-            $invoice = count($linked) === 1 ? ($invoices[reset($linked)] ?? null) : null;
             $invoiceId = null;
-            if ($invoice && (int)$invoice['contract_id'] === $contract['id']
-                && $invoice['number'] === $archived['number'] && $invoice['issued'] === $archived['document_date']
-                && $invoice['amount'] !== null
-                && bccomp($invoice['amount'], $archived['amount'], 2) === 0) {
+            if ($invoice && (int)$invoice['contract_id'] === $contract['id']) {
                 $invoiceId = $invoice['id'];
                 $verified[$invoiceId] = $archived['name'];
             } elseif ($selected) {
@@ -142,8 +148,17 @@ final class MonthlyRentReconciliation
         $allocations = $reviewOnly ? [] : $this->paymentTotals($today);
         $invoiceFacts = [];
         foreach ($invoices as $id => $invoice) {
+            $original = $invoiceSources[$id] ?? null;
+            if ($original && $original['periods'] === []) continue;
             $contract = $contracts[$invoice['contract_id']];
             $due = $invoice['due'];
+            $rentAmount = $original ? $original['rent_amount'] : $invoice['amount'];
+            $rentPaid = $original ? MonthlyInvoiceArchive::rentPayment($original, $invoice['paid']) : $invoice['paid'];
+            $month = $due ? substr($due, 0, 7) : InvoicePeriods::month($invoice['period']);
+            if ($original && $invoice['paid'] !== null && $rentPaid === null && isset($report[$month])) {
+                $issues[] = [$month, $contract['client'], $invoice['number'],
+                    'Уточнить, какая часть оплаты относится к аренде.', $original['name']];
+            }
             if (!$due && (isset($verified[$id]) || isset($report[InvoicePeriods::month($invoice['period'])]))) {
                 $issues[] = ['—', $contract['client'], $invoice['number'], 'В карточке ERP отсутствует срок оплаты.',
                     ($verified[$id] ?? '') ?: MonthlyInvoiceArchive::erpName($invoice)];
@@ -151,11 +166,11 @@ final class MonthlyRentReconciliation
             if ($reviewOnly) continue;
             $paid = $allocations[$id]['paid'] ?? self::ZERO;
             $paidFromOnec = $allocations[$id]['paid_from_1c'] ?? self::ZERO;
-            $balance = $invoice['paid'] !== null && bccomp($invoice['paid'], $paid, 2) === 0
-                ? InvoiceFacts::remaining($invoice) : null;
+            if ($original) $paidFromOnec = MonthlyInvoiceArchive::rentPayment($original,$paidFromOnec);
+            $balance = $rentAmount !== null && $rentPaid !== null && $invoice['paid'] !== null && bccomp($invoice['paid'],$paid,2) === 0
+                ? InvoiceFacts::remaining(array_replace($invoice,['amount'=>$rentAmount,'paid'=>$rentPaid])) : null;
             $invoiceFacts[$id] = ['due'=>$due,'paid_from_1c'=>$paidFromOnec,'balance'=>$balance];
             if (!$due) continue;
-            $month = substr($due, 0, 7);
             if (!isset($report[$month])) continue;
             $entry = &$this->entry($report[$month], $contract);
             $invoice['contract'] = $contract['number'];
@@ -164,6 +179,8 @@ final class MonthlyRentReconciliation
             $invoice['paid_from_1c'] = $paidFromOnec;
             $invoice['overdue'] = $invoice['verified'] && !$invoice['manual_review'] && $balance !== null
                 && InvoiceFacts::overdueDays(PaymentReview::attach($this->db, $invoice, $now)) > 0;
+            $invoice['amount'] = $rentAmount;
+            $invoice['paid'] = $rentPaid;
             $entry['due'][] = array_intersect_key($invoice,array_flip([
                 'id','number','contract','due','amount','paid','paid_from_1c','balance','verified','overdue',
             ]));
@@ -260,6 +277,19 @@ final class MonthlyRentReconciliation
         return Billing::round(bcdiv(bcmul($amount, (string)$days, 12), substr($last, -2), 12));
     }
 
+    public static function rentLines(array $source): array
+    {
+        return array_values(array_filter(array_merge($source['Товары'] ?? [], $source['Услуги'] ?? []), self::isRentLine(...)));
+    }
+
+    private static function isRentLine(array $line): bool
+    {
+        $description = (string)($line['Содержание'] ?? '');
+        return (YakovlevInvoiceCoverage::hasRentLine(['Услуги'=>[$line]])
+                || preg_match('/^\s*услуги\s+по\s+аренде\s+нежилых\s+помещений(?:\s|$)/iu',$description))
+            && !preg_match('/(?<!\p{L})переменн\p{L}*\s+част\p{L}*/iu', $description);
+    }
+
     /** Totals from the priced lines of the original, independent of ERP tariff matching. */
     public static function sourceMonths(array $source, string $total, ?string $issued = null): array
     {
@@ -273,7 +303,7 @@ final class MonthlyRentReconciliation
                 $amount = bcadd($amount, YakovlevRentalSync::cents($line['СуммаНДС'] ?? null, true), 2);
             }
             $sum = bcadd($sum, $amount, 2);
-            if (!YakovlevInvoiceCoverage::hasRentLine(['Услуги'=>[$line]])) continue;
+            if (!self::isRentLine($line)) continue;
             [$period] = YakovlevInvoiceCoverage::period(trim((string)$line['Содержание']), $issued);
             $periods[$period] = bcadd($periods[$period] ?? self::ZERO, $amount, 2);
         }
