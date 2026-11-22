@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental;
 
+use App\BillableTerms;
 use DomainException;
 use PDO;
 
@@ -10,7 +11,7 @@ use PDO;
 final class YakovlevInvoiceCoverage
 {
     private const SINGLE_PARKING='/парковочн\p{L}*\s+мест\p{L}*\s*№?\s*([\p{L}\d.\/-]+)(?=[\s,;])/iu';
-    private const PARKING='/(?:парковочн\p{L}*\s+|парк\.\s*)(?:машино[–-])?мест\p{L}*\s*№?\s*(\d+[.,]\d+(?:\s*,\s*\d+[.,]\d+)*)(?=[\s,;])/iu';
+    private const PARKING='/(?:парковочн\p{L}*\s+|парк\.\s*)(?:машино[–-])?мест\p{L}*\s*№?\s*(\d+[.,]\d+(?:\s*[,;]\s*\d+[.,]\d+)*)(?=[\s,;])/iu';
     private const MONTHS=['январ'=>1,'феврал'=>2,'март'=>3,'апрел'=>4,'ма[йя]'=>5,'июн'=>6,'июл'=>7,
         'август'=>8,'сентябр'=>9,'октябр'=>10,'ноябр'=>11,'декабр'=>12];
 
@@ -53,7 +54,13 @@ final class YakovlevInvoiceCoverage
                 }
                 $segments[]=compact('object','from','until');
             }
-            $detail=self::line($terms,$line,$text,$period,$from,$until,$includesVat);
+            $wholeRate=null;
+            if ($recheckArchivedInvoice && count($rows)===1 && count($terms)>1 && array_column($terms,'amount')===array_fill(0,count($terms),null)) {
+                $allTerms=BillableTerms::forContract($db,(int)$contract['id']);
+                if (count($terms)===count($allTerms) && ($contract['servicing_effective_date'] ?? $from)<=$from)
+                    $wholeRate=MonthlyRentReconciliation::sharedMonthlyRent($db,$contract,$allTerms);
+            }
+            $detail=self::line($terms,$line,$text,$period,$from,$until,$includesVat,$wholeRate);
             $sum=bcadd($sum,bcadd($detail['netAmount'],$detail['vatAmount'],2),2);
             $lines[]=$detail;
         }
@@ -118,10 +125,10 @@ final class YakovlevInvoiceCoverage
         return array_values($matches);
     }
 
-    private static function line(array $terms,array $line,string $text,string $period,string $from,string $until,bool $includesVat): array
+    private static function line(array $terms,array $line,string $text,string $period,string $from,string $until,bool $includesVat,?string $wholeRate): array
     {
         $quantity=YakovlevRentalSync::cents($line['Количество'] ?? null);
-        if (($quantity!=='1.00' && $quantity!==count($terms).'.00')
+        if (($quantity!=='1.00' && ($wholeRate!==null || $quantity!==count($terms).'.00'))
             || !preg_match('/\AНДС([0-9]+)\z/u',(string)($line['СтавкаНДС'] ?? ''),$vat))
             throw new DomainException('INVOICE_LINES_UNCONFIRMED');
         $sourceAmount=YakovlevRentalSync::cents($line['Сумма'] ?? null);
@@ -132,10 +139,11 @@ final class YakovlevInvoiceCoverage
         $last=new \DateTimeImmutable($until);
         $days=$first->diff($last)->days+1;
         $expected='0.00';
-        foreach ($terms as $term) {
-            $rate=YakovlevRentalSync::cents($term['amount']);
-            $objectAmount=bcadd(bcdiv(bcmul($rate,(string)$days,2),$first->format('t'),8),'0.005',2);
-            $expected=bcadd($expected,$objectAmount,2);
+        $rates=$wholeRate===null ? array_column($terms,'amount') : [$wholeRate];
+        foreach ($rates as $value) {
+            $rate=YakovlevRentalSync::cents($value);
+            $portion=bcadd(bcdiv(bcmul($rate,(string)$days,2),$first->format('t'),8),'0.005',2);
+            $expected=bcadd($expected,$portion,2);
         }
         if (bcadd($net,$tax,2)!==$expected) throw new DomainException('INVOICE_TOTAL_CONFLICT');
         $price=bcdiv($net,$quantity,2);

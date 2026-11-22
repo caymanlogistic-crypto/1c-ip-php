@@ -28,6 +28,9 @@ if (YakovlevInvoiceCoverage::period('Аренда помещения с 18.09.26
 $grouped=['Услуги'=>[['Содержание'=>'Арендная плата за парковочные места 1.39, 1.40, 1.12 по договору №46.']]];
 if (YakovlevInvoiceCoverage::parkingReferences($grouped)!==['1.39','1.40','1.12'])
     throw new RuntimeException('A grouped parking line must retain every listed object.');
+$grouped['Услуги'][0]['Содержание']='Арендная плата за парковочные места №1.43;1.9;2.25;2.26, по договору №18.';
+if (YakovlevInvoiceCoverage::parkingReferences($grouped)!==['1.43','1.9','2.25','2.26'])
+    throw new RuntimeException('A semicolon-separated parking list must retain every listed object.');
 $mentioned=YakovlevRentalSync::invoiceNumbersInPurpose('Оплата по счету № 1099 от 17.09.2026');
 if (YakovlevRentalSync::purposeMatchesInvoiceNumbers($mentioned,['АЯИП-001136'])
     || !YakovlevRentalSync::purposeMatchesInvoiceNumbers($mentioned,['АЯИП-001099']))

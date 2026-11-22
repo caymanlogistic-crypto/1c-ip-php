@@ -62,7 +62,7 @@ final class MonthlyRentReconciliation
             $contract['party_ref'] = InvoiceContractAssignment::partyRef($contract);
             if ($contract['status'] !== 'active' && !isset($preceding[$id])) continue;
             $terms = BillableTerms::forContract($this->db, (int)$id);
-            $sharedRent = $this->sharedMonthlyRent($contract, $terms);
+            $sharedRent = self::sharedMonthlyRent($this->db, $contract, $terms);
             $previousStart = self::previousReplacementTermStart($contract,$terms);
             foreach ($months as $month) {
                 [$first,$last] = InvoicePeriods::bounds($month);
@@ -326,8 +326,8 @@ final class MonthlyRentReconciliation
         return $newTermExists ? $previousStart : null;
     }
 
-    /** A recorded whole-contract rate can be used for forecasting without pricing its objects. */
-    private function sharedMonthlyRent(array $contract, array $terms): ?string
+    /** A documented rate for the entire set of leased objects. */
+    public static function sharedMonthlyRent(PDO $db,array $contract,array $terms): ?string
     {
         $amount = $contract['amount'] ?? null;
         if (!$terms || !$contract['start_date'] || !$contract['end_date'] || $amount === null
@@ -359,7 +359,7 @@ final class MonthlyRentReconciliation
         sort($recorded, SORT_NUMERIC);
         if ($objects !== $recorded) return null;
 
-        $statement = $this->db->prepare('SELECT object_id FROM contract_objects WHERE contract_id=? ORDER BY object_id');
+        $statement = $db->prepare('SELECT object_id FROM contract_objects WHERE contract_id=? ORDER BY object_id');
         $statement->execute([$contract['id']]);
         $current = array_map('intval', $statement->fetchAll(PDO::FETCH_COLUMN));
         return $current === $objects ? $amount : null;
