@@ -15,7 +15,7 @@ final class YakovlevInvoiceCoverage
     private const MONTHS=['январ'=>1,'феврал'=>2,'март'=>3,'апрел'=>4,'ма[йя]'=>5,'июн'=>6,'июл'=>7,
         'август'=>8,'сентябр'=>9,'октябр'=>10,'ноябр'=>11,'декабр'=>12];
 
-    public static function prove(PDO $db,array $contract,array $source,string $total,?string $issued = null,bool $recheckArchivedInvoice = false,array $parkingAccountingMap = []): array
+    public static function prove(PDO $db,array $contract,array $source,string $total,?string $issued = null,bool $recheckArchivedInvoice = false,array $parkingAccountingMap = [],?string $confirmedFrom = null): array
     {
         $rows=array_merge($source['Товары'] ?? [],$source['Услуги'] ?? []);
         $includesVat=$source['СуммаВключаетНДС'] ?? null;
@@ -39,9 +39,11 @@ final class YakovlevInvoiceCoverage
             if (!$recheckArchivedInvoice && $period!==null && $period!==$month) throw new DomainException('INVOICE_PERIOD_UNCONFIRMED');
             $period=$period===null ? $month : min($period,$month);
             $billingEnd=$recheckArchivedInvoice ? ArchivedRentCorrection::confirmedBillingEnd($contract,$month) : $contract['end_date'];
-            if (!$contract['start_date'] || !$billingEnd || $contract['start_date']>$from || $billingEnd<$until)
+            $earlier=$recheckArchivedInvoice && $confirmedFrom===$from && $contract['start_date']>$from;
+            if (!$contract['start_date'] || !$billingEnd || ($contract['start_date']>$from && !$earlier) || $billingEnd<$until)
                 throw new DomainException('INVOICE_OUTSIDE_CONTRACT');
-            $q->execute([$from,$until,$from,$until,$contract['id']]);
+            $rateFrom=$earlier ? $contract['start_date'] : $from;
+            $q->execute([$rateFrom,$until,$rateFrom,$until,$contract['id']]);
             $terms=self::objects($q->fetchAll(PDO::FETCH_ASSOC),$text,$recheckArchivedInvoice,$parkingAccountingMap);
             if (!$recheckArchivedInvoice && (count($terms)!==1 ||
                 !in_array((string)($line['Количество'] ?? ''),['1','1.0','1.00'],true)))

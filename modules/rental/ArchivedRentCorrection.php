@@ -38,6 +38,7 @@ final class ArchivedRentCorrection
             ['33','2024-02-01']=>self::settleParkingInvoices($db,$actor,$contract,
                 ['АЯИП-001298'=>'24000.00'],['1.34'=>'1.14']),
             ['34','2024-02-28']=>self::decemberParkingRates($db,$actor,$input,$contract),
+            ['46','2024-12-25'], ['64','2026-11-02']=>ArchivedParkingPayments::settle($db,$actor,$input,$contract),
             ['140','2026-02-03']=>self::decemberSuccessor($db,$actor,$input,$contract,
                 ['number'=>'162','signed'=>'2026-11-03','from'=>'2026-12-01','party'=>1010,'object'=>1095,
                     'invoice'=>'АЯИП-001307','amount'=>'275000.00','rate'=>'275000.00','prior_end'=>'2027-01-09','paid'=>false]),

@@ -323,8 +323,12 @@ final class YakovlevRentalSync
             return ['effect'=>'existing','invoice_id'=>(int)$invoice['id']];
         }
         if ($contract['status']!=='active') throw new DomainException('CONTRACT_NOT_ACTIVE');
+        $contractSource=Support::decode($contract['source_json']);
+        $confirmed=$recheckArchivedInvoice ? ($contractSource['ownerConfirmedArchiveCoverage'][$data['Ref_Key']] ?? null) : null;
+        $confirmedFrom=$confirmed && ($confirmed['invoice_sha'] ?? null)===$archive['raw_sha256']
+            && ($confirmed['contract_start'] ?? null)===$contract['start_date'] ? $confirmed['from'] : null;
         $proof = YakovlevInvoiceCoverage::prove($this->db,$contract,$data,self::cents($ref['amount']),
-            $recheckArchivedInvoice ? $ref['document_date'] : null,$recheckArchivedInvoice,$parkingAccountingMap);
+            $recheckArchivedInvoice ? $ref['document_date'] : null,$recheckArchivedInvoice,$parkingAccountingMap,$confirmedFrom);
         if ($this->one('SELECT id FROM invoices WHERE number=? LIMIT 1',[$ref['number']]))
             throw new DomainException('INVOICE_WITHOUT_SOURCE_LINK');
         YakovlevInvoiceCoverage::assertVacant($this->db,$contractId,$proof);
@@ -334,7 +338,8 @@ final class YakovlevRentalSync
             'printDetails'=>['number'=>$ref['number'],'issued'=>$ref['document_date'],'lines'=>$proof['lines']]];
         if ($parkingAccountingMap)
             $snapshot['yakovlev_archive']['owner_confirmed_parking_accounting_map']=$parkingAccountingMap;
-        $first=(Support::decode($contract['source_json'])['archivedRentRestoration']['first_invoice'] ?? null)===$ref['number'];
+        if ($confirmedFrom!==null) $snapshot['yakovlev_archive']['owner_confirmed_coverage']=$confirmed;
+        $first=($contractSource['archivedRentRestoration']['first_invoice'] ?? null)===$ref['number'];
         $due=$first ? InvoiceDueDate::firstRent($ref['document_date']) : InvoiceDueDate::monthlyRent($proof['period']);
         $this->db->prepare("INSERT INTO invoices(id,number,contract_id,kind,period,amount,paid,issued,due,status,initial_invoice,source_json)
             VALUES(?,?,?,'Аренда',?,?,0,?,?,'active',?,?)")->execute([$id,$ref['number'],$contractId,$proof['period'],
@@ -369,7 +374,8 @@ final class YakovlevRentalSync
                 [YakovlevImport::PROVIDER,'invoices:'.($proof['invoice_ref'] ?? '')]);
             if (!$invoice || !$bank || !$archive || $bank['raw_sha256']!==($proof['bank_sha'] ?? null)
                 || $archive['raw_sha256']!==($proof['invoice_sha'] ?? null)
-                || $invoice['period']!==($proof['period'] ?? null) || $invoice['amount']!==$total
+                || $invoice['period']!==($proof['period'] ?? null)
+                || $invoice['amount']!==($proof['invoice_amount'] ?? $total) || $total!==($proof['amount'] ?? $total)
                 || $mentioned!==[$proof['purpose_invoice'] ?? null]
                 || array_column($data['РасшифровкаПлатежа'],'СчетНаОплату_Key')!==[$proof['invoice_ref']]) {
                 throw new DomainException('PAYMENT_PURPOSE_INVOICE_CONFLICT');
