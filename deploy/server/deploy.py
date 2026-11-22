@@ -72,6 +72,8 @@ def activate(root, receipt):
     compose(root, 'up', '-d', '--no-deps', '--force-recreate', 'app')
     if (root/'data/local/onec-read-admission.json').is_file():
         run('/usr/local/sbin/ipphp-onec-network', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if (root/'data/local/dadata-network.json').is_file():
+        run('/usr/local/sbin/ipphp-dadata-network', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     import time
     error=None
     for _ in range(40):
