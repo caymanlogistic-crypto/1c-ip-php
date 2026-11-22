@@ -50,7 +50,7 @@ final class View {
         if($u&&$u['role_id']==='admin')$administration.=self::navigationLink(InterfaceDesign::URL,'Конструктор интерфейса');
         if($u&&$u['role']==='admin')$nav.=self::navigationFolder('menu-administration','Администрирование',$administration,$folder);
         if(!$u)$nav='';
-        $css=self::fontPreloads();foreach(['system/palette.css','system/css/erp-ui.css','system/css/registry-components.css','system/css/ui-controls.css','system/css/ui-shell.css','system/css/registry-viewport.css','system/css/notification-icons.css','demo/demo_geometry.css','system/css/interface-designer.css'] as $asset)$css.='<link rel="stylesheet" href="/design/'.$asset.'">';
+        $css=self::fontPreloads();foreach(['system/palette.css','system/css/erp-ui.css','system/css/registry-components.css','system/css/ui-controls.css','system/css/ui-shell.css','system/css/registry-viewport.css','system/css/notification-icons.css','demo/demo_geometry.css','system/css/interface-designer.css?v=2'] as $asset)$css.='<link rel="stylesheet" href="/design/'.$asset.'">';
         ob_start();require APP_ROOT.'/app/views/workspace.php';return ob_get_clean();
     }
     public static function workspaceBody(string $body):string {
