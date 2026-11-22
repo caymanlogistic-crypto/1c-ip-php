@@ -4,6 +4,15 @@
   window.RentalPartyUI?.enhance(document);
   document.querySelector('[data-open-party-example]').addEventListener('click',()=>party.showModal());
   party.querySelectorAll('[data-close-party-example]').forEach(button=>button.addEventListener('click',()=>party.close()));
+  party.querySelector('[data-demo-bank-reference]').addEventListener('click',()=>{
+    const error=party.querySelector('#demo-party-bik-error');
+    const valid=/^[0-9]{9}$/.test(party.querySelector('[name=bik]').value.trim());
+    error.hidden=valid;
+    error.textContent=valid?'':'Поиск банка. Укажите БИК из 9 цифр.';
+    if (!valid) return;
+    party.querySelector('[name=bank]').value='Учебный банк';
+    party.querySelector('[name=correspondent_account]').value='00000000000000000000';
+  });
   party.querySelector('form').addEventListener('submit',event=>{event.preventDefault();document.querySelector('[data-compact-example-result]').textContent='Сохранён демонстрационный контрагент: '+party.querySelector('[name=name]').value;party.close();});
   const dialog=document.getElementById('compact-popup-example');
   document.querySelector('[data-open-compact-example]').addEventListener('click',()=>dialog.showModal());

@@ -560,7 +560,8 @@
 .registry-ui-modal .modal-foot-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
 .registry-ui-modal .field-label{display:block;margin-bottom:3px}
 .registry-ui-modal.transfer-dialog .transfer-modes .field-label{margin-bottom:6px}
-.registry-ui-modal .field-input{min-height:32px}
+.registry-ui-modal .field-input,
+.registry-ui-modal .field-select--input-height+.custom-select .cs-trigger{min-height:32px}
 .registry-ui-modal textarea.registry-ui-request-ids{height:96px;min-height:96px;max-height:none;resize:vertical}
 .registry-ui-modal .radio-item input[type=radio]{width:15px;height:15px;min-height:0;padding:0;margin:0;border:0}
 .registry-ui-modal .registry-ui-modal-text{display:block;margin:0;white-space:normal;overflow-wrap:anywhere;font:500 12px/16.8px var(--font);color:var(--p-text)}
@@ -568,6 +569,7 @@
 .registry-ui-modal .registry-ui-modal-summary{display:block;margin:0 0 8px;font:600 12px/16.8px var(--font);color:var(--p-text)}
 .registry-ui-modal .registry-ui-entity-id{font:700 12px/16.8px var(--font);font-variant-numeric:tabular-nums;color:var(--p-text)}
 .registry-ui-modal .field-msg.is-error:not([hidden]){display:block;margin-top:3px;color:var(--p-error)}
+.registry-ui-modal strong.field-msg.is-error{font-weight:700}
 .registry-ui-modal .badge:is(.badge-ok,.badge-warning,.badge-danger){height:20px;min-height:20px;padding:0 8px;border:1px solid var(--p-text);border-radius:2px;color:var(--p-text);font:500 11px/20px var(--font);box-shadow:none;transition:none}
 .registry-ui-modal .badge.badge-ok{background:var(--tone-cdebd7)}
 .registry-ui-modal .badge.badge-warning{background:var(--tone-fff1bd)}
@@ -711,16 +713,23 @@
 .registry-ui-form-section>.registry-ui-modal-summary{margin:0 0 4px}
 .registry-ui-form-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;min-width:0}
 .registry-ui-form-row--wide-code{grid-template-columns:minmax(0,3fr) minmax(150px,1fr)}
+.registry-ui-form-row--bank{grid-template-columns:minmax(0,1fr) minmax(235px,1.3fr) repeat(2,minmax(0,1fr));gap:8px 10px}
+.registry-ui-modal-address-row--code>.field-input{min-width:calc(9ch + 20px)}
+.registry-ui-form-section-heading{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}
+.registry-ui-modal .registry-ui-form-section-heading>.registry-ui-modal-summary{margin:0}
 :is(.registry-ui-form-section,.registry-ui-form-row)>.field{margin:0;min-width:0}
 .registry-ui-form-disclosure{min-width:0}
 .registry-ui-form-disclosure>summary{list-style:none;max-width:100%;width:max-content}
 .registry-ui-form-disclosure>summary::-webkit-details-marker{display:none}
 .registry-ui-form-disclosure[open]>.registry-ui-form-section{margin-top:16px}
+.registry-ui-form-disclosure[data-external-summary]:not([open]){display:none}
 .registry-ui-form-disclosure:not([open]) [data-disclosure-expanded],.registry-ui-form-disclosure[open] [data-disclosure-collapsed]{display:none}
+@media(max-width:900px){.registry-ui-form-row--bank{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.registry-ui-form-row{grid-template-columns:minmax(0,1fr)}}
 
 /* Complete form panel: the viewport, rather than the form body, handles small screens. */
-.registry-ui-form-sections--compact{gap:16px}
+.registry-ui-form-sections--compact{gap:12px}
+.registry-ui-form-sections--compact>.registry-ui-form-section>.registry-ui-modal-summary{margin-bottom:0}
 .registry-ui-form-sections--compact .registry-ui-form-disclosure[open]>.registry-ui-form-section{margin-top:8px}
 .registry-ui-form-composition{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(2,minmax(0,1fr));gap:16px;align-items:start;min-width:0}
 .registry-ui-modal.registry-ui-modal--form-canvas{position:fixed;inset:0;margin:0;padding:16px;width:100vw;min-width:0;max-width:none;height:100dvh;max-height:none;overflow:auto;background:transparent;border:0;box-shadow:none}
