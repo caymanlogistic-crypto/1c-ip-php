@@ -13,7 +13,7 @@ final class YakovlevInvoiceCoverage
     private const MONTHS=['январ'=>1,'феврал'=>2,'март'=>3,'апрел'=>4,'ма[йя]'=>5,'июн'=>6,'июл'=>7,
         'август'=>8,'сентябр'=>9,'октябр'=>10,'ноябр'=>11,'декабр'=>12];
 
-    public static function prove(PDO $db,array $contract,array $source,string $total): array
+    public static function prove(PDO $db,array $contract,array $source,string $total,?string $issued = null): array
     {
         $rows=array_merge($source['Товары'] ?? [],$source['Услуги'] ?? []);
         if (!$rows || ($source['СуммаВключаетНДС'] ?? null)!==false)
@@ -30,7 +30,7 @@ final class YakovlevInvoiceCoverage
                 throw new DomainException('CHARGE_KIND_UNCONFIRMED');
             if (!preg_match('/№\s*'.preg_quote((string)$contract['number'],'/').'(?![\p{L}\d\/-])/u',$text))
                 throw new DomainException('INVOICE_CONTRACT_TEXT_UNCONFIRMED');
-            [$month,$from,$until]=self::period($text);
+            [$month,$from,$until]=self::period($text,$issued);
             if ($period!==null && $period!==$month) throw new DomainException('INVOICE_PERIOD_UNCONFIRMED');
             $period=$month;
             if (!$contract['start_date'] || !$contract['end_date'] || $contract['start_date']>$from || $contract['end_date']<$until)

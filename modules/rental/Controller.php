@@ -69,9 +69,8 @@ final class Controller {
         . ($key === $current?'true':'false')
         . '">'
         . self::e($label)
-        . ' <b>'
-        . $count
-        . '</b>'.(isset($spec[2])?DirectoryUi::counts($spec[2],$countPage):'').'</button>';
+        . ($count === null ? '' : ' <b>'.$count.'</b>')
+        . (isset($spec[2])?DirectoryUi::counts($spec[2],$countPage):'').'</button>';
         }
         return $h
         . '</form>';

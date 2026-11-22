@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental;
 
-use App\{Auth, DB, View};
+use App\{Auth, DB, Http, View};
 use DateTimeImmutable;
 use DateTimeZone;
 use IntlDateFormatter;
@@ -31,39 +31,68 @@ final class MonthlyRentReconciliationPage
         $last = $_GET['last'] ?? $current->modify('+1 month')->format('Y-m');
         $first = is_string($first) ? $first : '';
         $last = is_string($last) ? $last : '';
-        $tab = ($_GET['flag'] ?? '') === 'review' ? 'review' : 'main';
+        $requested = $_GET['flag'] ?? '';
+        $tab = in_array($requested,['review','bills'],true) ? $requested : 'main';
+        $unlinked = ($_GET['unlinked'] ?? '') === '1';
         $body = Controller::heading(self::TITLE, 'Расчёт по договорам, выставленные счета 1С и сроки оплаты.',
             '<a class="btn btn-secondary" href="/rental/invoice-list">Счета и оплаты</a>');
         try {
             $months = MonthlyRentReconciliation::range($first, $last);
         } catch (RuntimeException $error) {
-            return View::page(self::TITLE, $body.self::tabs($tab,$first,$last,0,0)
-                .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last)
+            return View::page(self::TITLE, $body.self::tabs($tab,$first,$last,$unlinked,0,0)
+                .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last,$unlinked)
                 .'<section class="panel-section">'
                 .RentalUI::alert($error->getMessage(), '', 'error').'</section></section>', self::MENU_KEY);
         }
+        $url = self::ROUTE.'?'.http_build_query(['flag'=>'bills','first'=>$first,'last'=>$last,'unlinked'=>(int)$unlinked]);
+        if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+            if ($tab !== 'bills') throw new RuntimeException('Откройте вкладку «Счета и разнесения».',405);
+            Http::checkCsrf();
+            $saved = Service::command(InvoiceContractAssignment::SAVE,$_POST);
+            $payment = $saved['payment'];
+            $_SESSION['rental_notice'] = match (true) {
+                $payment['created'] > 0 && $payment['review'] > 0 => 'Привязка сохранена. Подтверждённые оплаты распределены. Остальные на сверке.',
+                $payment['review'] > 0, $payment['state'] === 'review' => 'Привязка сохранена. Откройте сверку счетов и оплат 1С.',
+                $payment['created'] > 0 => 'Привязка сохранена. Связанная оплата распределена.',
+                $payment['existing'] > 0 => 'Привязка сохранена. Связанная оплата уже учтена.',
+                $payment['state'] === 'accounting-disabled' => 'Привязка сохранена. Автоматическое разнесение выключено.',
+                in_array($payment['state'],['created','existing'],true) => 'Привязка сохранена. В загруженных платежах нет прямой ссылки на этот счёт.',
+                default => 'Привязка счёта сохранена.',
+            };
+            Http::redirect($url);
+        }
         $report = (new MonthlyRentReconciliation(DB::pdo(), Config::store()))->capture($months);
-        $body .= self::tabs($tab,$first,$last,count($months),count($report['issues']))
-            .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last,$report['archive']);
-        $body .= $tab === 'review' ? self::reviewTable($report['issues'])
-            : self::monthlyTable($report['months'], $report['invoice_facts']);
+        $bills = $tab === 'bills' ? MonthlyInvoiceAssignments::listing(DB::pdo(),$months) : null;
+        $body .= self::tabs($tab,$first,$last,$unlinked,count($months),count($report['issues']),$bills === null ? null : count($bills))
+            .'<section class="table-card registry-ui-card">'.self::filters($tab,$first,$last,$unlinked,$report['archive']);
+        if ($tab === 'bills') {
+            $document = $_GET['document'] ?? '';
+            $body .= RentalUI::notice();
+            if (is_string($document) && $document !== '') $body .= MonthlyInvoiceAssignments::editor($document,$url);
+            $body .= MonthlyInvoiceAssignments::table($bills,$url,$unlinked);
+        } else {
+            $body .= $tab === 'review' ? self::reviewTable($report['issues'])
+                : self::monthlyTable($report['months'], $report['invoice_facts']);
+        }
         return View::page(self::TITLE, $body.'</section>', self::MENU_KEY);
     }
 
-    private static function tabs(string $tab, string $first, string $last, int $months, int $issues): string
+    private static function tabs(string $tab, string $first, string $last, bool $unlinked, int $months, int $issues, ?int $bills = null): string
     {
-        return Controller::tabs(['main'=>['Основное',$months], 'review'=>['Требует сверки',$issues]],
-            $tab, context:['first'=>$first,'last'=>$last]);
+        return Controller::tabs(['main'=>['Основное',$months], 'review'=>['Требует сверки',$issues], 'bills'=>['Счета и разнесения',$bills]],
+            $tab, context:['first'=>$first,'last'=>$last,'unlinked'=>(int)$unlinked]);
     }
 
-    private static function filters(string $tab, string $first, string $last, array $archive = []): string
+    private static function filters(string $tab, string $first, string $last, bool $unlinked, array $archive = []): string
     {
         $summary = $archive ? '<div class="found-label registry-ui-toolbar-summary">'
             .'Загрузка 1С (МСК) · счета '.self::archiveTime($archive['invoices'], 'ожидаются')
             .' · банк '.self::archiveTime($archive['bank'], 'ожидается').'</div>' : '';
         return '<form class="table-toolbar registry-ui-toolbar" method="get" action="'.self::ROUTE.'">'
             .'<input type="hidden" name="flag" value="'.View::e($tab).'">'.$summary
-            .'<div class="toolbar-right">'.Controller::input('first', 'Первый месяц', $first, 'month')
+            .'<div class="toolbar-right">'.($tab === 'bills' ? DirectoryUi::checkbox('unlinked','Показать непривязанные',$unlinked)
+                : '<input type="hidden" name="unlinked" value="'.(int)$unlinked.'">')
+            .Controller::input('first', 'Первый месяц', $first, 'month')
             .Controller::input('last', 'Последний месяц', $last, 'month')
             .'<button class="btn btn-primary" type="submit">Показать</button></div></form>';
     }
@@ -215,7 +244,7 @@ final class MonthlyRentReconciliationPage
         return $value ? (new DateTimeImmutable($value))->format('d.m.Y H:i') : $empty;
     }
 
-    private static function monthLabel(string $month): string
+    public static function monthLabel(string $month): string
     {
         if (!InvoicePeriods::month($month)) return $month;
         $label = IntlDateFormatter::formatObject(new DateTimeImmutable($month.'-01'), 'LLLL yyyy', 'ru_RU');

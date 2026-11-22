@@ -91,7 +91,7 @@ final class Service {
 
     /** Same coarse grant for command execution and its later typed workflow notification. */
     public static function commandGrant(string $action,array $actor): string {
-        if (in_array($action,[UpdRegister::SAVE,SavedReceipt408::ACTION,OccupiedBilling::SAVE],true)) return 'finance.write';
+        if (in_array($action,[UpdRegister::SAVE,SavedReceipt408::ACTION,OccupiedBilling::SAVE,InvoiceContractAssignment::SAVE],true)) return 'finance.write';
         if ($action === StaffHandoff::PACKET) return match($actor['role']) {
             'admin'=>'*','director'=>'rental.approve.executive',
             'lawyer'=>'rental.approve.legal','accountant'=>'finance.write',default=>'rental.write',
@@ -276,6 +276,7 @@ final class Service {
         if ($action===ReturnAct::RECORD_ONE) return ReturnAct::recordOne($p,$in);
         if (in_array($action,ExpiryNotice::ACTIONS,true)) return ExpiryNotice::execute($p,$u,$action,$in);
         if ($action === UpdRegister::SAVE) return UpdRegister::save($p,$u,$in);
+        if ($action === InvoiceContractAssignment::SAVE) return InvoiceContractAssignment::save($p,$u,$in);
         if ($action === DebtFollowUp::SAVE) return DebtFollowUp::write($p,$u,$in);
         if (in_array($action,RentalServices::ACTIONS,true)) return RentalServices::execute($p,$action,$in);
         if(in_array($action,['workspace.reset','workspace.undo','workspace.remove-test-object'],true))return WorkspaceReset::execute($p,$u,$action,$in);

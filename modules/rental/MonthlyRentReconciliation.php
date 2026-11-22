@@ -94,7 +94,8 @@ final class MonthlyRentReconciliation
         }
         unset($invoice);
 
-        $query = $this->db->prepare("SELECT number,amount,source_id,document_date,raw_path,raw_sha256 FROM external_documents
+        $manual = InvoiceContractAssignment::index($this->db);
+        $query = $this->db->prepare("SELECT id,number,amount,source_id,document_date,raw_path,raw_sha256 FROM external_documents
             WHERE provider=? AND account_id='invoices' AND status='Проведён' AND document_date<=? ORDER BY document_date,id");
         $query->execute([YakovlevImport::PROVIDER, $now->format('Y-m-d')]);
         $verified = [];
@@ -102,6 +103,8 @@ final class MonthlyRentReconciliation
             $source = Support::decode($this->store->read($archived['raw_path'], $archived['raw_sha256']))['fields']['record'];
             if (!YakovlevInvoiceCoverage::hasRentLine($source)) continue;
             $ids = $bindings[$source['ДоговорКонтрагента_Key'] ?? ''] ?? [];
+            $assigned = InvoiceContractAssignment::contractId($archived,$manual[$archived['id']] ?? null);
+            if ($assigned) $ids = [$assigned];
             $contract = count($ids) === 1 ? ($contracts[$ids[0]] ?? null) : null;
             try {
                 $periods = self::sourceMonths($source, $archived['amount'], $archived['document_date']);
