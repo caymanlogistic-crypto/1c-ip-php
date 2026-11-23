@@ -1,0 +1,10 @@
+[Unit]
+Description=Process admitted rental reservation notices
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/srv/1c-ip-php/ui/data/local/reservation-deadlines.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock -n /run/lock/ipphp-reservation-notices-schedule.lock /usr/bin/docker exec ipphp-ui-app-1 php /opt/app/bin/process-reservation-deadlines.php --apply
+TimeoutStartSec=600
