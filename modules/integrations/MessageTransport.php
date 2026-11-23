@@ -4,7 +4,7 @@ namespace Modules\Integrations;
 
 final class MessageTransport
 {
-    public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|BookingMax|null $readCheck = null) {}
+    public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|BookingMax|ContractWorkflowReceiver|null $readCheck = null) {}
     public static function maxPayload(string $text,?string $format=null): string
     {
         return Support::json(['text'=>$text]+($format===null?[]:['format'=>$format]));

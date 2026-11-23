@@ -48,9 +48,19 @@ final class CurrentContractMaxProof
 
     public function plan(int $eventId,string $groupId,int $revision,int $catalogVersion,bool $staff=false): array
     {
+        return $this->buildPlan($eventId,$groupId,$revision,$catalogVersion,$staff);
+    }
+
+    public function relayProof(int $eventId,int $catalogVersion): array
+    {
+        return $this->buildPlan($eventId,null,0,$catalogVersion,false);
+    }
+
+    private function buildPlan(int $eventId,?string $groupId,int $revision,int $catalogVersion,bool $staff): array
+    {
         if($this->db->inTransaction())throw new RuntimeException('RENTAL_MAX_AFTER_COMMIT_ONLY');
-        if($eventId<1||($staff?$revision<1:$revision!==6)||$catalogVersion<1
-            ||!preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D',$groupId))
+        if($eventId<1||$catalogVersion<1||($groupId!==null && (($staff?$revision<1:$revision!==6)
+            ||!preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D',$groupId))))
             throw new RuntimeException('RENTAL_MAX_SELECTOR_INVALID');
         $q=$this->db->prepare('SELECT * FROM rental_events WHERE id=?');$q->execute([$eventId]);$row=$q->fetch(PDO::FETCH_ASSOC);
         $event=$row?WorkflowEvents::decode($row):null;
@@ -94,14 +104,16 @@ final class CurrentContractMaxProof
         };
         $level=PagePolicy::levelForRole((string)$actor['role_id'],(string)$actor['role'],!empty($actor['grants_configured']),PagePolicy::commandPage($event['action']));
         WorkflowMaxEvent::assertActor($event,$actor,$permission('rental.read'),$permission(Service::commandGrant($event['action'],$actor)),$level);
-        $connection=Config::get($this->db,'max');
-        if(!$connection['enabled']||(int)$connection['revision']!==$revision)throw new RuntimeException('RENTAL_MAX_REVISION_CHANGED');
-        $q=$this->db->prepare("SELECT g.id,g.name,g.chat_id,b.source_variant,b.source_group_id FROM messaging_groups g JOIN integration_group_bindings b ON b.provider='max' AND b.local_group_id=g.id WHERE g.id=? AND g.provider='max' AND g.enabled=1");
-        $q->execute([$groupId]);$groups=$q->fetchAll(PDO::FETCH_ASSOC);
-        if(count($groups)!==1||$groups[0]['name']!=='ТЕСТОВАЯ')throw new RuntimeException('RENTAL_MAX_APPROVED_GROUP_REQUIRED');
-        $q=$this->db->query("SELECT * FROM integration_configuration_sources WHERE provider='max'");$source=$q->fetch(PDO::FETCH_ASSOC);
-        if(!$source||(int)$source['source_revision']!==$revision)
-            throw new RuntimeException('RENTAL_MAX_SOURCE_BINDING_CHANGED');
+        if ($groupId!==null) {
+            $connection=Config::get($this->db,'max');
+            if(!$connection['enabled']||(int)$connection['revision']!==$revision)throw new RuntimeException('RENTAL_MAX_REVISION_CHANGED');
+            $q=$this->db->prepare("SELECT g.id,g.name,g.chat_id,b.source_variant,b.source_group_id FROM messaging_groups g JOIN integration_group_bindings b ON b.provider='max' AND b.local_group_id=g.id WHERE g.id=? AND g.provider='max' AND g.enabled=1");
+            $q->execute([$groupId]);$groups=$q->fetchAll(PDO::FETCH_ASSOC);
+            if(count($groups)!==1||$groups[0]['name']!=='ТЕСТОВАЯ')throw new RuntimeException('RENTAL_MAX_APPROVED_GROUP_REQUIRED');
+            $q=$this->db->query("SELECT * FROM integration_configuration_sources WHERE provider='max'");$source=$q->fetch(PDO::FETCH_ASSOC);
+            if(!$source||(int)$source['source_revision']!==$revision)
+                throw new RuntimeException('RENTAL_MAX_SOURCE_BINDING_CHANGED');
+        }
         if ($staff) {
             $values=self::staffValues($event);
         } else {
@@ -137,6 +149,7 @@ final class CurrentContractMaxProof
         }
         // Word/manual mode cannot silently tell a user to run the deferred automatic PDF step.
         if(preg_match('/Сформируйте\s+PDF/ui',$render['body']))throw new RuntimeException('RENTAL_MAX_WORD_MODE_CATALOG_UPDATE_REQUIRED');
+        if ($groupId===null) return ['event'=>$event,'catalog'=>$render];
         $plan=['schema'=>1,'event'=>$event,'group_id'=>$groupId,'revision'=>$revision,'catalog'=>$render,
             'group_binding'=>array_diff_key($groups[0],['chat_id'=>true]),'source'=>$source,
             'request_key'=>ServerWorkflowMax::requestKey($event,$staff),'attachments'=>[],'external_scope'=>'max-one-selected-rental-event'];

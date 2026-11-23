@@ -1136,6 +1136,8 @@ final class Controller {
             if ($delivery===null) {
                 if(\Modules\Integrations\ServerWorkflowMax::settings()!==null){
                     $delivery=(new \Modules\Integrations\ServerWorkflowMax(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
+                }elseif(\Modules\Integrations\ContractWorkflowRelay::configured()){
+                    $delivery=(new \Modules\Integrations\ContractWorkflowRelay(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
                 }elseif(\Modules\Integrations\LocalWorkflowMax::configured()){
                     $delivery=(new \Modules\Integrations\LocalWorkflowMax(DB::pdo()))->afterCommittedCommand($freshEventId,$commandKey,$actor);
                 }else{
