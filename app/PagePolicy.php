@@ -176,6 +176,10 @@ final class PagePolicy {
             'HEAD',
             'OPTIONS'
         ], true);
+        if (!$write && $path==='/rental/contracts') {
+            \Modules\Rental\CustomerBookings::readAccess();
+            return;
+        }
         $key = null;
         if ($path === '/rental/action') {
             $action=(string)($_POST['action']??'');
