@@ -163,8 +163,15 @@ final class ReservationMaxRelay
         if (!$root || strcasecmp(str_replace('\\','/',$root),str_replace('\\','/',APP_ROOT))!==0
             || !preg_match('/\Aipphp_task_[a-z0-9_]{1,20}\z/D',(string)$name) || $actual!==[$name,$name.'@127.0.0.1']
             || !is_int($scope['event_floor'] ?? null) || $scope['event_floor']<0) throw new RuntimeException('RESERVATION_RELAY_LOCAL_BINDING');
+        $actorMap=$scope['actor_map'] ?? null;
+        if (!is_array($actorMap) || !$actorMap) throw new RuntimeException('RESERVATION_RELAY_ACTOR_BINDING');
+        foreach ($actorMap as $localActor=>$serverActor) {
+            if (!is_int($localActor) || $localActor<1 || !is_int($serverActor) || $serverActor<1)
+                throw new RuntimeException('RESERVATION_RELAY_ACTOR_BINDING');
+        }
         $count=0;
-        foreach ((new BookingMax($this->db))->exports($scope['event_floor'],$scope['started_at'],$date) as $event) {
+        foreach ((new BookingMax($this->db))->exports($scope['event_floor'],$scope['started_at'],$date,array_keys($actorMap)) as $event) {
+            $event['actor_id']=$actorMap[$event['actor_id']];
             if (!self::validEvent($event)) throw new RuntimeException('RESERVATION_RELAY_LOCAL_EVENT');
             $json=Support::json($event);
             $time=time();

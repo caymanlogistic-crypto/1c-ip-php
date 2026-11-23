@@ -194,7 +194,7 @@ final class BookingMax
             'source_sha256'=>$sha,'template'=>$render['binding']];
     }
 
-    public function exports(int $floor,int $since,string $date): array
+    public function exports(int $floor,int $since,string $date,array $actors=[]): array
     {
         $scope=['epoch'=>$this->db->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn(),
             'event_floor'=>$floor,'valid_from'=>$since];
@@ -209,8 +209,10 @@ final class BookingMax
         foreach ($q->fetchAll() as $row) {
             $notice=$this->eligibleNotice($scope,$row,$date,$row);
             if (!$notice) continue;
+            $actor=$notice['actor_id'] ?? $notice['responsible_id'];
+            if ($actors && !in_array($actor,$actors,true)) continue;
             $events[]=['key'=>$row['source_key'],'action'=>$notice['action'],'recorded_at'=>$notice['recorded_at'],
-                'actor_id'=>$notice['actor_id'] ?? $notice['responsible_id'],'version'=>$notice['version'],
+                'actor_id'=>$actor,'version'=>$notice['version'],
                 'values'=>BookingNotices::values($notice)];
             if (count($events)>=20) break;
         }
