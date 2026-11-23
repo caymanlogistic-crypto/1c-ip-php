@@ -7,6 +7,7 @@ $path=rtrim(parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH),'/')?:'/';
 try {
     if($_SERVER['REQUEST_METHOD']==='POST'&&(int)($_SERVER['CONTENT_LENGTH']??0)>83886080)throw new RuntimeException('Размер запроса превышает допустимый предел.',413);
     if($path==='/health'){try{$p=DB::pdo();$p->query('SELECT 1');$m=(int)$p->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn();Http::json(['status'=>'ok','database'=>true,'migrations'=>$m,'live_sends'=>'disabled']);}catch(Throwable){Http::json(['status'=>'not_ready','database'=>false],503);}}
+    if($path===\Modules\Integrations\ReservationMaxRelay::PATH)\Modules\Integrations\ReservationMaxRelay::receive();
     if($path==='/')Http::redirect(Auth::user()?Auth::landing():'/login');
     if($path!=='/login'&&!Auth::user())Http::redirect('/login');
     if($path==='/design/demo')Http::redirect('/design/demo/index.html');
