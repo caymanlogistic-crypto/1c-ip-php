@@ -1114,7 +1114,7 @@ final class Controller {
             return ($input['intent'] ?? 'draft') === 'submit' ? '/rental/approvals' : '/rental/contracts';
         }
         if ($action === 'contract.delete') return '/rental/contracts';
-        if (in_array($action, ['contract.submit', 'contract.return'], true)) return '/rental/approvals';
+        if (in_array($action, ['contract.submit', 'contract.return', 'contract.forward'], true)) return '/rental/approvals';
         if (str_starts_with($action, 'reservation.')) return '/rental/contracts?flag=booking';
         if (str_starts_with($action,'party.')) return '/rental/parties';
         if (str_starts_with($action,'organization.')) return '/rental/organization';
