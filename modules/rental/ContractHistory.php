@@ -105,6 +105,7 @@ final class ContractHistory
             ['Дата договора', Documents::dateText($contract['document_date'])],
             ['Месячная аренда с НДС', Controller::money($contract['amount'])],
         ]).Controller::table(['Помещение', 'Начало', 'Окончание', 'Аренда с НДС'], $rows);
+        $body.=ContractReviewFiles::presentation($contract);
         if (!empty($snapshot['review'])) {
             $review=$snapshot['review'];
             $body.='<span class="registry-ui-modal-summary">Решения по прежней редакции</span>';

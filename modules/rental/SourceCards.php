@@ -120,7 +120,7 @@ final class SourceCards {
         if (!in_array($c['status'],['draft','cancelled'],true)) $body.=LeasePaymentTermsCard::summary($c);
         $body.=ExpiryNoticeCard::entry($c);
         $body.='<div class="demo-row">'.RentalUI::button('Клининг и допуслуги','/rental/services?contract_id='.$id).'</div>';
-        $body.=HandoverQuestionCard::section($c);
+        $body.=HandoverQuestionCard::section($c).ContractReviewFiles::presentation($c);
         $add = function(string $label, string $action, bool $primary = false)use(&$actions, $id) {
             $user=Auth::user();
             $grant=match($user['role']) {'lawyer'=>'rental.approve.legal','accountant'=>'finance.write','director'=>'rental.approve.executive',default=>'rental.write'};
@@ -328,6 +328,14 @@ final class SourceCards {
             $fields.='<span class="registry-ui-modal-text">Удалить черновик? Он исчезнет из рабочих списков. История изменений сохранится.</span>';
         }
         $extra = '';
+        if ($action==='contract.submit') {
+            Service::roles(['manager']);
+            Auth::requirePermission('rental.write');
+            Access::contract($id,2);
+            if (!in_array($c['status'],['draft','returned'],true) || $c['return_to']==='lawyer')
+                throw new RuntimeException('Договор не готов к отправке юристу.',409);
+            $fields.=ContractReviewFiles::fields($c);
+        }
         if ($action==='contract.legal')$fields.=LegalReview::context($c).LegalReview::fileFields($legalFile);
         $formId = 'rental-action-'
         . bin2hex(random_bytes(6));
@@ -380,7 +388,9 @@ final class SourceCards {
         . '&action=contract.handed');
         $body = '<form id="'
         . $formId
-        . '"'.(in_array($action,['contract.legal','contract.packet'],true)?' class="registry-ui-modal-grid"':'').' method="post" action="/rental/action"><input type="hidden" name="_csrf" value="'
+        . '"'.(in_array($action,['contract.legal','contract.packet','contract.submit'],true)?' class="registry-ui-modal-grid"':'')
+        . ($action==='contract.submit'?' enctype="multipart/form-data"':'')
+        . ' method="post" action="/rental/action"><input type="hidden" name="_csrf" value="'
         . View::e(Http::csrf())
         . '"><input type="hidden" name="id" value="'
         . $id

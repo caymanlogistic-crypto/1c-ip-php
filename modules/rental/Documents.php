@@ -17,7 +17,7 @@ final class Documents {
     private static function e(mixed $v):string {
         return htmlspecialchars((string)($v ?? ''), ENT_QUOTES|ENT_XML1, 'UTF-8');
     }
-    private static function directory():string {
+    public static function directory():string {
         $dir = APP_ROOT
         . '/.local/documents';
         if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir))throw new RuntimeException('Не удалось создать хранилище документов.');

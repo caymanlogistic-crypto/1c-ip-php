@@ -126,7 +126,8 @@ final class ContractForm {
                 $continuation['contract_id'] ?? null,true), empty($draft['draft_object_id'])?null:(int)$draft['draft_object_id']),
             $sum, null, true)
         . ($design!==''?'</div>':'')
-        . ($parts!=='' && $design!==''?'<div'.$section('parts').'>'.$parts.'</div>':$parts);
+        . ($parts!=='' && $design!==''?'<div'.$section('parts').'>'.$parts.'</div>':$parts)
+        . ContractReviewFiles::fields($c);
         $availability = '/rental/availability?mode=contract'
         . ($c?'&contract_id='
         . $c['id']:($booking?'&booking_id='
@@ -154,7 +155,7 @@ final class ContractForm {
         . $fid
         . '" class="registry-ui-modal-grid" novalidate data-source-validation data-rental-contract-form'.($design!==''?' data-design-fields':'').' data-rental-availability-url="'
         . View::e($availability)
-        . '" method="post" action="/rental/action">'
+        . '" method="post" action="/rental/action" enctype="multipart/form-data">'
         . $hidden
         . $fields
         . '</form>';

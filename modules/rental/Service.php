@@ -108,7 +108,7 @@ final class Service {
         };
     }
 
-    public static function command(string $action, array $in, ?int &$freshCommittedEventId=null): array {
+    public static function command(string $action, array $in, ?int &$freshCommittedEventId=null, ?ContractReviewFiles $materials=null): array {
         $freshCommittedEventId=null;
         if ($action === TermEndCorrection::ACTION) TermEndCorrection::requireOperator();
         if ($action === ArchivedRentCorrection::ACTION) ArchivedRentCorrection::requireOperator();
@@ -128,6 +128,11 @@ final class Service {
             if ($returnDate>date('Y-m-d'))throw new RuntimeException('Дата фактического возврата не может быть в будущем.', 422);
         }
         $u = Auth::user() ?? throw new RuntimeException('Требуется вход.');
+        if ($materials) {
+            self::roles(['manager']);
+            if (!in_array($action,ContractReviewFiles::ACTIONS,true) || DB::pdo()->inTransaction())
+                throw new RuntimeException('Материалы можно загрузить при сохранении проекта договора.',409);
+        }
         $key = (string)($in['command_key'] ?? '');
         if (!preg_match('/^[a-zA-Z0-9-]{16,100}$/D', $key))throw new RuntimeException('Отсутствует идентификатор команды.');
         $epoch=(string)DB::pdo()->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn();
@@ -136,11 +141,12 @@ final class Service {
             $action,
             $in
         ];
+        if ($materials) $fingerprintParts[]=$materials->fingerprint();
         // Preserve legacy retries until the first explicit baseline restore creates a new era.
         if (DB::pdo()->query("SELECT 1 FROM rental_facts WHERE namespace='zero_point_runtime' AND source_key='active'")->fetchColumn()) $fingerprintParts[]=$epoch;
         $fp = hash('sha256', Importer::json($fingerprintParts));
         $pendingEventId=null;
-        $result=DB::transaction(function(PDO $p)use($u, $key, $fp, $action, $in, $epoch, &$pendingEventId) {
+        $run=function(PDO $p)use($u, $key, $fp, $action, $in, $epoch, $materials, &$pendingEventId) {
             $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
             if ((string)$p->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn()!==$epoch)
                 throw new RuntimeException('Данные восстановлены. Откройте форму заново.',409);
@@ -155,7 +161,7 @@ final class Service {
             $eventContext = WorkflowEvents::before($p, $action, $in);
             $objectContext = ObjectActivity::before($p,$action,$in);
             $validatedPacket = NativePacket::validateBeforeB($p, $u, $action, $in);
-            $r = self::execute($p, $u, $action, $in);
+            $r = self::execute($p, $u, $action, $in, materials:$materials);
             $p->prepare('INSERT INTO rental_commands(command_key,action,fingerprint,result_json) VALUES(?,?,?,?)')->execute([
                 $key,
                 $action,
@@ -166,7 +172,13 @@ final class Service {
             $pendingEventId=WorkflowEvents::record($p, $u, $action, $in, $r, $key, $eventContext);
             if ($objectContext!==null) $pendingEventId=ObjectActivity::record($p,$u,$in,$r,$key,$objectContext);
             return $r;
-        });
+        };
+        try {
+            $result=DB::transaction($run);
+        } catch (\Throwable $failure) {
+            $materials?->removeUncommitted(DB::pdo());
+            throw $failure;
+        }
         // Only the transaction owner can publish a completed commit. Nested fixtures/callers
         // retain their outer transaction and must never trigger network effects here.
         if(!DB::pdo()->inTransaction())$freshCommittedEventId=$pendingEventId;
@@ -273,7 +285,7 @@ final class Service {
         foreach ($terms as $term)$p->prepare("INSERT INTO contract_terms(contract_id,object_id,start_date,end_date,amount,source_json) VALUES(?,?,?,?,?,'{}')")->execute($term);
     }
 
-    private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
+    private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null, ?ContractReviewFiles $materials=null): array {
         if (in_array($action,OnecRequest::ACTIONS,true)) return OnecRequest::execute($p,$u,$action,$in);
         if (isset(SecurityDeposit::TITLES[$action])) return SecurityDeposit::execute($p,$u,$action,$in);
         if (in_array($action,FinalReview::ACTIONS,true)) return FinalReview::execute($p,$u,$action,$in);
@@ -305,6 +317,7 @@ final class Service {
                 'manager'
             ]);
             $old = $action === 'contract.edit'?self::get($p, 'contracts', $id):null;
+            if ($materials && $old) Access::contract($id,2);
             $continuation=($old && $old['status']==='active') ? [] : ExpiryContinuation::context($p,$old,$in,'contract');
             if ($continuation && !$old && $continuation['link'])
                 return ['id'=>$continuation['link']['id'],'message'=>'Связанный договор уже подготовлен.'];
@@ -318,13 +331,13 @@ final class Service {
                     'active'
                 ], true))throw new RuntimeException('Условия на согласовании менять нельзя.');
                 if ($old['status']==='returned' && $old['return_to']==='lawyer')throw new RuntimeException('Исправление назначено юристу. Дождитесь передачи замечаний менеджеру.',409);
-                if ($old['status'] === 'active' && array_diff(array_keys($in), [
+                if ($old['status'] === 'active' && ($materials || array_diff(array_keys($in), [
                     'id',
                     'version',
                     'number',
                     'command_key',
                     'action'
-                ]))throw new RuntimeException('Условия действующего договора меняются дополнительным соглашением.');
+                ])))throw new RuntimeException('Условия действующего договора меняются дополнительным соглашением.');
             }
             $number = trim((string)($in['number'] ?? ''));
             if ($old) {
@@ -463,6 +476,9 @@ final class Service {
                     $id
                 ]);
             }
+            if ($materials || isset(json_decode($old['source_json'] ?? '{}',true)['review_materials'])) {
+                ContractReviewFiles::save($p,$id,$materials);
+            }
             ExpiryContinuation::bind($p,$continuation,$id,'contract');
             self::event($p, $u, $eventAction ?? $action, 'Сохранён договор №'
             . $number, $id);
@@ -505,12 +521,13 @@ final class Service {
                 case 'contract.submit':self::roles([
                     'manager'
                 ]);
+                if ($materials) Access::contract($id,2);
                 if (!in_array($status, [
                     'draft',
                     'returned'
                 ], true) || ($status === 'returned' && $c['return_to'] === 'lawyer'))throw new RuntimeException('Договор не готов к отправке юристу.');
                 if (($draft = ContractDraft::input($c)) !== null) {
-                    return self::execute($p, $u, 'contract.edit', array_merge($draft, ['id'=>$id,'version'=>$c['version'],'number'=>$c['number'],'command_key'=>$in['command_key'],'intent'=>'submit']), 'contract.submit');
+                    return self::execute($p, $u, 'contract.edit', array_merge($draft, ['id'=>$id,'version'=>$c['version'],'number'=>$c['number'],'command_key'=>$in['command_key'],'intent'=>'submit']), 'contract.submit',$materials);
                 }
                 $q = $p->prepare('SELECT object_id FROM contract_objects WHERE '.\App\ContractOccupancy::contractPredicate('contract_objects').' AND contract_id=?');
                 $q->execute([
@@ -532,6 +549,7 @@ final class Service {
                 if (($in['legal_file_id'] ?? '') !== $legalFile['id'])throw new RuntimeException('Файл договора изменился. Откройте проверку повторно и проверьте актуальный файл.',409);
                 $fileId = $legalFile['id'];
                 $signature = Evidence::approvalSignature($p, $id, $fileId);
+                ContractReviewFiles::rememberSubmission($p,$c,$u,(string)$in['command_key']);
                 $p->prepare("INSERT INTO rental_approvals(entity_type,entity_id,role,baseline_hash,file_id,actor_id) VALUES('contract',?,'lawyer',?,?,?) ON DUPLICATE KEY UPDATE baseline_hash=VALUES(baseline_hash),file_id=VALUES(file_id),actor_id=VALUES(actor_id),confirmed_at=CURRENT_TIMESTAMP")->execute([
                     $id,
                     $signature,
@@ -552,6 +570,7 @@ final class Service {
                 ], true))throw new RuntimeException('Нет этапа для возврата.');
                 $reason = trim($in['reason'] ?? '');
                 if (!$reason)throw new RuntimeException('Укажите причину.');
+                ContractReviewFiles::rememberSubmission($p,$c,$u,(string)$in['command_key']);
                 $return = $status === 'accounting'?'lawyer':'manager';
                 $next = 'returned';
                 break;
@@ -696,6 +715,7 @@ final class Service {
                 $next === 'closed' ? 0 : 1,
                 $id
             ]);
+            if ($action==='contract.submit') ContractReviewFiles::save($p,$id,$materials);
             if ($next==='active' && $status!=='active')CustomerBookings::cancelOthers($p,$id);
             self::event($p, $u, $action, 'Договор №'
             . $c['number']

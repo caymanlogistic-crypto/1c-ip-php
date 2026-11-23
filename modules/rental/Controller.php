@@ -1192,7 +1192,8 @@ final class Controller {
                 if ($plan!==null) $in['object_plan']=$plan;
             }
             $freshCommittedEventId=null;
-            $result = Service::command($action, $in, $freshCommittedEventId);
+            $materials=in_array($action,ContractReviewFiles::ACTIONS,true)?ContractReviewFiles::fromRequest($_FILES):null;
+            $result = Service::command($action, $in, $freshCommittedEventId,$materials);
             if (in_array($action,RentalServices::ACTIONS,true) && !empty($result['service_id'])) $target='/rental/service?id='.$result['service_id'];
             if ($action===PremisesInventory::MOVE) $target='/rental/object-inventory?id='.(int)$result['id'];
             $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''),$action);
