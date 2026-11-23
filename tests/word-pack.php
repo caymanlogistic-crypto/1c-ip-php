@@ -39,7 +39,8 @@ function fixture(string $type,bool $withPlan=true,array $rates=['10500.01'],stri
 }
 function confirmChecks(array $record): void {
     foreach ([LegalHandoff::PARTY,LegalHandoff::TERMS] as $check) {
-        command($check,['id'=>$record['id'],'version'=>$record['version']]);
+        command($check,['id'=>$record['id'],'version'=>$record['version'],
+            'party_basis'=>LegalHandoff::partyBasis(DB::pdo(),$record)]);
     }
 }
 function inputFor(array $plan):array{

@@ -555,10 +555,10 @@ final class Service {
                     'lawyer'
                 ]);
                 if (!LegalReview::assigned($c))throw new RuntimeException('Договор не у юриста.');
-                PartyLegalReview::assertCurrent($p,(int)$c['party_id'],allowNewOnlyBlock:true);
                 if (RegistryState::managed($c)) {
                     $legalFile=LegalHandoff::seal($p,$u,$c,$in);
                 } else {
+                    PartyLegalReview::assertCurrent($p,(int)$c['party_id'],allowNewOnlyBlock:true);
                     $legalFile=Evidence::latest($p,'contract',$id,'lawyer-file',(int)$c['version']);
                     if (empty($in['counterparty_confirmed']) || empty($in['financial_confirmed'])
                         || empty($in['document_confirmed']) || ($in['legal_file_id']??null)!==$legalFile['id']) {
@@ -605,7 +605,7 @@ final class Service {
                     'accountant'
                 ]);
                 if (!in_array($status,['accounting','approved'],true))throw new RuntimeException('Договор не у бухгалтера.');
-                PartyLegalReview::assertCurrent($p,(int)$c['party_id'],allowNewOnlyBlock:true);
+                LegalHandoff::assertCounterparty($p,$c);
                 if (empty($in['packet_confirmed']))
                     throw new RuntimeException('Откройте и проверьте актуальный пакет договора.',409);
                 foreach ([

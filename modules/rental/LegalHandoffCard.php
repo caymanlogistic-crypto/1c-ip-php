@@ -63,16 +63,11 @@ final class LegalHandoffCard
             $facts.=RentalUI::alert($blocked?'Работа с контрагентом заблокирована':'Новые договоры заблокированы',
                 (string)$party['block_reason'],$blocked?'error':'warning');
         }
-        $status=PartyLegalReview::state(DB::pdo(),(int)$party['id'])['status']??null;
-        $missing=in_array($status,['draft','returned'],true);
-        if ($missing) {
-            $facts.=RentalUI::alert('Карточка контрагента не готова к проверке',
-                'Для согласования нужна исходная карточка контрагента, переданная на проверку.','warning');
-        }
         $links=PagePolicy::level('rental.parties',Auth::user())>=1
             ?RentalUI::button('Показать полные данные','/rental/legal-party-details?contract_id='.(int)$contract['id']):'';
         $actions=(!$party['blocked']?self::toggle('review-party-block','Заблокировать работу',true):'')
-            .self::confirm($contract,LegalHandoff::PARTY,'Разрешить работу',$checked || $blocked || $missing);
+            .self::confirm($contract,LegalHandoff::PARTY,'Разрешить работу',$checked || $blocked,
+                extra:PremisesActsCard::hidden('party_basis',LegalHandoff::partyBasis(DB::pdo(),$contract)));
         $panels='';
         if (!$party['blocked']) {
             $panels=self::reason($contract,LegalHandoff::BLOCK,'review-party-block','Заблокировать работу','Отменить блокировку',
@@ -81,7 +76,7 @@ final class LegalHandoffCard
         }
         return self::section('Согласование контрагента',$facts
             .'<div class="registry-ui-review-actions"><div>'.$links.'</div><div class="demo-row">'.$actions.'</div></div>'.$panels,
-            $checked?'Работа разрешена':($blocked?'Работа заблокирована':($missing?'Ожидается карточка':'Ожидает решения')),$checked);
+            $checked?'Работа разрешена':($blocked?'Работа заблокирована':'Ожидает решения'),$checked);
     }
 
     private static function terms(array $contract,bool $checked): string
@@ -205,10 +200,10 @@ final class LegalHandoffCard
             .'<p class="registry-ui-modal-help">Укажите кратность и основание, если бухгалтеру нужно выставить счёт.</p>');
     }
 
-    private static function confirm(array $contract,string $action,string $label,bool $disabled,string $id=''): string
+    private static function confirm(array $contract,string $action,string $label,bool $disabled,string $id='',string $extra=''): string
     {
         return '<form'.($id?' id="'.View::e($id).'"':'').' method="post" action="/rental/action">'
-            .self::fields($contract,$action)
+            .self::fields($contract,$action).$extra
             .'<button class="btn btn-success-solid" type="submit"'.($disabled?' disabled':'').'>'.View::e($label).'</button></form>';
     }
 

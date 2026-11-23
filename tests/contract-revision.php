@@ -75,7 +75,8 @@ try {
     $legalApprove=static function(array $record)use($act,$stage,$id,$db): string {
         $act('lawyer');
         foreach ([LegalHandoff::PARTY,LegalHandoff::TERMS] as $action) {
-            Service::command($action,['id'=>$id,'version'=>$record['version'],'command_key'=>bin2hex(random_bytes(16))]);
+            Service::command($action,['id'=>$id,'version'=>$record['version'],'command_key'=>bin2hex(random_bytes(16)),
+                'party_basis'=>LegalHandoff::partyBasis($db,$record)]);
         }
         $fileId=$stage('lawyer-file',$record);
         $query=$db->prepare('SELECT id,filename,sha256 FROM rental_files WHERE id=?');

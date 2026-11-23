@@ -192,14 +192,17 @@ final class ContractReviewFiles
 
     public static function fields(?array $contract): string
     {
-        $html='<section class="registry-ui-modal-grid" aria-label="Материалы для юриста"><h3 class="registry-ui-modal-summary">Материалы для юриста</h3>'
+        $html='<section class="registry-ui-modal-grid registry-ui-review-section" aria-label="Материалы для юриста"><h3 class="modal-title">Материалы для юриста</h3>'
             .($contract ? self::presentation($contract) : '');
         return $html.'<div class="registry-ui-modal-grid" data-described-files data-file-name="'.self::FIELD
             .'" data-description-name="'.self::DESCRIPTIONS.'" data-description-limit="'.self::DESCRIPTION_LIMIT
-            .'" data-file-limit="'.self::LIMIT.'" data-file-accept=".doc,.docx,.pdf">'
-            .'<div class="registry-ui-modal-grid" data-described-file-list></div><div class="demo-row">'
-            .'<button type="button" class="btn btn-secondary" data-add-described-file>Добавить файл</button></div></div>'
-            .'<p class="registry-ui-modal-help">Необязательно. Word или PDF до 20 МБ на файл.</p></section>';
+            .'" data-file-limit="'.self::LIMIT.'">'
+            .'<label class="file-dropzone registry-ui-review-upload" data-file-dropzone>'
+            .'<span class="dz-title">Перетащите сюда файлы</span><span class="btn btn-secondary">Выбрать файлы</span>'
+            .'<span class="dz-note">Необязательно. Word или PDF, до 20 МБ на файл.</span>'
+            .'<input type="file" accept=".doc,.docx,.pdf" aria-label="Выбрать материалы для юриста" multiple data-pick-described-files></label>'
+            .'<p class="field-msg is-error" data-described-file-error role="status" hidden></p>'
+            .'<div class="registry-ui-modal-grid" data-described-file-list></div></div></section>';
     }
 
     public static function priorPresentation(array $contract): string

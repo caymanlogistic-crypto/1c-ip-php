@@ -17,6 +17,7 @@ final class LegalHandoff
     public const ACTIONS=[self::PARTY,self::TERMS,self::BLOCK,self::UPLOAD,self::REMOVE];
     private const DRAFT='legal_handoff_draft';
     private const SENT='legal_handoff_sent';
+    private const PARTY_PROOF='contract-party-v2:';
 
     private static function fact(PDO $db,string $namespace,string $key): array
     {
@@ -33,21 +34,34 @@ final class LegalHandoff
             ->execute([$namespace,$key,Importer::json($value),$namespace===self::DRAFT?1:0]);
     }
 
-    public static function basis(PDO $db,array $contract,string $check): string
+    public static function partyBasis(PDO $db,array $contract,bool $legacy=false): string
     {
-        if ($check==='party') {
-            $subject=Service::get($db,'parties',(int)$contract['party_id']);
-            $data=[$subject['id'],$subject['version'],$subject['blocked'],PartyLegalReview::state($db,(int)$subject['id'])];
-        } else {
-            $terms=array_map(static function(array $term): array {
-                unset($term['record_version']);
-                return $term;
-            },BillableTerms::forContract($db,(int)$contract['id']));
-            $data=[$contract['party_id'],$contract['number'],$contract['document_date'],$contract['start_date'],
-                $contract['end_date'],$contract['amount'],$terms,
-                InitialInvoice::approvalTerms($db,(int)$contract['id'])];
-        }
+        $party=Service::get($db,'parties',(int)$contract['party_id']);
+        $review=PartyLegalReview::state($db,(int)$party['id']);
+        $data=[$party['id'],$party['version'],$party['blocked'],$review];
+        if ($legacy) return hash('sha256',Importer::canonicalJson($data));
+        $file=PartyLegalReview::contractSource($db,$party,$review);
+        $data[]=(int)$contract['id'];
+        $data[]=PartyLegalReview::signature($db,$party);
+        $data[]=$file ? [$file['id'],$file['sha256']] : null;
+        return self::PARTY_PROOF.hash('sha256',Importer::canonicalJson($data));
+    }
+
+    private static function termsBasis(PDO $db,array $contract): string
+    {
+        $terms=array_map(static function(array $term): array {
+            unset($term['record_version']);
+            return $term;
+        },BillableTerms::forContract($db,(int)$contract['id']));
+        $data=[$contract['party_id'],$contract['number'],$contract['document_date'],$contract['start_date'],
+            $contract['end_date'],$contract['amount'],$terms,InitialInvoice::approvalTerms($db,(int)$contract['id'])];
         return hash('sha256',Importer::canonicalJson($data));
+    }
+
+    private static function matchesParty(PDO $db,array $contract,array $draft): bool
+    {
+        $saved=$draft['party']??null;
+        return is_string($saved) && hash_equals($saved,self::partyBasis($db,$contract,!str_starts_with($saved,self::PARTY_PROOF)));
     }
 
     private static function continues(array $contract,array $draft): bool
@@ -67,16 +81,38 @@ final class LegalHandoff
         $draft=self::draft($db,$contract);
         $allowed=self::continues($contract,$draft);
         return [
-            'party'=>$allowed && ($draft['party']??null)===self::basis($db,$contract,'party'),
-            'terms'=>$allowed && ($draft['terms']??null)===self::basis($db,$contract,'terms'),
+            'party'=>$allowed && self::matchesParty($db,$contract,$draft),
+            'terms'=>$allowed && ($draft['terms']??null)===self::termsBasis($db,$contract),
         ];
     }
 
-    public static function counterpartyApproved(PDO $db,array $contract): bool
+    public static function assertCounterparty(PDO $db,array $contract,bool $requireApproval=false): void
     {
         $draft=self::draft($db,$contract);
-        return ($draft['party']??null)===self::basis($db,$contract,'party')
-            && (self::continues($contract,$draft) || !empty($draft['sealed']));
+        $eligible=self::continues($contract,$draft) || !empty($draft['sealed']);
+        if (!str_starts_with((string)($draft['party']??''),self::PARTY_PROOF)) {
+            if ($requireApproval && $eligible && self::matchesParty($db,$contract,$draft)) {
+                PartyLegalReview::assertCurrent($db,(int)$contract['party_id'],allowNewOnlyBlock:true);
+                return;
+            }
+            PartyLegalReview::assertCurrent($db,(int)$contract['party_id'],$requireApproval,allowNewOnlyBlock:!$requireApproval);
+            return;
+        }
+        if (!$eligible || !self::matchesParty($db,$contract,$draft)) {
+            throw new RuntimeException('Подтвердите актуальные реквизиты контрагента по этому договору.',409);
+        }
+        self::verifyCounterparty($db,$contract);
+    }
+
+    private static function verifyCounterparty(PDO $db,array $contract): array
+    {
+        $party=Service::get($db,'parties',(int)$contract['party_id']);
+        if ($party['blocked'] && !self::blocksOnlyNew($party)) {
+            throw new RuntimeException('Работа с контрагентом заблокирована.',409);
+        }
+        $review=PartyLegalReview::state($db,(int)$party['id']);
+        PartyLegalReview::assertContractSource($db,$party,$review);
+        return [$party,$review];
     }
 
     public static function ready(PDO $db,array $contract): bool
@@ -106,25 +142,27 @@ final class LegalHandoff
                 self::continues($contract,$draft)?$draft:[],['party'=>true,'terms'=>true]);
         }
         if ($action===self::PARTY) {
-            $party=Service::get($db,'parties',(int)$contract['party_id']);
-            if ($party['blocked'] && !self::blocksOnlyNew($party))
-                throw new RuntimeException('Работа с контрагентом заблокирована.',409);
-            $review=PartyLegalReview::state($db,(int)$party['id']);
-            if (($review['status']??null)==='pending') {
+            $basis=self::partyBasis($db,$contract);
+            if (!hash_equals($basis,(string)($input['party_basis']??''))) {
+                throw new RuntimeException('Реквизиты или исходная карточка изменились. Откройте договор заново.',409);
+            }
+            [$party,$review]=self::verifyCounterparty($db,$contract);
+            if (($review['status']??null)==='pending' && !LegalHandoff::blocksOnlyNew($party)
+                && hash_equals((string)($review['signature']??''),PartyLegalReview::signature($db,$party))) {
                 PagePolicy::requireCommand(PartyLegalReview::ACCEPT);
                 PartyLegalReview::decision($db,$actor,PartyLegalReview::ACCEPT,[
                     'id'=>$party['id'],'version'=>$party['version'],'file_id'=>$review['file_id'],'verified'=>1,
                 ]);
+                $basis=self::partyBasis($db,$contract);
             }
-            PartyLegalReview::assertCurrent($db,(int)$party['id'],allowNewOnlyBlock:true);
-            $draft['party']=self::basis($db,$contract,'party');
+            $draft['party']=$basis;
             $message='Работа с контрагентом разрешена.';
         } elseif ($action===self::TERMS) {
             if (($input['multiple']??'')!=='' || trim((string)($input['reason']??''))!=='') {
                 InitialInvoice::execute($db,$actor,InitialInvoice::TERMS,$contract,
                     $input+['confirmed'=>'1']);
             }
-            $draft['terms']=self::basis($db,$contract,'terms');
+            $draft['terms']=self::termsBasis($db,$contract);
             $message='Условия договора подтверждены.';
         } else {
             if (!self::ready($db,$contract)) throw new RuntimeException('Сначала подтвердите контрагента и условия.',409);
@@ -171,6 +209,7 @@ final class LegalHandoff
     public static function seal(PDO $db,array $actor,array $contract,array $input): array
     {
         if (!self::ready($db,$contract)) throw new RuntimeException('Сначала подтвердите контрагента и условия.',409);
+        self::assertCounterparty($db,$contract);
         $id=(int)$contract['id'];
         $draft=self::draft($db,$contract);
         $files=self::files($db,$contract);
@@ -178,7 +217,11 @@ final class LegalHandoff
         $expected=(string)($input['packet_fingerprint']??'');
         if (!hash_equals(self::fingerprint($files),$expected)) throw new RuntimeException('Комплект изменился. Проверьте файлы повторно.',409);
         $validated=self::verifyFiles($db,$id,$files);
+        $party=Service::get($db,'parties',(int)$contract['party_id']);
+        $source=PartyLegalReview::contractSource($db,$party,PartyLegalReview::state($db,(int)$party['id']));
         $bundle=['contract_id'=>$id,'version'=>(int)$contract['version'],'files'=>$files,'actor'=>$actor['name'],
+            'party_proof'=>$draft['party'],'terms_proof'=>$draft['terms'],
+            'party_source'=>$source ? array_intersect_key($source,array_flip(['id','filename','sha256'])) : null,
             'sent_at'=>date('Y-m-d H:i:s')];
         self::store($db,self::SENT,$id.':'.$contract['version'],$bundle);
         self::store($db,self::DRAFT,(string)$id,$draft+['sealed'=>true]);

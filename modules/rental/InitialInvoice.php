@@ -51,8 +51,7 @@ final class InitialInvoice
     {
         if (!empty($contract['signed'])) return;
         if (empty($contract['party_id'])) throw new RuntimeException('Сначала укажите контрагента.',409);
-        if (LegalHandoff::counterpartyApproved($db,$contract)) return;
-        PartyLegalReview::assertCurrent($db,(int)$contract['party_id'],requireApproval:true);
+        LegalHandoff::assertCounterparty($db,$contract,requireApproval:true);
     }
 
     public static function available(array $contract): bool

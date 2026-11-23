@@ -78,7 +78,7 @@ final class PartyLegalReview
             throw new RuntimeException('Исходная карточка сейчас недоступна для замены.',409);
     }
 
-    private static function findFile(PDO $db,int $id,?string $fileId=null,?int $version=null): ?array
+    private static function findFile(PDO $db,int $id,?string $fileId=null,?int $version=null,bool $lock=false): ?array
     {
         $sql="SELECT * FROM rental_files WHERE entity_type='party' AND entity_id=? AND kind=?";
         $arguments=[$id,self::FILE];
@@ -89,9 +89,30 @@ final class PartyLegalReview
             $sql.=' AND version=?';
             $arguments[]=$version;
         }
-        $statement=$db->prepare($sql.' ORDER BY upload_order DESC LIMIT 1');
+        $statement=$db->prepare($sql.' ORDER BY upload_order DESC LIMIT 1'.($lock?' FOR UPDATE':''));
         $statement->execute($arguments);
         return $statement->fetch()?:null;
+    }
+
+    public static function contractSource(PDO $db,array $party,array $review): ?array
+    {
+        $id=(int)$party['id'];
+        $lock=$db->inTransaction();
+        return self::findFile($db,$id,null,(int)$party['version'],$lock)
+            ?? (isset($review['file_id']) ? self::findFile($db,$id,$review['file_id'],lock:$lock) : null);
+    }
+
+    public static function assertContractSource(PDO $db,array $party,array $review): void
+    {
+        if (in_array($review['status']??null,['accepted','pending','returned'],true) || isset($review['file_id'])) {
+            $pinned=self::findFile($db,(int)$party['id'],(string)($review['file_id']??''),lock:$db->inTransaction());
+            if (!$pinned || !hash_equals((string)($review['file_sha256']??''),$pinned['sha256'])) {
+                throw new RuntimeException('Исходная карточка недоступна. Проверьте приложенные документы.',409);
+            }
+            Evidence::integrity($pinned);
+        }
+        $attached=self::contractSource($db,$party,$review);
+        if ($attached && $attached['id']!==($pinned['id']??null)) Evidence::integrity($attached);
     }
 
     public static function decision(PDO $db,array $actor,string $action,array $input): array
@@ -161,7 +182,7 @@ final class PartyLegalReview
     {
         $db=DB::pdo();
         $review=self::state($db,(int)$party['id']);
-        $file=isset($review['file_id'])?self::findFile($db,(int)$party['id'],$review['file_id']):null;
+        $file=self::contractSource($db,$party,$review);
         return $file?'<p><a href="/rental/download?id='.View::e($file['id']).'" title="'
             .View::e($file['filename']).'">Скачать прикреплённые файлы</a></p>':'';
     }

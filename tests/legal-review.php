@@ -7,7 +7,7 @@ set_exception_handler(static function(Throwable $error): void {
 });
 
 use App\{Auth, DB};
-use Modules\Rental\{Documents, FileOrder, Importer, LegalHandoff, LegalReview, PartyLegalReview, Service, SourceCards, WorkflowEvents};
+use Modules\Rental\{DirectoryDetails, Documents, FileOrder, Importer, InitialInvoice, LegalHandoff, LegalReview, NativePacket, PartyLegalReview, Service, SourceCards, WorkflowEvents};
 
 // Run only against a verified, separately restored local worktree copy.
 $db=DB::pdo();
@@ -59,12 +59,13 @@ function stageFiles(PDO $db,array $contract,int $amount,array &$paths): void {
     $db->prepare("UPDATE rental_facts SET fact_json=? WHERE namespace='legal_handoff_draft' AND source_key=?")
         ->execute([Importer::json($draft),$contract['id']]);
 }
-function fixture(): int {
+function fixture(string $inn='7701234560'): int {
     $db=DB::pdo();actor('manager');
     $pid=(int)$db->query('SELECT MAX(id)+1 FROM parties')->fetchColumn();
     $oid=(int)$db->query('SELECT MAX(id)+1 FROM rental_objects')->fetchColumn();
     $cid=(int)$db->query('SELECT MAX(id)+1 FROM cadastre')->fetchColumn();
-    $db->prepare("INSERT INTO parties(id,name,inn,address,source_json) VALUES(?,'Тест согласования договоров','7701234560','Тестовый адрес','{}')")->execute([$pid]);
+    $db->prepare("INSERT INTO parties(id,name,inn,address,source_json) VALUES(?,'Тест согласования договоров',?,'Тестовый адрес','{}')")->execute([$pid,$inn]);
+    PartyLegalReview::requireOnNewParty($db,$pid);
     $db->prepare("INSERT INTO cadastre(id,number,area,type,source_json) VALUES(?,'77:01:000000:999999',20,'Офис','{}')")->execute([$cid]);
     $db->prepare("INSERT INTO rental_objects(id,name,type,area,cadastre_id,source_json) VALUES(?,'Тестовое помещение юриста','Офис',20,?,'{}')")->execute([$oid,$cid]);
     $r=command('contract.create',['party_id'=>$pid,'start_date'=>'2026-12-01','end_date'=>'2027-11-30',
@@ -80,7 +81,16 @@ try {
     actor('lawyer');
     check(!LegalHandoff::files($db,$c),'No historical file reuse');
     denied(fn()=>command('contract.legal',approveInput($id)),'подтвердите контрагента',409);
-    command(LegalHandoff::PARTY,['id'=>$id,'version'=>$c['version']]);
+    $partyInput=['id'=>$id,'version'=>$c['version'],'party_basis'=>LegalHandoff::partyBasis($db,$c)];
+    $db->prepare('UPDATE parties SET version=version+1 WHERE id=?')->execute([$party['id']]);
+    denied(fn()=>command(LegalHandoff::PARTY,$partyInput),'Реквизиты или исходная карточка изменились',409);
+    $partyInput['party_basis']=LegalHandoff::partyBasis($db,$c);
+    DirectoryDetails::store($db,'party_legal_review',(int)$party['id'],['status'=>'accepted','signature'=>'legacy']);
+    denied(fn()=>command(LegalHandoff::PARTY,array_replace($partyInput,['party_basis'=>LegalHandoff::partyBasis($db,$c)])),
+        'Исходная карточка недоступна',409);
+    PartyLegalReview::requireOnNewParty($db,(int)$party['id']);
+    command(LegalHandoff::PARTY,$partyInput);
+    check(PartyLegalReview::state($db,(int)$party['id'])===['status'=>'draft'],'No independent counterparty case was submitted');
     command(LegalHandoff::TERMS,['id'=>$id,'version'=>$c['version']]);
     denied(fn()=>command('contract.legal',approveInput($id)),'Загрузите итоговый файл',422);
     stageFiles($db,$c,2,$files);
@@ -91,6 +101,18 @@ try {
     denied(fn()=>command('contract.legal',$input),'Комплект изменился',409);
     $input=approveInput($id);$input['command_key']=bin2hex(random_bytes(16));
     $r=Service::command('contract.legal',$input);check($r['status']==='accounting','Legal handoff');
+    check(LegalHandoff::history($db,$id)[0]['party_source']===null,'No source file presented as evidence');
+    InitialInvoice::assertIssueParty($db,record($id));
+    actor('accountant');
+    $preview=NativePacket::preview($db,'contract',$id,Auth::user());
+    $db->prepare('UPDATE parties SET name=? WHERE id=?')->execute(['Изменённый контрагент',$party['id']]);
+    $packet=['id'=>$id,'version'=>record($id)['version'],'packet_confirmed'=>1,
+        'expected_packet_hash'=>$preview['expected_packet_hash'],'counterparty_confirmed'=>1,
+        'financial_confirmed'=>1,'document_confirmed'=>1];
+    denied(fn()=>command('contract.packet',$packet),NativePacket::PREVIEW_CHANGED,409);
+    denied(fn()=>InitialInvoice::assertIssueParty($db,record($id)),'актуальные реквизиты',409);
+    $db->prepare('UPDATE parties SET name=? WHERE id=?')->execute([$party['name'],$party['id']]);
+    actor('lawyer');
     $count=(int)$db->query('SELECT COUNT(*) FROM rental_events')->fetchColumn();
     check(Service::command('contract.legal',$input)===$r,'Idempotent receipt');
     check((int)$db->query('SELECT COUNT(*) FROM rental_events')->fetchColumn()===$count,'No duplicate event');
@@ -132,10 +154,45 @@ try {
     command(LegalHandoff::BLOCK,['id'=>$deny,'version'=>1,'reason'=>'Учебный отказ']);
     check(record($deny)['return_to']==='manager' && record($existing)['status']==='legal',
         'Only the selected review is returned, existing review continues');
-    command(LegalHandoff::PARTY,['id'=>$existing,'version'=>1]);
+    command(LegalHandoff::PARTY,['id'=>$existing,'version'=>1,'party_basis'=>LegalHandoff::partyBasis($db,record($existing))]);
     actor('manager');
     denied(fn()=>command('contract.create',$training),'заблокирована');
-    echo "PASS: handoff, packet, role denial, file replacement, replay, accountant return, new-contract block, no invoices\n";
+
+    $withSource=record(fixture('7701234561'));
+    $sourceParty=Service::get($db,'parties',(int)$withSource['party_id']);
+    $sourceInput=['id'=>$withSource['id'],'version'=>$withSource['version'],'party_basis'=>LegalHandoff::partyBasis($db,$withSource)];
+    $sourceId=bin2hex(random_bytes(16));$sourceName=$sourceId.'.pdf';$sourcePath=Documents::directory().'/'.$sourceName;
+    $files[]=$sourcePath;
+    $sourceBytes="%PDF-1.4\n% synthetic party source\n%%EOF\n";
+    file_put_contents($sourcePath,$sourceBytes);
+    $db->prepare("INSERT INTO rental_files(id,entity_type,entity_id,version,kind,filename,path,sha256,mime)
+        VALUES(?,'party',?,?,'party-source',?,?,?,'application/pdf')")
+        ->execute([$sourceId,$sourceParty['id'],$sourceParty['version'],$sourceName,$sourceName,hash('sha256',$sourceBytes)]);
+    FileOrder::assign($db,$sourceId);
+    actor('lawyer');
+    denied(fn()=>command(LegalHandoff::PARTY,$sourceInput),'исходная карточка изменились',409);
+    $sourceInput['party_basis']=LegalHandoff::partyBasis($db,$withSource);
+    file_put_contents($sourcePath,'changed');
+    denied(fn()=>command(LegalHandoff::PARTY,$sourceInput),'целостности документа');
+    file_put_contents($sourcePath,$sourceBytes);
+    actor('manager');
+    command(PartyLegalReview::SUBMIT,['id'=>$sourceParty['id'],'version'=>$sourceParty['version'],'file_id'=>$sourceId]);
+    $sourceInput['party_basis']=LegalHandoff::partyBasis($db,$withSource);
+    actor('lawyer');
+    command(LegalHandoff::PARTY,$sourceInput);
+    $sourceReview=PartyLegalReview::state($db,(int)$sourceParty['id']);
+    check($sourceReview['status']==='accepted' && $sourceReview['file_id']===$sourceId,'Explicit source review was lost');
+    InitialInvoice::assertIssueParty($db,$withSource);
+    file_put_contents($sourcePath,'changed');
+    denied(fn()=>InitialInvoice::assertIssueParty($db,$withSource),'целостности документа');
+
+    $legacy=record(fixture('7701234562'));
+    DirectoryDetails::store($db,'party_legal_review',(int)$legacy['party_id'],[]);
+    $db->prepare("INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES('legal_handoff_draft',?,?,1)")
+        ->execute([$legacy['id'],Importer::json(['version'=>(int)$legacy['version'],
+            'party'=>LegalHandoff::partyBasis($db,$legacy,legacy:true),'files'=>[]])]);
+    InitialInvoice::assertIssueParty($db,$legacy);
+    echo "PASS: optional source, current and legacy proofs, handoff, return, roles, file integrity, no invoices\n";
 } finally {
     $db->rollBack();
     foreach ($files as $path) if (is_file($path)) unlink($path);

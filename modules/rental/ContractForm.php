@@ -95,17 +95,18 @@ final class ContractForm {
         if (($c['status']??null)==='returned' && !empty($c['reason']))
             $fields.=RentalUI::alert('Причина возврата',(string)$c['reason'],'warning');
         if ($continuation) $fields.=ExpiryContinuation::editorNote($continuation);
-        $fields.='<div class="field"'.$section('party').'>'
-        . '<label class="field-label" for="contract-party">Контрагент <span class="req">*</span>'
-        . '</label>'
+        $fields.='<section class="registry-ui-modal-grid registry-ui-review-section"'.$section('party').'>'
+        . '<div class="field"><h3 class="modal-title"><label for="contract-party">Контрагент <span class="req">*</span>'
+        . '</label></h3>'
         . '<div class="registry-ui-modal-address-row">'
         . '<select class="field-input field-select" id="contract-party" name="party_id" required data-rental-picker="party">'
         . $options
         . '</select>'
         . '<button class="btn btn-secondary" type="button" data-rental-open="/rental/edit-party?context=contract-create" data-rental-create-party>Создать контрагента</button>'
         . '</div>'
-        . '</div>'
-        . '<div class="registry-ui-modal-grid registry-ui-modal-grid--reading"'.$section('dates').'>'
+        . '</div></section>'
+        . '<section class="registry-ui-modal-grid registry-ui-modal-grid--reading registry-ui-review-section"'.$section('dates').'>'
+        . '<div class="registry-ui-modal-preview"><h3 class="modal-title">Номер и даты</h3></div>'
         . $field('number','<label class="field">'
         . '<span class="field-label">Номер договора</span>'
         . '<input class="field-input" name="number" value="'
@@ -114,18 +115,19 @@ final class ContractForm {
         . $field('document_date', Controller::input('document_date', 'Дата договора', $c['document_date'] ?? date('Y-m-d'), 'date', true))
         . $field('start_date', Controller::input('start_date', 'Начало аренды', $start, 'date', true))
         . $field('end_date', Controller::input('end_date', 'Окончание аренды', $end, 'date', true))
-        . '</div>';
+        . '</section>';
         $vat = Controller::query('SELECT vat FROM organization WHERE id=1')[0]['vat'] ?? null;
         $parts = PartTerms::render(\App\DB::pdo(), 'contract', $id, $start, $end, $draft);
-        $fields.=($design!==''?'<div'.$section('objects').'>':'').'<span class="registry-ui-modal-help">НДС нашей организации: '
+        $fields.='<section class="registry-ui-modal-grid registry-ui-review-section"'.$section('objects').'>'
+        . '<h3 class="modal-title">Объекты аренды</h3><span class="registry-ui-modal-help">НДС нашей организации: '
         . View::e($vat === null?'не задан':rtrim(rtrim($vat, '0'), '.')
         . '%')
         . '. Суммы включают НДС.</span>'
         . ContractObjectEditor::render($selected,
             Availability::options(Availability::items($availabilityStart, $availabilityEnd, $c?(int)$c['id']:null, $booking?(int)$booking['id']:null, true,
                 $continuation['contract_id'] ?? null,true), empty($draft['draft_object_id'])?null:(int)$draft['draft_object_id']),
-            $sum, null, true)
-        . ($design!==''?'</div>':'')
+            $sum, null, true, 'Выбрано')
+        . '</section>'
         . ($parts!=='' && $design!==''?'<div'.$section('parts').'>'.$parts.'</div>':$parts)
         . ContractReviewFiles::fields($c);
         $availability = '/rental/availability?mode=contract'
