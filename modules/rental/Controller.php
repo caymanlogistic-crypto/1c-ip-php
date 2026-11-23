@@ -1117,7 +1117,7 @@ final class Controller {
         }
         if ($action === 'contract.delete') return '/rental/contracts';
         if ($action === 'contract.submit') return '/rental/approvals';
-        if (str_starts_with($action, 'reservation.')) return '/rental/contracts';
+        if (str_starts_with($action, 'reservation.')) return '/rental/booking-list';
         if (str_starts_with($action,'party.')) return '/rental/parties';
         if (str_starts_with($action,'organization.')) return '/rental/organization';
         if ($action==='cadastre.save') return '/rental/cadastre';
@@ -1175,6 +1175,7 @@ final class Controller {
         unset($in['_csrf']);
         $action = (string)($in['action'] ?? '');
         $target = match (true) {
+            in_array($action,OnecRequest::ACTIONS,true) => OnecRequest::route((int)($in['id']??0)),
             in_array($action,InitialInvoice::ACTIONS,true) => InitialInvoiceCard::route((int)($in['id']??0)),
             $action===LeasePaymentTerms::SAVE => LeasePaymentTermsCard::route((int)($in['id']??0),(string)($in['month']??'')),
             $action===DebtFollowUp::SAVE => DebtFollowUpCard::route((int)($in['invoice_id']??0)),

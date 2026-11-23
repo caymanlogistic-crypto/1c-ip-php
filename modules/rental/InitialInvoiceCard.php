@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Modules\Rental;
 
-use App\{DB, View};
+use App\{Auth, DB, PagePolicy, View};
 use RuntimeException;
 
 final class InitialInvoiceCard
@@ -48,6 +48,11 @@ final class InitialInvoiceCard
                 $body.self::factForm($contract,$action), '',$page);
         }
         $plan = InitialInvoice::preview(DB::pdo(),$contract,$issued);
+        $actor=Auth::user();
+        if ($actor['role']==='manager' && OnecRequest::available($contract)
+            && PagePolicy::level('rental.onec-work',$actor)>=2 && !$plan['existing'] && !$plan['receipt']) {
+            $body.=RentalUI::button('Передать в «Работа с 1С»',OnecRequest::route($id).'&issued='.$issued);
+        }
         if ($plan['existing'] || $plan['receipt']) {
             $body .= self::history($plan);
         } else {
@@ -61,7 +66,17 @@ final class InitialInvoiceCard
             if (InitialInvoice::can($contract,InitialInvoice::DUE)) {
                 $body .= RentalUI::button('Подтвердить индивидуальный срок',$url.'&fact=due');
             }
-            if ($plan['rows'] && InitialInvoice::can($contract,InitialInvoice::ISSUE)) {
+            $canIssue = InitialInvoice::can($contract,InitialInvoice::ISSUE);
+            if ($canIssue) {
+                try {
+                    InitialInvoice::assertIssueParty(DB::pdo(),$contract,Auth::user()['role']);
+                } catch (RuntimeException $error) {
+                    if ($error instanceof \PDOException) throw $error;
+                    $body .= RentalUI::alert('Выпуск первого счёта пока недоступен',$error->getMessage(),'warning');
+                    $canIssue = false;
+                }
+            }
+            if ($plan['rows'] && $canIssue) {
                 $pending = in_array(null,array_column($plan['rows'],'due'),true);
                 $label = $pending ? 'Подтверждаю состав начислений и регистрацию строк с неподтверждённым сроком'
                     : 'Подтверждаю дату и состав начислений';
@@ -88,9 +103,8 @@ final class InitialInvoiceCard
             $fields = '<label class="field"><span class="field-label">Согласованная форма</span><select name="lease_form" required>'
                 .'<option value="">Выберите</option>';
             foreach ($forms as $form=>$label) $fields .= '<option value="'.View::e($form).'">'.View::e($form.' · '.$label).'</option>';
-            $fields .= '</select></label><label class="field"><span class="field-label">Кратность обеспечения</span>'
-                .'<select name="multiple" required><option value="">Выберите</option><option value="0">Не предусмотрено</option>'
-                .'<option value="1">Одна месячная ставка</option><option value="2">Две месячные ставки</option></select></label>';
+            $fields .= '</select></label>'
+                .Controller::input('multiple','Обеспечение в месячных ставках (0 — без обеспечения)',1,'number');
             $fields .= Controller::input('reason','Согласованный пункт договора о первом начислении и обеспечении');
             $check = 'Подтверждаю порядок 15/16 и выбранное обеспечение для этой редакции';
         } else {

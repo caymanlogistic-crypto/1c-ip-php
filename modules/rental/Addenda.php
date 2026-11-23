@@ -129,6 +129,7 @@ final class Addenda {
     }
     public static function apply(PDO $p, array $c, array $d, ?string $applicationAction = null, ?array $actor = null, ?string $commandKey = null):void {
         $relations = Occupancy::relations($p, (int)$c['id']);
+        $priorBookingPeriods = CustomerBookings::periods($p,(int)$c['id']);
         $previous = array_keys($relations);
         $terms = Occupancy::documentTerms($p,(int)$d['id']);
         $ids = array_map('intval', array_column($terms, 'object_id'));
@@ -195,7 +196,7 @@ final class Addenda {
         $p->prepare("UPDATE reservations SET status='converted',version=version+1 WHERE document_id=? AND status='active'")->execute([
             $d['id']
         ]);
-        CustomerBookings::cancelOthers($p,(int)$c['id']);
+        CustomerBookings::cancelOthers($p,(int)$c['id'],$priorBookingPeriods,$d);
         Billing::reviewAfterTerms($p, (int)$c['id']);
         if (!empty(json_decode($c['source_json'], true)['imported']))$p->prepare('UPDATE contracts SET servicing_document_id=?,servicing_effective_date=? WHERE id=?')->execute([
             $d['id'],

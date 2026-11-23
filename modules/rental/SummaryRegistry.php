@@ -23,7 +23,7 @@ final class SummaryRegistry
         $contracts=Controller::query("SELECT c.*,p.name party_name FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status NOT IN ('closed','cancelled') AND ".ContractDraft::visibleSql()." ORDER BY c.id");
         $bookings=Controller::query("SELECT r.*,o.name object_name,COALESCE(NULLIF(r.client_name,''),p.name) client FROM reservations r "
             ."JOIN rental_objects o ON o.id=r.object_id LEFT JOIN parties p ON p.id=r.party_id "
-            ."WHERE (r.status='active' OR r.status='expired' AND r.document_id IS NULL) AND ".WorkspaceReset::visibleSql('r')." ORDER BY r.id");
+            ."WHERE r.status='active' AND (r.document_id IS NOT NULL OR r.contract_id IS NULL AND r.until_date>=CURRENT_DATE) AND ".WorkspaceReset::visibleSql('r')." ORDER BY r.id");
         $pending=[];
         foreach (Controller::query("SELECT DISTINCT contract_id FROM rental_documents WHERE status IN ('legal','accounting','returned','approved','sent')") as $row) $pending[(int)$row['contract_id']]=true;
         $approval=static fn($contract)=>in_array($contract['status'],['legal','accounting','returned','approved','sent'],true) || isset($pending[(int)$contract['id']]);
@@ -54,9 +54,8 @@ final class SummaryRegistry
         if (in_array($flag,['all','booking'],true)) foreach ($bookings as $booking) {
             if (!WorkRegistry::matches($query,[$booking['client'],$booking['comment'],$booking['object_name']])) continue;
             $url=$booking['document_id']?'/rental/document?id='.(int)$booking['document_id']:'/rental/booking?id='.(int)$booking['id'];
-            $expired=CustomerBookings::expired($booking,date('Y-m-d'));
-            $rows[]=['_attrs'=>'class="'.($expired?'registry-ui-warning':'registry-ui-soft-info').'" data-rental-url="'.$url.'" tabindex="0"','Резервирование',View::e($booking['client'] ?: '—'),
-                $expired?'Срок истёк · требуется решение':'До '.RegistryState::date($booking['until_date']),
+            $rows[]=['_attrs'=>'class="registry-ui-soft-info" data-rental-url="'.$url.'" tabindex="0"','Резервирование',View::e($booking['client'] ?: '—'),
+                'До '.RegistryState::date($booking['until_date']),
                 View::e(\App\People::workflowName('manager')),View::e($booking['object_name'].' · '.$booking['comment'])];
         }
         $controls='<form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'.View::e($flag).'">'.DirectoryUi::search($query).'</form>';

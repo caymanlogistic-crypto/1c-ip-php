@@ -3,7 +3,7 @@
  'use strict';
  const formats=Object.freeze(['plain','markdown','html']);
  const people={manager:'Раиса Шилова',lawyer:'Наиль Еналиев',accountant:'Наталия Демидова',director:'Андрей Яковлев',admin:'Владимир',actor:'Система'};
- const placeholders=Object.freeze(['text','number','party','lawyer','manager','accountant','director','admin','version','reason','invoiceNumbers','recipientNames','actor','documentNumber','effective','context','documentLabel','invoiceSummary','effectiveSummary','managerEmail']);
+ const placeholders=Object.freeze(['text','number','party','lawyer','manager','accountant','director','admin','version','reason','invoiceNumbers','recipientNames','actor','documentNumber','effective','context','documentLabel','invoiceSummary','effectiveSummary','managerEmail','reservationStart','reservationCommentLine','previousDeadline']);
  const tokenSet=new Set(placeholders),formatOf=v=>v===null||v===undefined||v===''?'plain':String(v);
  const max=(id,name,trigger,title,action,body='{text}')=>Object.freeze({id,name,trigger,format:'markdown',body:title+'\n{context}\n\n'+body+'\n\n'+action});
  const maxDefinitions=Object.freeze([

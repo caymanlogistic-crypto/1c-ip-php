@@ -4,7 +4,7 @@ namespace Modules\Integrations;
 
 final class MessageTransport
 {
-    public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|null $readCheck = null) {}
+    public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|BookingMax|null $readCheck = null) {}
     public static function safeException(\Throwable $error): array
     {
         $classes=['RuntimeException','InvalidArgumentException','PDOException','JsonException','TypeError','Error','Exception'];

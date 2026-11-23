@@ -19,25 +19,39 @@ final class InitialInvoice
     private const NS = 'rental_initial_invoice';
     private const STATUSES = ['draft','returned','legal','accounting','approved','sent','active'];
 
-    public static function grant(string $action): string
+    public static function grant(string $action, string $role): string
     {
-        return $action === self::TERMS ? 'rental.approve.legal' : 'finance.write';
+        return match (true) {
+            $action === self::TERMS => 'rental.approve.legal',
+            $action === self::ISSUE && $role === 'manager' => 'rental.write',
+            default => 'finance.write',
+        };
     }
 
     public static function can(array $contract, string $action): bool
     {
         $actor = Auth::user();
+        $managerIssue = $action === self::ISSUE && ($actor['role'] ?? '') === 'manager';
         $role = $action === self::TERMS ? 'lawyer' : 'accountant';
-        if (!in_array($actor['role'] ?? '',[$role,'admin'],true) || !Auth::can(self::grant($action))
+        if ((!$managerIssue && !in_array($actor['role'] ?? '',[$role,'admin'],true))
+            || !Auth::can(self::grant($action,$actor['role']))
             || !self::available($contract)) return false;
+        if ($managerIssue && (!empty($contract['signed']) || $contract['status'] === 'active')) return false;
         try {
             Access::contract((int)$contract['id'],2);
         } catch (RuntimeException $error) {
             if ($error->getCode() === 403) return false;
             throw $error;
         }
-        return $action === self::TERMS || empty($actor['grants_configured'])
+        return $managerIssue || $action === self::TERMS || empty($actor['grants_configured'])
             || $actor['role'] === 'admin' || PagePolicy::level('rental.invoice-list',$actor) >= 2;
+    }
+
+    public static function assertIssueParty(PDO $db, array $contract, string $role): void
+    {
+        if ($role !== 'manager') return;
+        if (empty($contract['party_id'])) throw new RuntimeException('Сначала укажите контрагента и передайте его карточку на согласование юристу.',409);
+        PartyLegalReview::assertCurrent($db,(int)$contract['party_id'],requireApproval:true);
     }
 
     public static function available(array $contract): bool
@@ -317,6 +331,7 @@ final class InitialInvoice
                 return ['id'=>$id,'invoice_ids'=>$receipt['invoice_ids'],'message'=>'Первоначальные счета уже зарегистрированы.'];
             }
             if (self::issuedFor($db,$id)) throw new RuntimeException('Первоначальные счета уже есть. Откройте сохранённые документы.',409);
+            self::assertIssueParty($db,$contract,$actor['role']);
             $plan = self::preview($db,$contract,$issued);
             if (!$plan['rows']) throw new RuntimeException($plan['questions'][0] ?? 'Нет подтверждённых начислений.',422);
             if (!hash_equals($plan['token'],(string)($input['plan_token'] ?? '')))
@@ -344,11 +359,13 @@ final class InitialInvoice
         $fact = ['basis'=>$basis,'reason'=>$reason,'actor_id'=>(int)$actor['id'],'command_key'=>$input['command_key']];
         if ($action === self::TERMS) {
             $form = (string)($input['lease_form'] ?? '');
-            $multiple = (string)($input['multiple'] ?? '');
-            if (!isset(LeasePaymentTerms::allowedForms($db,$contract)[$form]) || !in_array($multiple,['0','1','2'],true))
+            $multiple = filter_var($input['multiple'] ?? null,FILTER_VALIDATE_INT,['options'=>['min_range'=>0]]);
+            if (!isset(LeasePaymentTerms::allowedForms($db,$contract)[$form]) || $multiple === false)
                 throw new RuntimeException('Укажите подходящую форму договора и согласованную кратность обеспечения.',422);
+            if (bccomp(bcmul($contract['amount'] ?? '0',(string)$multiple,2),'999999999999999999.99',2)>0)
+                throw new RuntimeException('Сумма обеспечения превышает допустимую сумму счёта.',422);
             $kind = 'terms';
-            $fact += ['form'=>$form,'multiple'=>(int)$multiple];
+            $fact += ['form'=>$form,'multiple'=>$multiple];
             $message = 'Условия первого начисления подтверждены.';
         } else {
             $part = (string)($input['due_part'] ?? '');

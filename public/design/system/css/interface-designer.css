@@ -55,7 +55,7 @@
 .interface-designer-item-handle { text-align: end; }
 [data-interface-design].registry-ui-modal {
   width: min(var(--design-width, min(738px, calc((100vw - 32px)*.6))), calc(100vw - 16px));
-  height: var(--design-height, auto);
+  height: var(--design-height, fit-content);
   max-height: calc(100dvh - 16px);
   translate: var(--design-x, 0) var(--design-y, 0);
   container-type: inline-size;

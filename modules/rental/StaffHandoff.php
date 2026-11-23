@@ -12,7 +12,8 @@ final class StaffHandoff
     private const REVIEW = ['lawyer' => 'Проверить договорные документы', 'accountant' => 'Проверить документы и расчёты'];
     private const APPROVAL = ['create','edit','submit','legal','return','forward','packet','handed','sign','apply','cancel'];
     private const SPECIAL = [ContractRevision::ACTION, 'contract.reconcile', FinalReview::RETURN_FINANCE, FinalReview::RETURN_LEGAL,
-        FinalReview::RESUBMIT, SecurityDeposit::BASIS, PremisesActs::CONFIRM, HandoverQuestion::OPEN, self::PACKET];
+        FinalReview::RESUBMIT, SecurityDeposit::BASIS, PremisesActs::CONFIRM, HandoverQuestion::OPEN,
+        OnecRequest::SUBMIT, OnecRequest::RETURN, self::PACKET];
 
     public static function managed(string $action): bool
     {
@@ -41,7 +42,13 @@ final class StaffHandoff
         $linked = null;
         $task = '';
 
-        if ($action === self::PACKET && $before['status']==='approved' && $after['status']==='sent') {
+        if (in_array($action,[OnecRequest::SUBMIT,OnecRequest::RETURN],true)) {
+            $request=OnecRequest::read($db,$id);
+            $submit=$action===OnecRequest::SUBMIT;
+            $roles=[$submit?'accountant':'manager'];
+            $assigned=$request[$submit?'reviewer_id':'manager_id'];
+            $task=$submit?'Проверить заявку в разделе «Работа с 1С»':'Исправить заявку в разделе «Работа с 1С»';
+        } elseif ($action === self::PACKET && $before['status']==='approved' && $after['status']==='sent') {
             $roles = ['manager'];
             $task = 'Получить подписанные документы';
         } elseif ($action === ContractRevision::ACTION && $after['status']==='legal' && (int)$after['version']>(int)$before['version']) {

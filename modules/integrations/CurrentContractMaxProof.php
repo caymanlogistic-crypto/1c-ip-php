@@ -79,7 +79,7 @@ final class CurrentContractMaxProof
         $q=$this->db->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$event['entity_id']]);$owner=$q->fetch(PDO::FETCH_ASSOC);
         if(!$owner||(int)$owner['version']!==(int)$event['entity_version']||($party?(!empty($owner['blocked'])?'blocked':'unblocked'):$owner['status'])!==$event['to_status'])
             throw new RuntimeException('RENTAL_MAX_EVENT_OWNER_CHANGED');
-        if ($staff) self::assertStaffOwner($this->db,$event,$owner);
+        if ($staff) self::assertStaffOwner($this->db,$event,$owner,$command['result_json']);
         if ($key === HandoverQuestion::EVENT || $staff && in_array($event['action'], [HandoverQuestion::OPEN,PremisesActs::CONFIRM], true)) {
             $question = HandoverQuestion::read($this->db, $event['entity_id']);
             if (!$question || !empty($question['resolution']) || $question['notification_command'] !== $event['command_key']) {
@@ -140,7 +140,7 @@ final class CurrentContractMaxProof
         return $plan;
     }
 
-    private static function assertStaffOwner(PDO $db,array $event,array $owner): void
+    private static function assertStaffOwner(PDO $db,array $event,array $owner,string $resultJson): void
     {
         $q=$db->prepare('SELECT number FROM contracts WHERE id=?');
         $q->execute([$event['contract_id']]);
@@ -148,6 +148,13 @@ final class CurrentContractMaxProof
         if ($contractId!==$event['contract_id'] || $owner['number']!==$event['record_number']
             || $q->fetchColumn()!==$event['contract_number'])
             throw new RuntimeException('STAFF_HANDOFF_RECORD_CHANGED');
+        if (in_array($event['action'],[\Modules\Rental\OnecRequest::SUBMIT,\Modules\Rental\OnecRequest::RETURN],true)) {
+            $request=\Modules\Rental\OnecRequest::read($db,$contractId);
+            $result=Support::decode($resultJson);
+            $expected=$event['action']===\Modules\Rental\OnecRequest::SUBMIT?'pending':'returned';
+            if (($request['state']??null)!==$expected || $request['version']!==($result['request_version']??null))
+                throw new RuntimeException('STAFF_HANDOFF_RECORD_CHANGED');
+        }
         $linked=$event['staff_handoff']['linked_contract']??null;
         if ($linked) {
             $q->execute([$linked['id']]);
@@ -171,7 +178,10 @@ final class CurrentContractMaxProof
         if ($event['entity_kind']==='document') $label.=', ДС № '.$number($event['record_number']);
         $staff=$event['staff_handoff'];
         if (isset($staff['linked_contract'])) $label.=', связанный договор № '.$number($staff['linked_contract']['number']);
+        $task=$staff['task'];
+        if (in_array($event['action'],[\Modules\Rental\OnecRequest::SUBMIT,\Modules\Rental\OnecRequest::RETURN],true))
+            $task.=' https://ui.89.208.213.14.sslip.io'.\Modules\Rental\OnecRequest::route($event['contract_id']);
         return ['documentLabel'=>$label,'actor'=>StaffHandoff::name($event['actor_name'],$event['actor_role']),
-            'recipientNames'=>implode(', ',array_column($staff['targets'],'label')),'text'=>$staff['task']];
+            'recipientNames'=>implode(', ',array_column($staff['targets'],'label')),'text'=>$task];
     }
 }

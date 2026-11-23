@@ -1,7 +1,7 @@
 'use strict';
 // Presentation-only registry refresh. Filtering and business completion targets come from PHP.
 (() => {
-  const completionPaths = new Set(['contracts','contracts-active','contracts-completed','approvals','templates','invoices','invoice-list','reconciliation','parties','organization','cadastre','objects','operations','errors','journal','summary'].map(page=>'/rental/'+page));
+  const completionPaths = new Set(['contracts','booking-list','contracts-active','contracts-completed','approvals','templates','invoices','invoice-list','reconciliation','parties','organization','cadastre','objects','operations','errors','journal','summary'].map(page=>'/rental/'+page));
   let pending = null;
   let generation = 0;
   let searchTimer = null;
