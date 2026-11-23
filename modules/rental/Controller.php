@@ -258,10 +258,8 @@ final class Controller {
     public static function page(string $page): string {
         Auth::requirePermission('rental.read');
         $u = Auth::user();
-        if ((in_array($page, [
-            'contracts',
-            'new-contract'
-        ], true) && !in_array($u['role'], [
+        $bookingOnly=$page === 'contracts' && !\App\Menu::allowed('contracts',$u);
+        if (($page === 'new-contract' && !in_array($u['role'], [
             'admin',
             'manager'
         ], true)) || ($page === 'templates' && !in_array($u['role'], [
@@ -291,7 +289,7 @@ final class Controller {
         if (in_array($u['role'], [
             'admin',
             'manager'
-        ], true) && in_array($page, [
+        ], true) && !$bookingOnly && in_array($page, [
             'contracts',
             'contracts-active',
             'approvals'
@@ -338,7 +336,7 @@ final class Controller {
         if ($page==='templates' && in_array($u['role'],['admin','lawyer'],true) && Auth::can('rental.approve.legal')
             && \App\PagePolicy::level('rental.templates',$u)>=2) $headActions=RentalUI::button('Создать шаблон','/rental/template-editor',true);
         $sub = match ($page) {
-            'contracts' => 'Двойной щелчок открывает редактор черновика или карточку резервирования.', 'contracts-active' => 'Действующие условия аренды, сроки и назначенные действия.', 'contracts-completed' => 'История завершённой аренды и подтверждений расчётов.', 'approvals' => 'Назначенные проверки, ожидание подписания и история решений.', 'invoices', 'payments' => 'Поступления и связанные счета. Раскройте строку контрагента, чтобы открыть счёт.', 'invoice-list' => 'Счета, оплаты и остатки по каждому документу.', 'templates'=>'Юрист готовит новую версию, руководитель утверждает.', 'objects' => 'Помещения и машиноместа: занятость, резервирование и контроль простоя', 'cadastre' => 'Кадастровая площадь и доступность для сдачи.', default => ''
+            'contracts' => $bookingOnly?'Двойной щелчок открывает карточку резервирования.':'Двойной щелчок открывает редактор черновика или карточку резервирования.', 'contracts-active' => 'Действующие условия аренды, сроки и назначенные действия.', 'contracts-completed' => 'История завершённой аренды и подтверждений расчётов.', 'approvals' => 'Назначенные проверки, ожидание подписания и история решений.', 'invoices', 'payments' => 'Поступления и связанные счета. Раскройте строку контрагента, чтобы открыть счёт.', 'invoice-list' => 'Счета, оплаты и остатки по каждому документу.', 'templates'=>'Юрист готовит новую версию, руководитель утверждает.', 'objects' => 'Помещения и машиноместа: занятость, резервирование и контроль простоя', 'cadastre' => 'Кадастровая площадь и доступность для сдачи.', default => ''
         };
         $h = self::heading($title, $sub, $headActions);
         if (isset($_SESSION['rental_notice'])) {
@@ -349,7 +347,7 @@ final class Controller {
         }
         $q = trim((string)($_GET['q'] ?? ''));
         if ($page === 'contracts') {
-            $h.=WorkRegistry::render();
+            $h.=WorkRegistry::render($bookingOnly);
         }
         elseif(in_array($page, [
             'contracts-active',
@@ -1117,7 +1115,7 @@ final class Controller {
         }
         if ($action === 'contract.delete') return '/rental/contracts';
         if ($action === 'contract.submit') return '/rental/approvals';
-        if (str_starts_with($action, 'reservation.')) return '/rental/booking-list';
+        if (str_starts_with($action, 'reservation.')) return '/rental/contracts?flag=booking';
         if (str_starts_with($action,'party.')) return '/rental/parties';
         if (str_starts_with($action,'organization.')) return '/rental/organization';
         if ($action==='cadastre.save') return '/rental/cadastre';

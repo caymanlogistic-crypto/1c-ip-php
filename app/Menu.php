@@ -10,8 +10,11 @@ final class Menu {
             ? ['Простой от 30 дней','Простой 14–29 дней','Недавно сданы','Резервирование']
             : ['Ошибки / срочно','Требует внимания','Положительные события','Ожидание / наблюдение'];
     }
-    public const GROUPS=['Договоры'=>['contracts'=>'Договоры в работе','booking-list'=>'Резервирование','contracts-active'=>'Действующие договоры','contracts-completed'=>'Завершённые договоры'],'Согласования'=>['approvals'=>'Согласование документов','onec-work'=>'Работа с 1С','templates'=>'Шаблоны документов'],'Счета и сверка'=>['invoices'=>'Оплаты контрагентов','invoice-list'=>'Счета и оплаты',MonthlyRentReconciliationPage::MENU_KEY=>'Помесячная сверка','reconciliation'=>'Финальная сверка'],'Справочники'=>['parties'=>'Контрагенты','organization'=>'Наша организация','cadastre'=>'Кадастровые объекты','objects'=>'Объекты аренды'],'Контроль'=>['operations'=>'Операции и отправки','errors'=>'Контроль ошибок','journal'=>'Журнал','summary'=>'Обзор документов']];
-    public static function visible(string $key,array $u):bool {return ($u['role']==='admin'||!array_key_exists($key,self::GROUPS['Контроль']))&&self::allowed($key,$u);}
+    public const GROUPS=['Договоры'=>['contracts'=>'Договоры в работе','contracts-active'=>'Действующие договоры','contracts-completed'=>'Завершённые договоры'],'Согласования'=>['approvals'=>'Согласование документов','onec-work'=>'Работа с 1С','templates'=>'Шаблоны документов'],'Счета и сверка'=>['invoices'=>'Оплаты контрагентов','invoice-list'=>'Счета и оплаты',MonthlyRentReconciliationPage::MENU_KEY=>'Помесячная сверка','reconciliation'=>'Финальная сверка'],'Справочники'=>['parties'=>'Контрагенты','organization'=>'Наша организация','cadastre'=>'Кадастровые объекты','objects'=>'Объекты аренды'],'Контроль'=>['operations'=>'Операции и отправки','errors'=>'Контроль ошибок','journal'=>'Журнал','summary'=>'Обзор документов']];
+    public static function visible(string $key,array $u):bool {
+        if ($key === 'contracts' && \Modules\Rental\CustomerBookings::canRead($u)) return true;
+        return ($u['role']==='admin'||!array_key_exists($key,self::GROUPS['Контроль']))&&self::allowed($key,$u);
+    }
     public static function permissionPage(string $key): string
     {
         return $key === MonthlyRentReconciliationPage::MENU_KEY ? 'invoice-list' : $key;
@@ -38,9 +41,10 @@ final class Menu {
         if(in_array('invoices',$allowed,true))$raw['invoices']=\Modules\Rental\InvoiceFacts::menuCounts(DB::pdo(),true);
         $pages=[];$folders=[];
         foreach(array_values(self::GROUPS)as $i=>$items){$sum=[0,0,0,0];$visible=false;foreach($items as $key=>$label){if(!in_array($key,$allowed,true))continue;$visible=true;$counts=array_map(static fn($n)=>max(0,(int)$n),$raw[$key]??[0,0,0,0]);$pages[$key]=$counts;foreach($counts as $tone=>$n)$sum[$tone]+=$n;}
-            if(!$configured&&$i===0&&$u['role']==='director'){$sum[2]+=max(0,(int)($raw['contracts'][2]??0));$sum[3]+=max(0,(int)($raw['contracts'][3]??0));}
             if($visible||!$configured)$folders['menu-folder-'.$i]=$sum;
-        }return ['pages'=>$pages,'folders'=>$folders,'notices'=>\Modules\Rental\WorkflowNotices::projection(DB::pdo(),$u,$tasks,$allowed)];
+        }
+        $workflowPages=self::allowed('contracts',$u)?$allowed:array_diff($allowed,['contracts']);
+        return ['pages'=>$pages,'folders'=>$folders,'notices'=>\Modules\Rental\WorkflowNotices::projection(DB::pdo(),$u,$tasks,$workflowPages)];
     }
     public static function badges(array $counts,bool $sub=false,string $page=''):string {$html='';$names=self::attentionLabels($page);foreach($counts as $i=>$n){if(!$n)continue;$label=$names[$i].': '.(int)$n;$html.='<span class="'.($sub?'sub-count':'nav-count').' '.['is-alert','is-warning','is-success','is-info'][$i].'" data-attention="'.['red','yellow','green','blue'][$i].'" aria-label="'.View::e($label).'" title="'.View::e($label).'">'.(int)$n.'</span>';}return $html?'<span class="nav-counts">'.$html.'</span>':'';}
 }

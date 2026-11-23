@@ -115,7 +115,7 @@ final class BookingController {
             if ($stopped && $r['until_date']>=date('Y-m-d')) $actions=self::actionButton($r,'reopen','Вернуть заявку в работу');
             $actions.=self::actionButton($r,'cancel',$stopped?'Клиент отказался':'Снять резервирование');
         }
-        return RentalUI::modal('Резервирование помещения',$body,$actions,'booking-list');
+        return RentalUI::modal('Резервирование помещения',$body,$actions,'contracts');
     }
 
     private static function actionButton(array $row,string $action,string $label): string
@@ -141,13 +141,14 @@ final class BookingController {
         if ($action==='reservation.extend') {
             $fields.=Controller::input('until_date','Резервирование действует до',max(date('Y-m-d'),$r['until_date']),'date',true);
         }
-        if ($action==='reservation.reopen') $fields.=RentalUI::pairs([['Действует до',Documents::dateText($r['until_date'])]]).'<label class="field"><span><input type="checkbox" name="still_interested" value="1" required> Клиент по-прежнему заинтересован</span></label>'
+        if ($action==='reservation.reopen') $fields.=RentalUI::pairs([['Действует до',Documents::dateText($r['until_date'])]])
+            .DirectoryUi::checkbox('still_interested','Клиент по-прежнему заинтересован',false,true)
             .Controller::input('reason','Основание возврата в работу','','text',true);
         if ($action==='reservation.cancel') $fields.=($stopped?'<input type="hidden" name="client_declined" value="1">':
-            '<label class="field"><span><input type="checkbox" name="client_declined" value="1"> Клиент отказался</span></label>')
+            DirectoryUi::checkbox('client_declined','Клиент отказался',false))
             .Controller::input('reason','Причина снятия','','text',false);
         $label=$action==='reservation.cancel' && $stopped?'Зафиксировать отказ клиента':$labels[$action];
         [$body,$actions]=self::form($action,(int)$r['id'],(int)$r['version'],$fields,$label);
-        return RentalUI::modal($label,$body,$actions,'booking-list');
+        return RentalUI::modal($label,$body,$actions,'contracts');
     }
 }

@@ -34,10 +34,10 @@ final class DirectoryUi
         }
         return $html.'</div>';
     }
-    public static function checkbox(string $key,string $label,bool $checked): string
+    public static function checkbox(string $key,string $label,bool $checked,bool $required=false): string
     {
         return '<input type="hidden" name="'.$key.'" value="0"><label class="registry-ui-checkbox">'
-            .'<input type="checkbox" name="'.$key.'" value="1"'.($checked?' checked':'').'><span>'.View::e($label).'</span></label>';
+            .'<input type="checkbox" name="'.$key.'" value="1"'.($checked?' checked':'').($required?' required':'').'><span>'.View::e($label).'</span></label>';
     }
 
     public static function counts(array $counts,string $page=''): string
