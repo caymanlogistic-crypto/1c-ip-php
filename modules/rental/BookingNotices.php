@@ -100,6 +100,10 @@ final class BookingNotices
         };
         return ['number'=>(string)$notice['reservation_id'],'context'=>$notice['object'],'party'=>$notice['client'],
             'manager'=>$notice['responsible'],'effective'=>Documents::dateText($notice['until']),
-            'reason'=>$notice['reason'],'actor'=>$notice['actor']]+$specific;
+            'reason'=>$notice['reason'],'actor'=>$notice['actor']]
+            + (array_key_exists('object_type',$notice)?[
+                'reservationTypeLabel'=>$notice['object_type']===''?'':' ('.$notice['object_type'].')',
+                'reservationAreaLabel'=>$notice['object_area']===null?'':' — '.DirectoryUi::area($notice['object_area']).' м²',
+            ]:[])+$specific;
     }
 }

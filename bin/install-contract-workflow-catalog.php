@@ -6,7 +6,7 @@ require dirname(__DIR__).'/app/bootstrap.php';
 use App\DB;
 use Modules\Integrations\{Config, ServerWorkflowMax, Support, TemplateCatalog};
 
-$options=getopt('',['database:','apply']);
+$options=getopt('',['database:','apply','reservation-notices']);
 $database=DB::pdo()->query('SELECT DATABASE()')->fetchColumn();
 $server=PHP_OS_FAMILY==='Linux' && getenv('APP_STAND')==='ui' && $database==='ipphp_ui';
 $fixture=!getenv('APP_STAND') && preg_match('/^ipphp_task_[a-z0-9_]{1,20}$/D',$database);
@@ -18,21 +18,29 @@ if ((int)$pdo->query("SELECT GET_LOCK('ipphp-provider:max',5)")->fetchColumn()!=
     throw new RuntimeException('MAX_BUSY');
 }
 $apply=array_key_exists('apply',$options);
+$reservation=array_key_exists('reservation-notices',$options);
 $temp=null;
 try {
-    $path=APP_ROOT.'/.local/workflow-max-admission.json';
-    $scope=$server ? ServerWorkflowMax::settings() : null;
+    $path=APP_ROOT.'/.local/'.($reservation?'reservation-max-admission.json':'workflow-max-admission.json');
+    $scope=$server ? ($reservation ? Support::decode(file_get_contents($path)) : ServerWorkflowMax::settings()) : null;
     if ($server && !$scope) throw new RuntimeException('EXISTING_WORKFLOW_ADMISSION_REQUIRED');
+    if ($server && $reservation && (is_link($path) || ($scope['scope'] ?? null)!=='reservation-notices'
+        || ($scope['enabled'] ?? null)!==true || ($scope['database'] ?? null)!==$database
+        || !is_array($scope['catalog_versions'] ?? null)
+        || array_diff(array_column(\Modules\Rental\BookingNotices::TEMPLATES,0),array_keys($scope['catalog_versions'])))) {
+        throw new RuntimeException('EXISTING_RESERVATION_ADMISSION_REQUIRED');
+    }
     if ($scope) ServerWorkflowMax::assertProfile($pdo,$scope);
     $catalog=new TemplateCatalog($pdo,Config::store());
     $pinned=$scope['catalog_versions'] ?? [];
-    $result=$catalog->installContractWorkflowLayout(false,$pinned);
+    $install=$reservation ? $catalog->installReservationWorkflowLayout(...) : $catalog->installContractWorkflowLayout(...);
+    $result=$install(false,$pinned);
     $versions=array_column($result,'version');
     $versions=array_combine(array_keys($result),$versions);
     $needsBinding=$scope && $pinned!=$versions;
     if ($apply && $needsBinding) {
         $scope['catalog_versions']=$versions;
-        ServerWorkflowMax::validate($scope);
+        if (!$reservation) ServerWorkflowMax::validate($scope);
         $temp=dirname($path).'/.workflow-max-admission-'.bin2hex(random_bytes(12));
         $bytes=Support::json($scope)."\n";
         if (file_put_contents($temp,$bytes,LOCK_EX)!==strlen($bytes)
@@ -43,7 +51,7 @@ try {
         }
     }
     if ($apply) {
-        $catalog->installContractWorkflowLayout(true,$pinned,$result);
+        $install(true,$pinned,$result);
         if ($temp!==null && !rename($temp,$path)) {
             throw new RuntimeException('WORKFLOW_ADMISSION_REBIND_FAILED');
         }

@@ -15,6 +15,7 @@ final class ReservationMaxRelay
     public const PATH = '/internal/reservation-max';
     private const URL = 'https://ui.89.208.213.14.sslip.io'.self::PATH;
     private const LIMIT = 16384;
+    private const OBJECT_FIELDS=['reservationTypeLabel','reservationAreaLabel'];
 
     private ?string $request = null;
 
@@ -74,6 +75,7 @@ final class ReservationMaxRelay
             || !is_int($e['version'] ?? null) || $e['version']<1 || !is_array($e['values'] ?? null)) return false;
         $fields=['number','context','party','manager','effective','reason','actor'];
         if ($e['action']==='reservation.create') array_push($fields,'reservationStart','reservationCommentLine');
+        if (array_intersect(self::OBJECT_FIELDS,array_keys($e['values']))) array_push($fields,...self::OBJECT_FIELDS);
         if ($e['action']==='reservation.extend') {
             $fields[]='previousDeadline';
             if (array_key_exists('reservationStart',$e['values'])) $fields[]='reservationStart';
@@ -224,6 +226,9 @@ final class ReservationMaxRelay
             || getenv('IPPHP_RENTAL_MAX_POSTCOMMIT')) return ['queued'=>0];
         $scope=self::scope('reservation-max-relay-local.json');
         if (!$scope) return ['queued'=>0];
+        $objectFieldsAfter=$scope['object_fields_after'] ?? null;
+        if ($objectFieldsAfter!==null && (!is_int($objectFieldsAfter) || $objectFieldsAfter<$scope['started_at']))
+            throw new RuntimeException('RESERVATION_RELAY_OBJECT_FIELDS_BINDING');
         $name=$scope['database'] ?? '';
         $actual=$this->db->query('SELECT DATABASE(),CURRENT_USER()')->fetch(PDO::FETCH_NUM);
         $root=realpath((string)($scope['root'] ?? ''));
@@ -239,8 +244,7 @@ final class ReservationMaxRelay
         $count=0;
         foreach ((new BookingMax($this->db))->exports($scope['event_floor'],$scope['started_at'],$date,array_keys($actorMap)) as $event) {
             $event['actor_id']=$actorMap[$event['actor_id']];
-            if (!self::validEvent($event)) throw new RuntimeException('RESERVATION_RELAY_LOCAL_EVENT');
-            $json=Support::json($event);
+            $json=self::forwardPayload($event,$objectFieldsAfter);
             $time=time();
             $this->request=$json;
             try {
@@ -255,6 +259,15 @@ final class ReservationMaxRelay
             $count++;
         }
         return ['queued'=>$count];
+    }
+
+    private static function forwardPayload(array $event,?int $objectFieldsAfter): string
+    {
+        if ($objectFieldsAfter===null || $event['recorded_at']<$objectFieldsAfter) {
+            unset($event['values']['reservationTypeLabel'],$event['values']['reservationAreaLabel']);
+        }
+        if (!self::validEvent($event)) throw new RuntimeException('RESERVATION_RELAY_LOCAL_EVENT');
+        return Support::json($event);
     }
 
     public function assertHttpRequest(string $method,string $url,?string $body): void
