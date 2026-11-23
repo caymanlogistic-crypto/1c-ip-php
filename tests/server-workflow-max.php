@@ -23,4 +23,26 @@ foreach([[1,'POST','https://platform-api2.max.ru/messages?chat_id=-123',$raw],[0
 $entries=json_decode(file_get_contents(APP_ROOT.'/modules/integrations/defaults/contract-max-templates.json'),true,32,JSON_THROW_ON_ERROR);
 if(count($entries)!==8)throw new RuntimeException('Expected eight approved templates');
 foreach($entries as $e){if(preg_match('/проверьте|исправьте|контролируйте|устраните|создайте|сформируйте|откройте|подтвердите/ui',$e['body']))throw new RuntimeException('Call to action remains');}
+$submit=$entries['submit'];
+$variables=Modules\Integrations\TemplateCatalog::messageVariables('max','submit');
+Modules\Integrations\TemplateCatalog::validateFormat($submit['format'],$submit['body'],$variables);
+$entry=['source_key'=>'submit','format'=>$submit['format'],'body_text'=>$submit['body']];
+$values=Modules\Integrations\MaxTemplateAdmin::sampleValues($entry);
+$render=Modules\Integrations\TemplateCatalog::preview('max',$entry,$values);
+if ($render['format']!=='html' || !str_contains($render['body'],"Объект: <b>2.2</b> (Машиноместо) — 10 м²\nОбъект: <b>2.4</b> (Машиноместо) — 10 м²")
+    || !str_contains($render['body'],'с <b>23.11.2026</b> по <b>06.12.2026</b>')
+    || str_contains($render['body'],'Core copy')) throw new RuntimeException('Expected a separate formatted line per object');
+$values['contractObjectLines']=Support::json([['name'=>'<2.2>','type'=>'Машиноместо & бокс','area'=>'']]);
+$single=Modules\Integrations\TemplateCatalog::preview('max',$entry,$values)['body'];
+if (!str_contains($single,'Объект: <b>&lt;2.2&gt;</b> (Машиноместо &amp; бокс)') || substr_count($single,'Объект: ')!==1)
+    throw new RuntimeException('Single object fields must be escaped');
+$html=Modules\Integrations\MessageTransport::maxPayload($render['body'],'html');
+$url='https://platform-api2.max.ru/messages?chat_id=-123';
+ServerWorkflowMax::assertPath(0,'POST',$url,$html,'-123',$render['body'],'html');
+try {
+    ServerWorkflowMax::assertPath(0,'POST',$url,Support::json(['text'=>$render['body']]),'-123',$render['body'],'html');
+    throw new LogicException('Unformatted payload was accepted');
+} catch (RuntimeException $error) {
+    if ($error->getMessage()!=='WORKFLOW_MAX_HTTP_REJECTED') throw $error;
+}
 echo "PASS server workflow MAX scope, recipient, one POST, body and approved templates\n";

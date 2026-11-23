@@ -4,7 +4,7 @@ namespace Modules\Integrations;
 
 final class MessageTransport
 {
-    public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|BookingMax|null $readCheck = null) {}
+    public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|BookingMax|ContractWorkflowReceiver|null $readCheck = null) {}
     public static function maxPayload(string $text,?string $format=null): string
     {
         return Support::json(['text'=>$text]+($format===null?[]:['format'=>$format]));
@@ -105,7 +105,9 @@ final class MessageTransport
                 $diagnostic['safe_error_code']='MESSAGE_ACK_BINDING_UNCONFIRMED';
                 return ['status'=>'uncertain','code'=>'MAX_ACCEPTANCE_UNKNOWN']+$diagnostic;
             }
-            if ($this->readCheck instanceof BookingMax && ($format=Support::decode($raw)['format'] ?? null)) {
+            if (($this->readCheck instanceof BookingMax || $this->readCheck instanceof ServerWorkflowMax
+                || $this->readCheck instanceof ContractWorkflowReceiver)
+                && ($format=Support::decode($raw)['format'] ?? null)) {
                 $markup=$value['message']['body']['markup'] ?? [];
                 $diagnostic['format']=$format;
                 $diagnostic['bold_spans']=count(array_filter(is_array($markup)?$markup:[],

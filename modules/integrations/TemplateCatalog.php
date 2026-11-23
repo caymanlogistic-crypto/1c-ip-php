@@ -15,7 +15,9 @@ final class TemplateCatalog
 
     public static function messageVariables(string $channel,string $key): array
     {
-        return $channel==='max'?array_merge(self::MESSAGE_VARS,self::RESERVATION_VARS[$key] ?? []):self::MESSAGE_VARS;
+        return $channel==='max'
+            ? array_merge(self::MESSAGE_VARS,ContractSubmitMax::VARIABLES,self::RESERVATION_VARS[$key] ?? [])
+            : self::MESSAGE_VARS;
     }
 
     public const TOP_VARS=['title','text','record','section','why','actor','number','party','template','details'];
@@ -54,6 +56,46 @@ final class TemplateCatalog
         $entry = Support::decode($bytes);
         self::validateFormat($entry['format'], $entry['body']);
         $this->importRecord('max', 'staffHandoff', $entry, hash('sha256', $bytes), 'bundled', 'staff-handoff-v1');
+    }
+
+    public function installContractWorkflowLayout(bool $apply,array $pinned,?array $expected=null): array
+    {
+        $entries=Support::decode(file_get_contents(__DIR__.'/defaults/contract-max-templates.json'));
+        if (array_diff(ServerWorkflowMax::KINDS,array_keys($entries))
+            || array_diff(array_keys($entries),ServerWorkflowMax::KINDS)) {
+            throw new \RuntimeException('APPROVED_WORKFLOW_CATALOG_MISMATCH');
+        }
+        $this->db->beginTransaction();
+        try {
+            $select=$this->db->prepare("SELECT * FROM integration_template_catalog WHERE channel='max' AND source_key=? FOR UPDATE");
+            $update=$this->db->prepare("UPDATE integration_template_catalog
+                SET body_text=?, format=?, version=version+1, actor_label=?, changed_at=?
+                WHERE channel='max' AND source_key=?");
+            $result=[];
+            foreach ($entries as $key=>$entry) {
+                self::validateFormat($entry['format'],$entry['body'],self::messageVariables('max',$key));
+                $select->execute([$key]);
+                $old=$select->fetch(\PDO::FETCH_ASSOC);
+                if (!$old) throw new \RuntimeException('TEMPLATE_MISSING_'.$key);
+                $changed=$old['format']!==$entry['format'] || $old['body_text']!==$entry['body'];
+                if ($changed && isset($pinned[$key]) && (int)$old['version']!==$pinned[$key]) {
+                    throw new \RuntimeException('WORKFLOW_CATALOG_PIN_MISMATCH_'.$key);
+                }
+                if ($apply && $changed) {
+                    $this->rememberVersion($old);
+                    $update->execute([$entry['body'],$entry['format'],'По поручению владельца: оформление договорного MAX',date(DATE_ATOM),$key]);
+                }
+                $result[$key]=['changed'=>$changed,'before'=>(int)$old['version'],'version'=>(int)$old['version']+(int)$changed];
+            }
+            if ($expected!==null && $result!==$expected) {
+                throw new \RuntimeException('WORKFLOW_CATALOG_CHANGED_DURING_INSTALL');
+            }
+            $this->db->commit();
+            return $result;
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
+        }
     }
     public function installReservationNotices(bool $apply=true): array
     {
@@ -140,6 +182,29 @@ final class TemplateCatalog
             $values['reservationCommentPrefix']=$comment===''?'':$prefix;
             $values['reservationComment']=$comment;
         }
-        $base=$channel==='top'?['title'=>'Изменения сохранены','text'=>'Документ направлен на проверку.','record'=>'Договор №173','section'=>'Согласования','why'=>'Требуется юридическая проверка.','actor'=>'Исполнитель','number'=>'2','party'=>'Контрагент','template'=>$entry['name']??'Шаблон','details'=>'Помещение 204']:array_fill_keys(self::MESSAGE_VARS,'');$base=array_replace($base,$values);$replace=static function(string $text)use($base,$channel,$entry){return preg_replace_callback('/\{([^{}]+)\}/u',static function($m)use($base,$channel,$entry){$v=is_scalar($base[$m[1]]??null)?(string)$base[$m[1]]:'';if($channel==='max'&&($entry['format']??'plain')==='html')return htmlspecialchars($v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');if($channel==='max'&&($entry['format']??'plain')==='markdown')return preg_replace('/([\\\\`*_{}\[\]()#+.!|>~^<+=-])/u','\\\\$1',$v);return $v;},$text);};$body=$replace($entry['body_text']);if($reservationHtml)$body=str_replace('<b></b>','',$body);$title=$replace($entry['title']??'');$subject=$replace($entry['subject']??'');if($channel==='top'){if($title===''||$body===''||mb_strlen($title)>120||mb_strlen($body)>1000)throw new \InvalidArgumentException('EXPANDED_TEMPLATE_LIMIT');}elseif(mb_strlen($body)>4000||mb_strlen($subject)>200||preg_match('/[\r\n]/',$subject))throw new \InvalidArgumentException('EXPANDED_TEMPLATE_LIMIT');return ['title'=>$title,'subject'=>$subject,'body'=>$body,'format'=>$entry['format']??'plain'];
+        $base=$channel==='top'?['title'=>'Изменения сохранены','text'=>'Документ направлен на проверку.','record'=>'Договор №173','section'=>'Согласования','why'=>'Требуется юридическая проверка.','actor'=>'Исполнитель','number'=>'2','party'=>'Контрагент','template'=>$entry['name']??'Шаблон','details'=>'Помещение 204']:array_fill_keys(self::MESSAGE_VARS,'');
+        $base=array_replace($base,$values);
+        $format=$entry['format'] ?? 'plain';
+        $escape=match($channel==='max'?$format:'plain') {
+            'html'=>static fn(string $value): string=>htmlspecialchars($value,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'),
+            'markdown'=>static fn(string $value): string=>preg_replace('/([\\\\`*_{}\[\]()#+.!|>~^<+=-])/u','\\\\$1',$value),
+            default=>static fn(string $value): string=>$value,
+        };
+        $max=$channel==='max';
+        $replace=static fn(string $text): string=>preg_replace_callback('/\{([^{}]+)\}/u',static function(array $match) use($base,$escape,$format,$max): string {
+            $key=$match[1];
+            $value=is_scalar($base[$key] ?? null)?(string)$base[$key]:'';
+            return $max && $key==='contractObjectLines'?ContractSubmitMax::objectLines($value,$format,$escape):$escape($value);
+        },$text);
+        $body=$replace($entry['body_text']);
+        if ($reservationHtml) $body=str_replace('<b></b>','',$body);
+        $title=$replace($entry['title'] ?? '');
+        $subject=$replace($entry['subject'] ?? '');
+        if ($channel==='top') {
+            if($title===''||$body===''||mb_strlen($title)>120||mb_strlen($body)>1000) throw new \InvalidArgumentException('EXPANDED_TEMPLATE_LIMIT');
+        } elseif (mb_strlen($body)>4000||mb_strlen($subject)>200||preg_match('/[\r\n]/',$subject)) {
+            throw new \InvalidArgumentException('EXPANDED_TEMPLATE_LIMIT');
+        }
+        return compact('title','subject','body','format');
     }
 }

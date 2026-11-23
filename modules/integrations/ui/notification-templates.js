@@ -3,7 +3,7 @@
  'use strict';
  const formats=Object.freeze(['plain','markdown','html']);
  const people={manager:'Раиса Шилова',lawyer:'Наиль Еналиев',accountant:'Наталия Демидова',director:'Андрей Яковлев',admin:'Владимир',actor:'Система'};
- const placeholders=Object.freeze(['text','number','party','lawyer','manager','accountant','director','admin','version','reason','invoiceNumbers','recipientNames','actor','documentNumber','effective','context','documentLabel','invoiceSummary','effectiveSummary','managerEmail','reservationStart','reservationCommentLine','previousDeadline']);
+ const placeholders=Object.freeze(['text','number','party','lawyer','manager','accountant','director','admin','version','reason','invoiceNumbers','recipientNames','actor','documentNumber','effective','context','documentLabel','invoiceSummary','effectiveSummary','managerEmail','reservationStart','reservationCommentLine','reservationCommentPrefix','reservationComment','reservationTypeLabel','reservationAreaLabel','previousDeadline','contractSubmitTitle','contractStart','contractEnd','contractObjectLines','contractSubmitAction']);
  const tokenSet=new Set(placeholders),formatOf=v=>v===null||v===undefined||v===''?'plain':String(v);
  const max=(id,name,trigger,title,action,body='{text}')=>Object.freeze({id,name,trigger,format:'markdown',body:title+'\n{context}\n\n'+body+'\n\n'+action});
  const maxDefinitions=Object.freeze([
@@ -102,7 +102,14 @@
  function render(format,template,values={}){
   format=formatOf(format);validateTemplate(format,template);const v=valuesFor(values),escape=format==='html'?escapeHTML:format==='markdown'?escapeMarkdown:String;
   const identifiers=new Set(['number','documentNumber','invoiceNumbers','invoiceSummary']);
-  const result=formatMaxDates(template).replace(/\{([^{}]+)\}/g,(_,key)=>escape(identifiers.has(key)?v[key]:formatMaxDates(v[key])));
+  const result=formatMaxDates(template).replace(/\{([^{}]+)\}/g,(_,key)=>{
+   if(key==='contractObjectLines'){
+    const bold=format==='html'?['<b>','</b>']:format==='markdown'?['**','**']:['',''];
+    return JSON.parse(v[key]||'[]').map(item=>'Объект: '+bold[0]+escape(item.name)+bold[1]+' ('+escape(item.type)+')'
+     +(item.area!==''?' — '+escape(item.area)+' м²':'')).join('\n');
+   }
+   return escape(identifiers.has(key)?v[key]:formatMaxDates(v[key]));
+  });
   if(result.length>4000)throw Error('После подстановки сообщение превышает 4000 символов. Сократите шаблон или данные события.');
   return result;
  }
