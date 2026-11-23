@@ -19,7 +19,7 @@ final class LegalHandoffCard
         $ready=$review['party'] && $review['terms'];
         $body=RentalUI::notice();
         if ($contract['status']==='returned') {
-            $body.=RentalUI::alert('Бухгалтер вернул договор',(string)$contract['reason'],'warning');
+            $body.=RentalUI::alert('Бухгалтерия: отказ в согласовании',(string)$contract['reason'],'warning');
         }
         $body.='<div class="registry-ui-form-sections registry-ui-form-sections--compact">'
             .self::party($contract,$party,$details,$review['party'])
@@ -66,8 +66,8 @@ final class LegalHandoffCard
         $status=PartyLegalReview::state(DB::pdo(),(int)$party['id'])['status']??null;
         $missing=in_array($status,['draft','returned'],true);
         if ($missing) {
-            $facts.=RentalUI::alert('Раиса готовит карточку предприятия',
-                'Попросите Раису приложить исходную карточку и передать её на проверку.','warning');
+            $facts.=RentalUI::alert('Карточка контрагента не готова к проверке',
+                'Для согласования нужна исходная карточка контрагента, переданная на проверку.','warning');
         }
         $links=PagePolicy::level('rental.parties',Auth::user())>=1
             ?RentalUI::button('Показать полные данные','/rental/legal-party-details?contract_id='.(int)$contract['id']):'';
@@ -76,12 +76,12 @@ final class LegalHandoffCard
         $panels='';
         if (!$party['blocked']) {
             $panels=self::reason($contract,LegalHandoff::BLOCK,'review-party-block','Заблокировать работу','Отменить блокировку',
-                'Блокируются новые договоры. Этот договор вернётся Раисе с указанной причиной.',
+                'Новые договоры будут заблокированы. Текущий договор вернётся на доработку с указанной причиной.',
                 'Заблокировать и вернуть');
         }
         return self::section('Согласование контрагента',$facts
             .'<div class="registry-ui-review-actions"><div>'.$links.'</div><div class="demo-row">'.$actions.'</div></div>'.$panels,
-            $checked?'Работа разрешена':($blocked?'Работа заблокирована':($missing?'Ждём карточку от Раисы':'Ожидает решения')),$checked);
+            $checked?'Работа разрешена':($blocked?'Работа заблокирована':($missing?'Ожидается карточка':'Ожидает решения')),$checked);
     }
 
     private static function terms(array $contract,bool $checked): string
@@ -117,7 +117,7 @@ final class LegalHandoffCard
             .self::confirm($contract,LegalHandoff::TERMS,'Условия верны',$checked && !$payment,'review-positive-terms')
             .'</div></div>'
             .self::reason($contract,'contract.return','review-terms-return','Условия неверны','Отменить возврат',
-                'Напишите, что Раисе нужно исправить.','Вернуть на доработку')
+                'Укажите, каких данных не хватает или что нужно уточнить.','Вернуть на доработку')
             .$payment;
         return self::section('Проверка условий договора',$facts,$checked?'Условия подтверждены':'Ожидает решения',$checked);
     }
@@ -125,7 +125,7 @@ final class LegalHandoffCard
     private static function materials(array $contract): string
     {
         $body=ContractReviewFiles::presentation($contract).ContractReviewFiles::priorPresentation($contract);
-        return $body?self::disclosure('Материалы от Раисы',$body):'';
+        return $body?self::disclosure('Материалы менеджера',$body):'';
     }
 
     private static function documents(array $contract,array $files,bool $ready): string
