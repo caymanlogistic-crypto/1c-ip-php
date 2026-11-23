@@ -83,7 +83,7 @@ final class WordPack
         $acts=$auxiliary?[]:WordHandoverDrafts::plan($db,$data['terms']);
         $fields=array_values(array_unique([...$fields,...WordHandoverDrafts::commonFields($acts)]));
         $values=$data['values'];
-        if ($automatic && in_array($kind.'_subjects',$fields,true) && !empty($data['subjectWarnings'][$kind])) {
+        if ($automatic && ($mixedTemplate || in_array($kind.'_subjects',$fields,true)) && !empty($data['subjectWarnings'][$kind])) {
             throw new RuntimeException('Не хватает данных объекта для Word: '.implode('; ',$data['subjectWarnings'][$kind]).'.',422);
         }
         if ($automatic && $kind==='office' && empty($values['handover_deadline_words'])) {

@@ -80,7 +80,11 @@ final class WordGenerationData
                 'номер записи ЕГРН'=>empty($recordDetails['ownership_record']),
                 'дата записи ЕГРН'=>empty($recordDetails['ownership_date']),
             ];
-            foreach (['parking'=>$missingGeometry,'office'=>$missingOffice] as $type=>$checks) {
+            $missingMixed=$missingGeometry;
+            if (!in_array($term['type'],TemplateAssets::PARKING_TYPES,true)) {
+                $missingMixed['кадастровый номер']=$missingOffice['кадастровый номер'];
+            }
+            foreach (['parking'=>$missingGeometry,'office'=>$missingOffice,'mixed'=>$missingMixed] as $type=>$checks) {
                 $missing=array_keys(array_filter($checks));
                 if ($missing) $subjectWarnings[$type][]='«'.$term['name'].'» — '.implode(', ',$missing);
             }

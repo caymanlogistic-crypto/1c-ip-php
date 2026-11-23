@@ -268,6 +268,10 @@ try{
     reject(fn()=>command('contract.edit',['id'=>$draftId,'version'=>(int)$draft['version'],'number'=>$draft['number'],'intent'=>'submit']+$update),'отдельными договорами');
     actor('lawyer');
     confirmChecks($c);
+    reject(fn()=>WordPack::plan($db,'contract',$id,(int)$c['version'],automatic:true),'Парковка legacy» — этаж');
+    $db->prepare('UPDATE rental_objects SET floor=2 WHERE id=?')->execute([$office]);
+    $db->prepare('UPDATE rental_objects SET floor=-1 WHERE id=?')->execute([$parking]);
+    confirmChecks($c);
     $mixedPlan=WordPack::plan($db,'contract',$id,(int)$c['version'],automatic:true);
     ok(array_keys($mixedPlan['plans'])===[$office] && count($mixedPlan['acts'])===2,
         'Mixed lease requires an office plan and one act for each object');
