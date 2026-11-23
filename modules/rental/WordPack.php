@@ -9,7 +9,7 @@ use RuntimeException;
 /** Immutable Word package; no changes to contractual terms or external dispatch. */
 final class WordPack
 {
-    private const LAYOUT_VERSION=2;
+    private const LAYOUT_VERSION=3;
 
     public static function plan(PDO $db,string $entity,int $id,int $version,array $selection=[],bool $forForm=false,bool $automatic=false): array
     {
@@ -83,6 +83,9 @@ final class WordPack
         $acts=$auxiliary?[]:WordHandoverDrafts::plan($db,$data['terms']);
         $fields=array_values(array_unique([...$fields,...WordHandoverDrafts::commonFields($acts)]));
         $values=$data['values'];
+        if ($automatic && in_array($kind.'_subjects',$fields,true) && !empty($data['subjectWarnings'][$kind])) {
+            throw new RuntimeException('Не хватает данных объекта для Word: '.implode('; ',$data['subjectWarnings'][$kind]).'.',422);
+        }
         if ($automatic && $kind==='office' && empty($values['handover_deadline_words'])) {
             $values['handover_deadline_words']='«___» ____________ 20___ года';
         }

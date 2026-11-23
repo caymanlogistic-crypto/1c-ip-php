@@ -149,6 +149,20 @@ try{
         $id=fixture($type,true,['10000.00','12500.00'],'entrepreneur',['png','jpg']);
         $contract=Service::get($db,'contracts',$id);
         $selection=[$kind=>0];
+        $subjects=[];
+        foreach (App\BillableTerms::forContract($db,$id) as $index=>$term) {
+            $objectId=(int)$term['object_id'];
+            $db->prepare('UPDATE rental_objects SET area=?,floor=? WHERE id=?')
+                ->execute([['20.254','21.75'][$index],[-1,0][$index],$objectId]);
+            $cadastre=$db->query('SELECT c.id,c.number FROM rental_objects o JOIN cadastre c ON c.id=o.cadastre_id WHERE o.id='.$objectId)->fetch();
+            $building='I, '.(201+$index);
+            $entry='77:01:000001-77/001/2026-0'.($index+1);
+            $date=['2026-01-15','2026-02-20'][$index];
+            DirectoryDetails::store($db,'rental_objects',$objectId,['building_room_number'=>$building]);
+            DirectoryDetails::store($db,'cadastre',(int)$cadastre['id'],['ownership_record'=>$entry,'ownership_date'=>$date]);
+            $subjects[]=['building'=>$building,'number'=>$cadastre['number'],'entry'=>$entry,'date'=>Documents::dateText($date)];
+        }
+        confirmChecks($contract);
         $plan=WordPack::plan($db,'contract',$id,(int)$contract['version'],$selection);
         $input=inputFor($plan);
         ok(!array_intersect(['rent_object_rates','party_signer_short','party_signer_genitive','party_signer_title_genitive','party_authority'],array_keys($input)),
@@ -171,9 +185,17 @@ try{
             }
         }
         $main=wordText($db,$pack['files'][0]);
+        ok(str_contains($main,'Перечень объектов аренды')
+            &&str_contains($main,$kind==='office'?'нежилые помещения':'машино-места'),'Contract identifies the plural subject and its list');
         foreach (array_values($plan['terms']) as $index=>$term) {
             $amount=['10 000,00','12 500,00'][$index];
             ok(str_contains($main,$term['name'].' — '.$amount.' руб. с НДС'),'Object name and its own rate appear in Word');
+            $subject=$term['name'].' — площадь '.['20,254 м², на -1 (минус первом) этаже','21,75 м², на 0 (нулевом) этаже'][$index];
+            if ($kind==='office') {
+                ['building'=>$building,'number'=>$number,'entry'=>$entry,'date'=>$date]=$subjects[$index];
+                $subject.='№ по документам здания '.$building.', кадастровый номер '.$number.'Запись ЕГРН № '.$entry.' от '.$date;
+            }
+            ok(str_contains($main,$subject),'Subject prints the matching area, floor, and office registry details for each object');
             $act=wordText($db,$pack['files'][$index+1]);
             ok(str_contains($act,'Индивидуальный предприниматель Петров Пётр Петрович, ОГРНИП 326770000012345, именуемый далее по тексту «Арендатор»'),
                 'IP act preamble identifies the independent party');
@@ -185,6 +207,21 @@ try{
         }
         ok(str_contains($main,'Всего в месяц с НДС — 22 500,00 руб.'),'Separate gross total is printed');
         ok(!str_contains($main,'Размер арендной платы в месяц за машино-место составляет:'),'Combined rent cannot be read as the price of one parking space');
+        $missing=$plan['terms'][0];
+        $db->prepare('UPDATE rental_objects SET floor=NULL WHERE id=?')->execute([$missing['object_id']]);
+        confirmChecks($contract);
+        reject(fn()=>WordPack::plan($db,'contract',$id,(int)$contract['version'],$selection,automatic:true),
+            '«'.$missing['name'].'» — этаж');
+        $db->prepare('UPDATE rental_objects SET floor=-1 WHERE id=?')->execute([$missing['object_id']]);
+        if ($kind==='office') {
+            $cadastre=(int)$db->query('SELECT cadastre_id FROM rental_objects WHERE id='.(int)$missing['object_id'])->fetchColumn();
+            $registry=DirectoryDetails::read($db,'cadastre',$cadastre);
+            DirectoryDetails::store($db,'cadastre',$cadastre,[]);
+            confirmChecks($contract);
+            reject(fn()=>WordPack::plan($db,'contract',$id,(int)$contract['version'],$selection,automatic:true),
+                '«'.$missing['name'].'» — номер записи ЕГРН, дата записи ЕГРН');
+            DirectoryDetails::store($db,'cadastre',$cadastre,$registry);
+        }
         $db->prepare('UPDATE contracts SET amount=? WHERE id=?')->execute(['22500.01',$id]);
         confirmChecks(Service::get($db,'contracts',$id));
         reject(fn()=>WordPack::plan($db,'contract',$id,(int)$contract['version'],$selection),'Сумма ставок по объектам отличается');
@@ -280,7 +317,7 @@ try{
     // A new uploaded source is unavailable while pending, then selected after director approval.
     actor('lawyer');$templateId=900999;$custom=tempnam(APP_ROOT.'/runtime','word-template-');$created[]=$custom;
     copy(OriginalDocuments::source('office')['path'],$custom);$zip=new ZipArchive();$zip->open($custom);
-    $zip->addFromString('word/document.xml',str_replace('{{floor_words}}','{{purpose}}',$zip->getFromName('word/document.xml')));$zip->close();
+    $zip->addFromString('word/document.xml',str_replace('{{party_postal_address}}','{{purpose}}',$zip->getFromName('word/document.xml')));$zip->close();
     $stored=TemplateAssets::store($db,$templateId,1,$custom,'Новое оформление.docx');$created[]=$stored['path'];
     command('template.edit',['id'=>$templateId,'new_template'=>1,'version'=>1,'name'=>'Word QA','generation_kind'=>'office','word_file_id'=>$stored['id']]);
     ok(!isset(OriginalDocuments::choices($db,'office')[$templateId]),'Pending source cannot generate');
