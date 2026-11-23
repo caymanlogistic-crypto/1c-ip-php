@@ -769,7 +769,7 @@
 .registry-ui-review-files{padding:0;margin:0;list-style:none}
 .registry-ui-review-files>li{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;overflow-wrap:anywhere}
 .registry-ui-review-files a{min-width:0}
-.registry-ui-review-files--inline>li>a{margin-inline-start:auto}
+.registry-ui-review-files--inline>li>a{margin-inline-start:auto;color:var(--p-success);font-weight:700;text-decoration:none}
 .registry-ui-review-upload{position:relative;box-sizing:border-box;min-width:0;padding:16px 12px;text-align:center;cursor:pointer}
 .registry-ui-review-upload .dz-title{font-size:13px;color:var(--p-text)}
 [data-submitting] .registry-ui-review-upload{pointer-events:none;opacity:.65}
