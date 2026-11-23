@@ -27,7 +27,7 @@ final class WordHandoverDrafts
         return array_values(array_unique($fields));
     }
 
-    public static function build(PDO $db,array $contract,array $act,array $values,string $path): string
+    public static function build(PDO $db,array $contract,array $act,array $values,string $path,bool $mixed=false): string
     {
         $object=$act['object'];
         $id=(int)$object['object_id'];
@@ -44,7 +44,15 @@ final class WordHandoverDrafts
             'passes_count'=>(string)($count['count']??'_____'),
         ];
         $source=$act['source'];
-        OriginalDocuments::buildSource($source,array_replace($values,$facts),$path);
+        $phrases=$mixed?match($source['kind']) {
+            'parking-handover'=>['В соответствии с пунктом 3.1.1. Договора аренды машино-места'=>'В соответствии с Договором аренды'],
+            'handover'=>[
+                'к Договору аренды нежилых помещений от'=>'к Договору аренды от',
+                'В соответствии с пунктом 3.1.2. Договора аренды'=>'В соответствии с Договором аренды',
+                'в целях, установленных п. 2.2. Договора.'=>'в целях, установленных Договором аренды.',
+            ],
+        }:[];
+        OriginalDocuments::buildSource($source,array_replace($values,$facts),$path,phrases:$phrases);
         Documents::validateFile($path,'docx');
         return mb_substr(OriginalDocuments::TITLES[$source['kind']].' '.$object['name'].' · договор №'.$contract['number'],0,220).'.docx';
     }

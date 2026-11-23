@@ -69,13 +69,13 @@ final class OriginalDocuments
         return DocxTemplate::fields($path,str_ends_with($kind,'-person'));
     }
 
-    public static function buildSource(array $source,array $values,string $target,array $plans=[]): void
+    public static function buildSource(array $source,array $values,string $target,array $plans=[],array $phrases=[]): void
     {
         $values=array_replace($values,$source['template_values']??[]);
         $values+=array_fill_keys(self::OPTIONAL_FIELDS,'');
         $required=array_values(array_diff($source['fields'],self::OPTIONAL_FIELDS,['office_plan']));
         foreach($required as $key)if(!is_string($values[$key]??null)||trim($values[$key])==='')throw new RuntimeException('Заполните: '.self::label($key),422);
-        DocxTemplate::build($source['path'],array_intersect_key($values,array_flip($source['fields'])),$source['kind'],$target,$required,$plans);
+        DocxTemplate::build($source['path'],array_intersect_key($values,array_flip($source['fields'])),$source['kind'],$target,$required,$plans,phrases:$phrases);
     }
 
     public static function missing(array $kinds,array $values): array

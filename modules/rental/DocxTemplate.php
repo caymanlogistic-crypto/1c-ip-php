@@ -109,27 +109,36 @@ final class DocxTemplate
         return array_keys($fields);
     }
 
-    /** Replace only token characters; surrounding runs retain their own formatting. */
-    private static function fillParagraph(DOMDocument $document,array $texts,string $text,array $values): bool
+    /** Replace matched characters only, preserving the formatting of surrounding runs. */
+    private static function fillParagraph(DOMDocument $document,array $texts,string $text,array $values,array $phrases=[]): bool
     {
         preg_match_all('/\{\{([^{}]+)\}\}/u',$text,$matches,PREG_OFFSET_CAPTURE);
-        if (!$matches[0]) return false;
+        $replacements=[];
+        foreach ($matches[0] as $index=>[$token,$offset]) {
+            $key=$matches[1][$index][0];
+            if (!array_key_exists($key,$values)) throw new RuntimeException('Не заполнено поле Word: '.$key);
+            $replacements[$offset]=[$token,$values[$key]];
+        }
+        foreach ($phrases as $phrase=>$replacement) {
+            $offset=strpos($text,$phrase);
+            if ($offset!==false) $replacements[$offset]=[$phrase,$replacement];
+        }
+        if (!$replacements) return false;
         $ranges=[];$offset=0;
         foreach ($texts as $node) {
             $length=mb_strlen($node->textContent);
             $ranges[]=[$node,$offset,$offset+$length];$offset+=$length;
         }
         // Work right to left so earlier original offsets remain valid even in the same run.
-        foreach (array_reverse(array_keys($matches[0])) as $index) {
-            [$token,$byteOffset]=$matches[0][$index];$key=$matches[1][$index][0];
-            if (!array_key_exists($key,$values)) throw new RuntimeException('Не заполнено поле Word: '.$key);
-            $start=mb_strlen(substr($text,0,$byteOffset));$end=$start+mb_strlen($token);
+        krsort($replacements);
+        foreach ($replacements as $byteOffset=>[$original,$replacement]) {
+            $start=mb_strlen(substr($text,0,$byteOffset));$end=$start+mb_strlen($original);
             $first=true;
             foreach ($ranges as [$node,$from,$to]) {
                 if ($to<=$start || $from>=$end) continue;
                 $prefix=$from<$start?mb_substr($node->textContent,0,$start-$from):'';
                 $suffix=$to>$end?mb_substr($node->textContent,$end-$from):'';
-                $node->textContent=$prefix.($first?str_replace(["\r\n","\r"],"\n",$values[$key]):'').$suffix;
+                $node->textContent=$prefix.($first?str_replace(["\r\n","\r"],"\n",$replacement):'').$suffix;
                 $node->setAttributeNS(self::XML,'xml:space','preserve');$first=false;
             }
         }
@@ -194,7 +203,7 @@ final class DocxTemplate
         $slot->parentNode->insertBefore($table,$slot);
     }
 
-    public static function build(string $source,array $values,string $kind,string $target,?array $requiredFields=null,array $plans=[],array $leaseTerms=[]): void
+    public static function build(string $source,array $values,string $kind,string $target,?array $requiredFields=null,array $plans=[],array $leaseTerms=[],array $phrases=[]): void
     {
         self::validate($source);
         foreach ($values as $value) {
@@ -245,7 +254,7 @@ final class DocxTemplate
                     $modified=self::fillParagraph($document,$texts,$text,['terms'=>$leaseTerms['notes']])||$modified;
                     continue;
                 }
-                $modified=self::fillParagraph($document,$texts,$text,$values)||$modified;
+                $modified=self::fillParagraph($document,$texts,$text,$values,$name==='word/document.xml'?$phrases:[])||$modified;
             }
             if ($modified) $changed[$name]=$document->saveXML();
         }

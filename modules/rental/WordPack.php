@@ -240,7 +240,7 @@ final class WordPack
             $fileId=bin2hex(random_bytes(16));
             $path=$dir.'/'.$fileId.'.docx';
             $created[$fileId]=$path;
-            $filename=WordHandoverDrafts::build($db,$plan['contract'],$act,$values,$path);
+            $filename=WordHandoverDrafts::build($db,$plan['contract'],$act,$values,$path,isset($plan['sources']['mixed']));
             $sha256=hash_file('sha256',$path);
             self::attach($db,$fileId,$entity,$id,$version,'word-handover',$filename,$path,$sha256,
                 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');

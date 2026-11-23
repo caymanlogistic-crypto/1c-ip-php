@@ -242,7 +242,10 @@ try{
     ok(str_contains($mixedText,'10 500,01') && str_contains($mixedText,'5 000,00') && str_contains($mixedText,'15 500,01')
         && str_contains($mixedText,'Приложение № 1 — поэтажные планы помещений'), 'Mixed Word identifies its rates, total and appendix');
     foreach (array_slice($mixedPack['files'],1,2) as $act) {
-        ok(str_contains(wordText($db,$act),'«21» ноября 2026 года'),'Mixed acts use the signed-in-project contract date');
+        $text=wordText($db,$act);
+        ok(str_contains($text,'«21» ноября 2026 года'),'Mixed acts use the contract date');
+        ok(str_contains($text,'В соответствии с Договором аренды') && !preg_match('/3\.1\.[12]|п\. 2\.2\./u',$text),
+            'Mixed acts reference the contract without clauses from the single-type templates');
     }
     ok(WordPack::currentDraft($db,$c)===$mixedPack['primary'],'The mixed archive can be downloaded again');
     $file=Documents::export($db,'contract',$id,(int)$c['version'],'docx');
