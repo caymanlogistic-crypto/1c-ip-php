@@ -25,8 +25,9 @@ final class MaxTemplateAdmin
             $deadline=['effective'=>'Последний день резервирования','manager'=>'Ответственный'];
             return $common+match ($key) {
                 'reservationCreated'=>['reservationStart'=>'Планируемое начало аренды']+$deadline
-                    +['reservationCommentLine'=>'Строка с комментарием, если он указан'],
-                'reservationExtended'=>['previousDeadline'=>'Прежний срок']+$deadline,
+                    +['reservationCommentLine'=>'Строка с комментарием, если он указан',
+                        'reservationCommentPrefix'=>'Метка комментария, если он указан','reservationComment'=>'Текст комментария'],
+                'reservationExtended'=>['previousDeadline'=>'Прежний срок','reservationStart'=>'Планируемое начало аренды']+$deadline,
                 'reservationCancelled'=>['reason'=>'Причина снятия','actor'=>'Кто снял резервирование'],
                 default=>$deadline,
             };

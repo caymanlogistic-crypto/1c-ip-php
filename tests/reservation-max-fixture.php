@@ -32,11 +32,13 @@ try {
     $old=$create('Учебная запись до допуска MAX 15',10);
     $legacy=$create('Учебный старый срок MAX 15',0);
     $db->prepare('UPDATE reservations SET until_date=DATE_SUB(CURRENT_DATE,INTERVAL 3 DAY) WHERE id=?')->execute([$legacy]);
-    $sent=[];$unknown=false;
+    $sent=[];$formats=[];$unknown=false;
     $target='-'.random_int(700000000,999999999);
-    $fixture=static function(string $method,string $path,array $headers,string $raw)use(&$sent,&$unknown,$target):array {
+    $fixture=static function(string $method,string $path,array $headers,string $raw)use(&$sent,&$formats,&$unknown,$target):array {
         check($method==='POST' && $path==='/messages?chat_id='.rawurlencode($target),'Outside the admitted address');
-        $sent[]=Support::decode($raw)['text'];
+        $payload=Support::decode($raw);
+        $sent[]=$payload['text'];
+        $formats[]=$payload['format']??null;
         return ['status'=>200,'raw'=>Support::json($unknown?['ok'=>true]:[
             'message'=>['body'=>['mid'=>'fixture-'.count($sent)],'recipient'=>['chat_id'=>$target]]])];
     };
@@ -68,7 +70,7 @@ try {
         'Previous factory version missing from history');
     $versionQuery->execute();check($neighbor===$versionQuery->fetch(),'Unrelated template changed');
     $current=Support::decode(file_get_contents(APP_ROOT.'/modules/integrations/defaults/reservation-max-templates.json'));
-    $catalog->save('max','reservationExtended',2,['format'=>'plain','body'=>$current['reservationExtended']['body']],'Редактор теста');
+    $catalog->save('max','reservationExtended',2,['format'=>$current['reservationExtended']['format'],'body'=>$current['reservationExtended']['body']],'Редактор теста');
     $versions=$db->query("SELECT source_key,version FROM integration_template_catalog WHERE channel='max' AND source_key LIKE 'reservation%'")
         ->fetchAll(PDO::FETCH_KEY_PAIR);
     $again=$catalog->installReservationNotices();
@@ -104,20 +106,17 @@ try {
     file_put_contents($marker,Support::json($scope));
     $run=$runner->run($date(5));
     check($run['accepted']===5 && $run['skipped']===2 && count($sent)===5,'Expected five notices and one stale reminder: '.Support::json([$run,count($sent)]));
-    $name=$actor['name'];
+    $name=preg_split('/\s+/u',trim($actor['name']),2)[0];
     $expected=[
-        "Резервирование №$a создано\nПомещение $objectName · Учебный клиент MAX 15\nПланируемое начало аренды · ".$ru(1)
-            ."\nРезервирование действует по ".$ru(2)." включительно\nОтветственный · $name\nКомментарий · Позвонить после 14:30.",
-        "Резервирование №$a продлено\nПомещение $objectName · Учебный клиент MAX 15\nПрежний срок · по ".$ru(2)
-            ." включительно\nНовый срок · по ".$ru(6)." включительно\nОтветственный · $name",
-        "Резервирование №$b снято\nПомещение $objectName · Учебный отказ MAX 15\nПричина · Клиент отказался. Учебный отказ\nСнял · $name",
-        "Резервирование №$a заканчивается завтра\nПомещение $objectName · Учебный клиент MAX 15\nПоследний день · ".$ru(6)
-            ."\nОтветственный · $name\nЕсли клиенту нужно больше времени, продлите резервирование.",
-        "Резервирование №$c снято по сроку\nПомещение $objectName · Учебное истечение MAX 15\nПоследний день резервирования · ".$ru(3)
-            ."\nОтветственный · $name\nЗаявка сохранена в истории.",
+        "<b>ПОМЕЩЕНИЕ ЗАРЕЗЕРВИРОВАНО</b>\nПомещение <b>$objectName</b>\nНачало <b>".$ru(1)."</b>\nОкончание <b>".$ru(2)."</b>\nКомментарий · <b>Позвонить после 14:30.</b>\nОтветственный · <b>$name</b>",
+        "<b>РЕЗЕРВИРОВАНИЕ ПРОДЛЕНО</b>\nПомещение <b>$objectName</b>\nНачало <b>".$ru(1)."</b>\nПрежнее окончание <b>".$ru(2)."</b>\nНовое окончание <b>".$ru(6)."</b>\nОтветственный · <b>$name</b>",
+        "<b>РЕЗЕРВИРОВАНИЕ СНЯТО</b>\nПомещение <b>$objectName</b>\nПричина · <b>Клиент отказался. Учебный отказ</b>\nСнял · <b>$name</b>",
+        "<b>РЕЗЕРВИРОВАНИЕ ЗАКАНЧИВАЕТСЯ ЗАВТРА</b>\nПомещение <b>$objectName</b>\nОкончание <b>".$ru(6)."</b>\nОтветственный · <b>$name</b>\nЕсли клиенту нужно больше времени, продлите резервирование.",
+        "<b>СРОК РЕЗЕРВИРОВАНИЯ ИСТЁК</b>\nПомещение <b>$objectName</b>\nОкончание <b>".$ru(3)."</b>\nОтветственный · <b>$name</b>\nРезервирование снято автоматически.",
     ];
+    check($formats===array_fill(0,5,'html'),'Booking formatting was not carried by the signed HTTP payload');
     foreach ($expected as $message) check(count(array_keys($sent,$message,true))===1,'HTTP text differs: '.$message);
-    check(count(array_filter($sent,static fn($s)=>str_contains($s,'Резервирование №'.$old.' ')))===0,'Pre-admission event was replayed');
+    check(count(array_filter($sent,static fn($s)=>str_contains($s,'Учебная запись до допуска')))===0,'Pre-admission event was replayed');
     check($runner->run($date(5))['accepted']===0 && count($sent)===5,'Replay reached transport');
 
 
@@ -155,8 +154,7 @@ try {
 
     $blank=$create('Учебная заявка без комментария',9,2,'   ');
     check($runner->run($date(5))['accepted']===1 && count($sent)===6
-        && $sent[5]==="Резервирование №$blank создано\nПомещение $objectName · Учебная заявка без комментария\nПланируемое начало аренды · "
-            .$ru(2)."\nРезервирование действует по ".$ru(9)." включительно\nОтветственный · $name",'Blank comment left an extra line');
+        && $sent[5]==="<b>ПОМЕЩЕНИЕ ЗАРЕЗЕРВИРОВАНО</b>\nПомещение <b>$objectName</b>\nНачало <b>".$ru(2)."</b>\nОкончание <b>".$ru(9)."</b>\nОтветственный · <b>$name</b>" ,'Blank comment left an extra line');
     $revoked=$create('Учебный отзыв роли MAX 15',9);
     $db->prepare('UPDATE users SET auth_version=auth_version+1 WHERE id=?')->execute([$actor['id']]);
     check($runner->run($date(5))['accepted']===0 && count($sent)===6,'Revoked actor reached transport');

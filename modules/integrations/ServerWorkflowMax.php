@@ -297,10 +297,10 @@ final class ServerWorkflowMax
         if ((int)$q->fetchColumn()!==1) throw new RuntimeException('WORKFLOW_MAX_CLAIM_REQUIRED');
     }
 
-    public static function assertPath(int $sent,string $method,string $url,?string $body,string $chat,string $text): void
+    public static function assertPath(int $sent,string $method,string $url,?string $body,string $chat,string $text,?string $format=null): void
     {
         if ($sent!==0||$method!=='POST'||$url!=='https://platform-api2.max.ru/messages?chat_id='.rawurlencode($chat)
-            ||$body!==Support::json(['text'=>$text])) throw new RuntimeException('WORKFLOW_MAX_HTTP_REJECTED');
+            ||$body!==MessageTransport::maxPayload($text,$format)) throw new RuntimeException('WORKFLOW_MAX_HTTP_REJECTED');
     }
 
     public function beforeRequest(string $method,string $path,?string $body): void

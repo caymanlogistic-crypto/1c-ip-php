@@ -99,7 +99,7 @@ final class BookingMax
                     return $native->execute($provider,$operation,$config,$secret,$target,$raw,$id,[$target]);
                 };
                 $attempt=(new Messaging($this->db,$this->store ?? Config::store(),$transport))->dispatch(
-                    'max',$plan['actor_id'],$plan['request_key'],'send',[$m['group_id']],$plan['text']);
+                    'max',$plan['actor_id'],$plan['request_key'],'send',[$m['group_id']],$plan['text'],maxFormat:$plan['format']);
                 $status=$attempt[0]['status'] ?? '';
                 if (!in_array($status,['accepted','failed','uncertain'],true)) throw new RuntimeException('RESERVATION_MAX_RESULT_INVALID');
                 $summary[$status]++;
@@ -187,10 +187,11 @@ final class BookingMax
         $template=BookingNotices::TEMPLATES[$action][0];
         if (!isset($scope['catalog_versions'][$template])) return null;
         $render=TemplateCatalog::renderEvent($this->db,'max',$template,$values);
-        if ($render['binding']['version']!==$scope['catalog_versions'][$template] || $render['format']!=='plain')
+        if ($render['binding']['version']!==$scope['catalog_versions'][$template] || !in_array($render['format'],['plain','html','markdown'],true))
             throw new RuntimeException('RESERVATION_MAX_TEMPLATE_CHANGED');
-        $text=$render['body'].($local?"\nИсточник · локальная проверка":'');
-        return ['actor_id'=>$actor,'request_key'=>'reservation-max-'.$key,'text'=>$text,
+        $format=$render['format']==='plain'?null:$render['format'];
+        $text=$render['body'].($local && $format===null?"\nИсточник · локальная проверка":'');
+        return ['actor_id'=>$actor,'request_key'=>'reservation-max-'.$key,'text'=>$text,'format'=>$format,
             'source_sha256'=>$sha,'template'=>$render['binding']];
     }
 
@@ -254,7 +255,7 @@ final class BookingMax
     {
         $delivery=$this->delivery;
         if (!$delivery || $provider!=='max' || $operation!=='send' || $target!==$delivery['scope']['chat_id'] || $groups!==[$target]
-            || $raw!==Support::json(['text'=>$delivery['plan']['text']])) throw new RuntimeException('RESERVATION_MAX_REQUEST_REJECTED');
+            || $raw!==MessageTransport::maxPayload($delivery['plan']['text'],$delivery['plan']['format'])) throw new RuntimeException('RESERVATION_MAX_REQUEST_REJECTED');
         if (!$this->fixture && $delivery['date']!==date('Y-m-d')) throw new RuntimeException('RESERVATION_MAX_EVENT_CHANGED');
         $this->checkContext($delivery['scope']);
         if ($this->plan($delivery['scope'],$delivery['row'],$delivery['date'])!==$delivery['plan'])
@@ -284,7 +285,7 @@ final class BookingMax
     {
         if (!$this->delivery) throw new RuntimeException('RESERVATION_MAX_HTTP_REJECTED');
         $chat=$this->delivery['scope']['chat_id'];
-        ServerWorkflowMax::assertPath((int)$this->sent,$method,$url,$body,$chat,$this->delivery['plan']['text']);
+        ServerWorkflowMax::assertPath((int)$this->sent,$method,$url,$body,$chat,$this->delivery['plan']['text'],$this->delivery['plan']['format']);
         $this->assertOperation('max','send',$chat,(string)$body,[$chat]);
     }
 
