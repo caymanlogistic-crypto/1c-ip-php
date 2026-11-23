@@ -119,6 +119,10 @@ final class CurrentContractMaxProof
                 $values['recordUrl']='https://ui.89.208.213.14.sslip.io/rental/contract?id='.$event['entity_id'];
             }
         }
+        if (!$party && $key!==HandoverQuestion::EVENT) {
+            $lease=$event['entity_kind']==='contract'?$owner:Service::get($this->db,'contracts',$event['contract_id']);
+            $values+=ContractSubmitMax::values($this->db,$lease,$key==='submit')+['party'=>$event['party_name']];
+        }
         $render=TemplateCatalog::renderEvent($this->db,'max',$key,$values);
         if($render['binding']['version']!==$catalogVersion)throw new RuntimeException('RENTAL_MAX_CATALOG_REVISION_CHANGED');
         if ($staff) {

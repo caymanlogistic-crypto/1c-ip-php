@@ -1,27 +1,27 @@
 {
   "reservationCreated": {
     "trigger": "После создания заявки на резервирование",
-    "body": "<b>ПОМЕЩЕНИЕ ЗАРЕЗЕРВИРОВАНО</b>\nПомещение <b>{context}</b>\nНачало <b>{reservationStart}</b>\nОкончание <b>{effective}</b>{reservationCommentPrefix}<b>{reservationComment}</b>\nОтветственный · <b>{manager}</b>",
+    "body": "<b>📌 ОБЪЕКТ ЗАРЕЗЕРВИРОВАН</b>\nОбъект: <b>{context}</b>{reservationTypeLabel}{reservationAreaLabel}\nс <b>{reservationStart}</b> по <b>{effective}</b>{reservationCommentPrefix}<b>{reservationComment}</b>\nОтветственный · <b>{manager}</b>",
     "format": "html"
   },
   "reservationExtended": {
     "trigger": "После продления действующего резервирования",
-    "body": "<b>РЕЗЕРВИРОВАНИЕ ПРОДЛЕНО</b>\nПомещение <b>{context}</b>\nНачало <b>{reservationStart}</b>\nПрежнее окончание <b>{previousDeadline}</b>\nНовое окончание <b>{effective}</b>\nОтветственный · <b>{manager}</b>",
+    "body": "<b>🗓️ РЕЗЕРВИРОВАНИЕ ПРОДЛЕНО</b>\nОбъект: <b>{context}</b>{reservationTypeLabel}{reservationAreaLabel}\nс <b>{reservationStart}</b> по <b>{effective}</b>\nПрежний срок до <b>{previousDeadline}</b>\nОтветственный · <b>{manager}</b>",
     "format": "html"
   },
   "reservationCancelled": {
     "trigger": "После ручного снятия резервирования",
-    "body": "<b>РЕЗЕРВИРОВАНИЕ СНЯТО</b>\nПомещение <b>{context}</b>\nПричина · <b>{reason}</b>\nСнял · <b>{actor}</b>",
+    "body": "<b>🔓 РЕЗЕРВИРОВАНИЕ СНЯТО</b>\nОбъект: <b>{context}</b>{reservationTypeLabel}{reservationAreaLabel}\nПричина · <b>{reason}</b>\nСнял · <b>{actor}</b>",
     "format": "html"
   },
   "reservationReminder": {
     "trigger": "За день до окончания срока резервирования",
-    "body": "<b>РЕЗЕРВИРОВАНИЕ ЗАКАНЧИВАЕТСЯ ЗАВТРА</b>\nПомещение <b>{context}</b>\nОкончание <b>{effective}</b>\nОтветственный · <b>{manager}</b>\nЕсли клиенту нужно больше времени, продлите резервирование.",
+    "body": "<b>⏳ РЕЗЕРВИРОВАНИЕ ЗАКАНЧИВАЕТСЯ ЗАВТРА</b>\nОбъект: <b>{context}</b>{reservationTypeLabel}{reservationAreaLabel}\nСрок до <b>{effective}</b>\nОтветственный · <b>{manager}</b>\nДействие · <b>Продлить резервирование, если клиенту нужно больше времени</b>",
     "format": "html"
   },
   "reservationExpired": {
     "trigger": "После автоматического снятия по истечении срока",
-    "body": "<b>СРОК РЕЗЕРВИРОВАНИЯ ИСТЁК</b>\nПомещение <b>{context}</b>\nОкончание <b>{effective}</b>\nОтветственный · <b>{manager}</b>\nРезервирование снято автоматически.",
+    "body": "<b>⌛ СРОК РЕЗЕРВИРОВАНИЯ ИСТЁК</b>\nОбъект: <b>{context}</b>{reservationTypeLabel}{reservationAreaLabel}\nСрок до <b>{effective}</b>\nОтветственный · <b>{manager}</b>\nРезервирование снято автоматически.",
     "format": "html"
   }
 }

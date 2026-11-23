@@ -53,12 +53,13 @@ final class CustomerBookings
 
     public static function history(PDO $db,string $action,?array $before,array $after,string $reason='',?int $basis=null,?int $document=null,bool $system=false,?string $origin=null): void
     {
-        $q=$db->prepare('SELECT o.name object_name,p.name party_name,u.name responsible FROM rental_objects o
+        $q=$db->prepare('SELECT o.name object_name,o.type object_type,o.area object_area,p.name party_name,u.name responsible FROM rental_objects o
             LEFT JOIN parties p ON p.id=? LEFT JOIN users u ON u.id=? WHERE o.id=?');
         $q->execute([$after['party_id'],$after['author_id'],$after['object_id']]);
         $labels=$q->fetch() ?: [];
         $evidence=[
             'reservation_id'=>(int)$after['id'],'object_id'=>(int)$after['object_id'],'object'=>$labels['object_name'] ?? '',
+            'object_type'=>$labels['object_type'] ?? '', 'object_area'=>$labels['object_area'] ?? null,
             'client'=>self::client($after+$labels),'responsible_id'=>(int)($after['author_id'] ?? 0),
             'responsible'=>$labels['responsible'] ?? 'Менеджер по аренде',
             'actor'=>$system?'Система':(Auth::user()['name'] ?? 'Система'),

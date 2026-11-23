@@ -239,8 +239,7 @@ final class ReservationMaxRelay
         $count=0;
         foreach ((new BookingMax($this->db))->exports($scope['event_floor'],$scope['started_at'],$date,array_keys($actorMap)) as $event) {
             $event['actor_id']=$actorMap[$event['actor_id']];
-            if (!self::validEvent($event)) throw new RuntimeException('RESERVATION_RELAY_LOCAL_EVENT');
-            $json=Support::json($event);
+            $json=self::forwardPayload($event);
             $time=time();
             $this->request=$json;
             try {
@@ -255,6 +254,14 @@ final class ReservationMaxRelay
             $count++;
         }
         return ['queued'=>$count];
+    }
+
+    private static function forwardPayload(array $event): string
+    {
+        // The current receiving server accepts only the original event fields.
+        unset($event['values']['reservationTypeLabel'],$event['values']['reservationAreaLabel']);
+        if (!self::validEvent($event)) throw new RuntimeException('RESERVATION_RELAY_LOCAL_EVENT');
+        return Support::json($event);
     }
 
     public function assertHttpRequest(string $method,string $url,?string $body): void
