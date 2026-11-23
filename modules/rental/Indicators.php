@@ -83,7 +83,7 @@ final class Indicators {
             $db=DB::pdo();$id=(int)$record['id'];
             $handoff=WorkflowEvents::latest($db,$kind,$id,true);
             if ($kind==='contract') $handoff=ContractRevision::legalHandoff($db,$id,$handoff);
-            return LegalSla::evaluate($record,$handoff,$today.' '.$time.(strlen($time)===5?':00':''),$legalCalendar);
+            return LegalSla::evaluate($record,$handoff,$today.' '.$time.(strlen($time)===5?':00':''),$legalCalendar,$kind);
         };
         $add = function(string $entity, int $id, string $role, string $severity, string $page, string $text, ?int $contract = null, array $metadata=[])use(&$tasks) {
             $tasks[] = [
