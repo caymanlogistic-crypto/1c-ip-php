@@ -74,13 +74,16 @@ final class ReservationMaxRelay
             || !is_int($e['version'] ?? null) || $e['version']<1 || !is_array($e['values'] ?? null)) return false;
         $fields=['number','context','party','manager','effective','reason','actor'];
         if ($e['action']==='reservation.create') array_push($fields,'reservationStart','reservationCommentLine');
-        if ($e['action']==='reservation.extend') $fields[]='previousDeadline';
+        if ($e['action']==='reservation.extend') {
+            $fields[]='previousDeadline';
+            if (array_key_exists('reservationStart',$e['values'])) $fields[]='reservationStart';
+        }
         if (array_diff($fields,array_keys($e['values'])) || count($fields)!==count($e['values'])) return false;
         foreach ($e['values'] as $value) if (!is_string($value) || strlen($value)>1800) return false;
         return preg_match('/\A[1-9][0-9]{0,15}\z/D',$e['values']['number'])===1;
     }
 
-    private function enqueue(array $event,array $scope): string
+    private function enqueue(array $event,array $scope,bool $example=false): string
     {
         $now=time();
         if ($event['recorded_at']<$scope['started_at'] || $event['recorded_at']>$now+10) {
@@ -90,17 +93,70 @@ final class ReservationMaxRelay
         $digest=hash('sha256',Importer::canonicalJson($event));
         $fact=['source'=>$scope['source'],'group_id'=>$scope['group_id'],'event'=>$event,'sha256'=>$digest,
             'epoch'=>$this->db->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn(),
-            'recorded_at'=>$now];
+            'recorded_at'=>$now,'example'=>$example];
         $this->db->prepare('INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,1)
              ON DUPLICATE KEY UPDATE source_key=rental_facts.source_key')
             ->execute([self::INBOX,$key,Support::json($fact)]);
         $q=$this->db->prepare('SELECT fact_json FROM rental_facts WHERE namespace=? AND source_key=? AND operative=1');
         $q->execute([self::INBOX,$key]);
         $saved=Support::decode((string)$q->fetchColumn());
-        if (($saved['sha256'] ?? null)!==$digest || ($saved['group_id'] ?? null)!==$scope['group_id']) {
+        if (($saved['sha256'] ?? null)!==$digest || ($saved['group_id'] ?? null)!==$scope['group_id']
+            || ($saved['example'] ?? false)!==$example) {
             throw new RuntimeException('RESERVATION_RELAY_KEY_CONFLICT',409);
         }
         return $event['key'];
+    }
+
+    /** One operator-requested batch from a previously delivered local training reservation. */
+    public function queueExamples(string $booking,string $batch): array
+    {
+        if (PHP_SAPI!=='cli' || !preg_match('/\A[1-9][0-9]{0,15}\z/D',$booking)
+            || !preg_match('/\A[a-zA-Z0-9-]{16,80}\z/D',$batch)) throw new RuntimeException('RESERVATION_EXAMPLES_SELECTOR');
+        $scope=$this->serverScope();
+        if (!$scope) throw new RuntimeException('RESERVATION_EXAMPLES_SCOPE');
+        $q=$this->db->prepare("SELECT JSON_EXTRACT(f.fact_json,'$.event') event
+            FROM rental_facts f JOIN messaging_attempts a ON a.provider='max'
+             AND a.request_key=CONCAT('reservation-max-',f.source_key) AND a.status='accepted'
+            WHERE f.namespace=? AND f.operative=1 AND JSON_UNQUOTE(JSON_EXTRACT(f.fact_json,'$.source'))=?
+              AND JSON_UNQUOTE(JSON_EXTRACT(f.fact_json,'$.event.values.number'))=?
+              AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(f.fact_json,'$.example')),'false')<>'true'");
+        $q->execute([self::INBOX,$scope['source'],$booking]);
+        $original=[];
+        foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $raw) {
+            $event=Support::decode($raw);
+            if (!self::validEvent($event) || !str_starts_with($event['values']['party'],'Учебная проверка')
+                || !str_starts_with($event['values']['context'],'Учебное')) throw new RuntimeException('RESERVATION_EXAMPLES_NOT_TRAINING');
+            if (isset($original[$event['action']])) throw new RuntimeException('RESERVATION_EXAMPLES_MULTIPLE_EVENTS');
+            $original[$event['action']]=$event;
+        }
+        if (count($original)!==3 || !isset($original['reservation.create'],$original['reservation.extend'],$original['reservation.cancel']))
+            throw new RuntimeException('RESERVATION_EXAMPLES_SOURCE_MISSING');
+        $original['reservation.extend']['values']['reservationStart']=$original['reservation.create']['values']['reservationStart'];
+        $last=$original['reservation.extend'];
+        unset($last['values']['previousDeadline'],$last['values']['reservationStart']);
+        $results=[];
+        $now=time();
+        $this->db->beginTransaction();
+        try {
+            foreach (array_keys(BookingNotices::TEMPLATES) as $action) {
+                $event=$original[$action] ?? $last;
+                $event['action']=$action;
+                $event['key']=hash('sha256','reservation-example:'.$booking.':'.$batch.':'.$action);
+                $event['recorded_at']=$now;
+                if (!self::validEvent($event)) throw new RuntimeException('RESERVATION_EXAMPLES_FIELDS');
+                $key=hash('sha256',$scope['source'].':'.$event['key']);
+                $receipt=$this->db->prepare('SELECT fact_json FROM rental_facts WHERE namespace=? AND source_key=?');
+                $receipt->execute([self::INBOX,$key]);
+                $previous=$receipt->fetchColumn();
+                if (is_string($previous)) $event['recorded_at']=Support::decode($previous)['event']['recorded_at'];
+                $results[$action]=$this->enqueue($event,$scope,true);
+            }
+            $this->db->commit();
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
+        }
+        return $results;
     }
 
     public function plan(array $fact,array $max): ?array
@@ -112,7 +168,18 @@ final class ReservationMaxRelay
             || ($fact['epoch'] ?? null)!==$max['epoch'] || ($fact['recorded_at'] ?? 0)<$max['valid_from']
             || !is_array($e) || !self::validEvent($e) || $e['recorded_at']<$binding['started_at']
             || ($fact['sha256'] ?? null)!==hash('sha256',Importer::canonicalJson($e))) return null;
-        if ($e['action']==='reservation.reminder') {
+        if ($e['action']==='reservation.extend' && !isset($e['values']['reservationStart'])) {
+            $q=$this->db->prepare("SELECT JSON_UNQUOTE(JSON_EXTRACT(fact_json,'$.event.values.reservationStart'))
+                FROM rental_facts WHERE namespace=? AND operative=1
+                AND JSON_UNQUOTE(JSON_EXTRACT(fact_json,'$.source'))=?
+                AND JSON_UNQUOTE(JSON_EXTRACT(fact_json,'$.event.values.number'))=?
+                AND JSON_UNQUOTE(JSON_EXTRACT(fact_json,'$.event.action'))='reservation.create'
+                AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(fact_json,'$.example')),'false')<>'true'
+                ORDER BY id DESC LIMIT 1");
+            $q->execute([self::INBOX,$fact['source'],$e['values']['number']]);
+            if (is_string($start=$q->fetchColumn())) $e['values']['reservationStart']=$start;
+        }
+        if ($e['action']==='reservation.reminder' && ($fact['example'] ?? false)!==true) {
             if ($e['values']['effective']!==date('d.m.Y',strtotime('+1 day'))) return null;
             $q=$this->db->prepare("SELECT 1 FROM rental_facts WHERE namespace=? AND operative=1
                 AND JSON_UNQUOTE(JSON_EXTRACT(fact_json,'$.source'))=?

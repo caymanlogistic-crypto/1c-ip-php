@@ -94,7 +94,8 @@ final class BookingNotices
         $specific=match ($notice['action']) {
             'reservation.create'=>['reservationStart'=>Documents::dateText($notice['start_date']),
                 'reservationCommentLine'=>$comment===''?'':"\nКомментарий · ".$comment],
-            'reservation.extend'=>['previousDeadline'=>Documents::dateText($notice['before_until'])],
+            'reservation.extend'=>['previousDeadline'=>Documents::dateText($notice['before_until']),
+                'reservationStart'=>Documents::dateText($notice['start_date'])],
             default=>[],
         };
         return ['number'=>(string)$notice['reservation_id'],'context'=>$notice['object'],'party'=>$notice['client'],

@@ -1,22 +1,27 @@
 {
   "reservationCreated": {
     "trigger": "После создания заявки на резервирование",
-    "body": "Резервирование №{number} создано\nПомещение {context} · {party}\nПланируемое начало аренды · {reservationStart}\nРезервирование действует по {effective} включительно\nОтветственный · {manager}{reservationCommentLine}"
+    "body": "<b>ПОМЕЩЕНИЕ ЗАРЕЗЕРВИРОВАНО</b>\nПомещение <b>{context}</b>\nНачало <b>{reservationStart}</b>\nОкончание <b>{effective}</b>{reservationCommentPrefix}<b>{reservationComment}</b>\nОтветственный · <b>{manager}</b>",
+    "format": "html"
   },
   "reservationExtended": {
     "trigger": "После продления действующего резервирования",
-    "body": "Резервирование №{number} продлено\nПомещение {context} · {party}\nПрежний срок · по {previousDeadline} включительно\nНовый срок · по {effective} включительно\nОтветственный · {manager}"
+    "body": "<b>РЕЗЕРВИРОВАНИЕ ПРОДЛЕНО</b>\nПомещение <b>{context}</b>\nНачало <b>{reservationStart}</b>\nПрежнее окончание <b>{previousDeadline}</b>\nНовое окончание <b>{effective}</b>\nОтветственный · <b>{manager}</b>",
+    "format": "html"
   },
   "reservationCancelled": {
     "trigger": "После ручного снятия резервирования",
-    "body": "Резервирование №{number} снято\nПомещение {context} · {party}\nПричина · {reason}\nСнял · {actor}"
+    "body": "<b>РЕЗЕРВИРОВАНИЕ СНЯТО</b>\nПомещение <b>{context}</b>\nПричина · <b>{reason}</b>\nСнял · <b>{actor}</b>",
+    "format": "html"
   },
   "reservationReminder": {
     "trigger": "За день до окончания срока резервирования",
-    "body": "Резервирование №{number} заканчивается завтра\nПомещение {context} · {party}\nПоследний день · {effective}\nОтветственный · {manager}\nЕсли клиенту нужно больше времени, продлите резервирование."
+    "body": "<b>РЕЗЕРВИРОВАНИЕ ЗАКАНЧИВАЕТСЯ ЗАВТРА</b>\nПомещение <b>{context}</b>\nОкончание <b>{effective}</b>\nОтветственный · <b>{manager}</b>\nЕсли клиенту нужно больше времени, продлите резервирование.",
+    "format": "html"
   },
   "reservationExpired": {
     "trigger": "После автоматического снятия по истечении срока",
-    "body": "Резервирование №{number} снято по сроку\nПомещение {context} · {party}\nПоследний день резервирования · {effective}\nОтветственный · {manager}\nЗаявка сохранена в истории."
+    "body": "<b>СРОК РЕЗЕРВИРОВАНИЯ ИСТЁК</b>\nПомещение <b>{context}</b>\nОкончание <b>{effective}</b>\nОтветственный · <b>{manager}</b>\nРезервирование снято автоматически.",
+    "format": "html"
   }
 }

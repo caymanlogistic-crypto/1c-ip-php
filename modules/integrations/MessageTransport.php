@@ -5,6 +5,11 @@ namespace Modules\Integrations;
 final class MessageTransport
 {
     public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|BookingMax|null $readCheck = null) {}
+    public static function maxPayload(string $text,?string $format=null): string
+    {
+        return Support::json(['text'=>$text]+($format===null?[]:['format'=>$format]));
+    }
+
     public static function safeException(\Throwable $error): array
     {
         $classes=['RuntimeException','InvalidArgumentException','PDOException','JsonException','TypeError','Error','Exception'];
@@ -99,6 +104,12 @@ final class MessageTransport
             if (!$message||(!is_string($message)&&!is_int($message))||(string)($value['message']['recipient']['chat_id']??'')!==$target) {
                 $diagnostic['safe_error_code']='MESSAGE_ACK_BINDING_UNCONFIRMED';
                 return ['status'=>'uncertain','code'=>'MAX_ACCEPTANCE_UNKNOWN']+$diagnostic;
+            }
+            if ($this->readCheck instanceof BookingMax && ($format=Support::decode($raw)['format'] ?? null)) {
+                $markup=$value['message']['body']['markup'] ?? [];
+                $diagnostic['format']=$format;
+                $diagnostic['bold_spans']=count(array_filter(is_array($markup)?$markup:[],
+                    static fn($span)=>is_array($span) && ($span['type'] ?? '')==='strong'));
             }
             return ['status'=>'accepted','code'=>'MAX_ACCEPTED','remote_id'=>mb_substr((string)$message,0,200,'UTF-8')]+$diagnostic;
         } catch (\Throwable $error) {

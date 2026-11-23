@@ -6,8 +6,8 @@ final class TemplateCatalog
 {
     public const MESSAGE_VARS=['text','number','party','lawyer','manager','accountant','director','admin','version','reason','invoiceNumbers','recipientNames','actor','documentNumber','effective','context','documentLabel','invoiceSummary','effectiveSummary','managerEmail','recordUrl'];
     public const RESERVATION_VARS=[
-        'reservationCreated'=>['reservationStart','reservationCommentLine'],
-        'reservationExtended'=>['previousDeadline'],
+        'reservationCreated'=>['reservationStart','reservationCommentLine','reservationCommentPrefix','reservationComment'],
+        'reservationExtended'=>['previousDeadline','reservationStart'],
         'reservationCancelled'=>[],
         'reservationReminder'=>[],
         'reservationExpired'=>[],
@@ -62,12 +62,12 @@ final class TemplateCatalog
         $this->db->beginTransaction();
         try {
             $select=$this->db->prepare("SELECT * FROM integration_template_catalog WHERE channel='max' AND source_key=? FOR UPDATE");
-            $update=$this->db->prepare("UPDATE integration_template_catalog SET body_text=?,trigger_text=?,version=version+1,
+            $update=$this->db->prepare("UPDATE integration_template_catalog SET body_text=?,trigger_text=?,format=?,version=version+1,
                 actor_label=?,changed_at=?,source_sha256=?,source_path=?,source_version='reservation-notices-v2'
                 WHERE channel='max' AND source_key=?");
             foreach (\Modules\Rental\BookingNotices::TEMPLATES as [$key,$title]) {
                 $definition=$definitions[$key];
-                $entry=['id'=>$key,'name'=>$title,'format'=>'plain','body'=>$definition['body'],'version'=>1,'trigger'=>$definition['trigger']];
+                $entry=['id'=>$key,'name'=>$title,'format'=>$definition['format'],'body'=>$definition['body'],'version'=>1,'trigger'=>$definition['trigger']];
                 self::validateFormat($entry['format'],$entry['body'],self::messageVariables('max',$key));
                 $sha=hash('sha256',Support::canonical($entry));
                 $select->execute([$key]);
@@ -79,7 +79,7 @@ final class TemplateCatalog
                     if ($apply) {
                         $this->rememberVersion($old);
                         $original=$this->store->put('catalog-records',Support::json($entry));
-                        $update->execute([$entry['body'],$entry['trigger'],'Каталог системы',date(DATE_ATOM),$sha,$original,$key]);
+                        $update->execute([$entry['body'],$entry['trigger'],$entry['format'],'Каталог системы',date(DATE_ATOM),$sha,$original,$key]);
                     }
                     $result[$key]=['status'=>$apply?'upgraded':'can_upgrade','version'=>$apply?2:1];
                 } else {
@@ -127,6 +127,19 @@ final class TemplateCatalog
         }catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
     public static function preview(string $channel,array $entry,array $values=[]): array {
-        $base=$channel==='top'?['title'=>'Изменения сохранены','text'=>'Документ направлен на проверку.','record'=>'Договор №173','section'=>'Согласования','why'=>'Требуется юридическая проверка.','actor'=>'Исполнитель','number'=>'2','party'=>'Контрагент','template'=>$entry['name']??'Шаблон','details'=>'Помещение 204']:array_fill_keys(self::MESSAGE_VARS,'');$base=array_replace($base,$values);$replace=static function(string $text)use($base,$channel,$entry){return preg_replace_callback('/\{([^{}]+)\}/u',static function($m)use($base,$channel,$entry){$v=is_scalar($base[$m[1]]??null)?(string)$base[$m[1]]:'';if($channel==='max'&&($entry['format']??'plain')==='html')return htmlspecialchars($v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');if($channel==='max'&&($entry['format']??'plain')==='markdown')return preg_replace('/([\\\\`*_{}\[\]()#+.!|>~^<+=-])/u','\\\\$1',$v);return $v;},$text);};$body=$replace($entry['body_text']);$title=$replace($entry['title']??'');$subject=$replace($entry['subject']??'');if($channel==='top'){if($title===''||$body===''||mb_strlen($title)>120||mb_strlen($body)>1000)throw new \InvalidArgumentException('EXPANDED_TEMPLATE_LIMIT');}elseif(mb_strlen($body)>4000||mb_strlen($subject)>200||preg_match('/[\r\n]/',$subject))throw new \InvalidArgumentException('EXPANDED_TEMPLATE_LIMIT');return ['title'=>$title,'subject'=>$subject,'body'=>$body,'format'=>$entry['format']??'plain'];
+        $reservationHtml=$channel==='max' && ($entry['format'] ?? '')==='html'
+            && isset(self::RESERVATION_VARS[$entry['source_key'] ?? '']);
+        if ($reservationHtml) {
+            foreach (['manager','actor'] as $person) {
+                $words=preg_split('/\s+/u',trim($values[$person] ?? ''),2);
+                $values[$person]=$words[0] ?? '';
+            }
+            $prefix="\nКомментарий · ";
+            $line=$values['reservationCommentLine'] ?? '';
+            $comment=str_starts_with($line,$prefix)?substr($line,strlen($prefix)):'';
+            $values['reservationCommentPrefix']=$comment===''?'':$prefix;
+            $values['reservationComment']=$comment;
+        }
+        $base=$channel==='top'?['title'=>'Изменения сохранены','text'=>'Документ направлен на проверку.','record'=>'Договор №173','section'=>'Согласования','why'=>'Требуется юридическая проверка.','actor'=>'Исполнитель','number'=>'2','party'=>'Контрагент','template'=>$entry['name']??'Шаблон','details'=>'Помещение 204']:array_fill_keys(self::MESSAGE_VARS,'');$base=array_replace($base,$values);$replace=static function(string $text)use($base,$channel,$entry){return preg_replace_callback('/\{([^{}]+)\}/u',static function($m)use($base,$channel,$entry){$v=is_scalar($base[$m[1]]??null)?(string)$base[$m[1]]:'';if($channel==='max'&&($entry['format']??'plain')==='html')return htmlspecialchars($v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');if($channel==='max'&&($entry['format']??'plain')==='markdown')return preg_replace('/([\\\\`*_{}\[\]()#+.!|>~^<+=-])/u','\\\\$1',$v);return $v;},$text);};$body=$replace($entry['body_text']);if($reservationHtml)$body=str_replace('<b></b>','',$body);$title=$replace($entry['title']??'');$subject=$replace($entry['subject']??'');if($channel==='top'){if($title===''||$body===''||mb_strlen($title)>120||mb_strlen($body)>1000)throw new \InvalidArgumentException('EXPANDED_TEMPLATE_LIMIT');}elseif(mb_strlen($body)>4000||mb_strlen($subject)>200||preg_match('/[\r\n]/',$subject))throw new \InvalidArgumentException('EXPANDED_TEMPLATE_LIMIT');return ['title'=>$title,'subject'=>$subject,'body'=>$body,'format'=>$entry['format']??'plain'];
     }
 }
