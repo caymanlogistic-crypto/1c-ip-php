@@ -159,16 +159,15 @@ final class LegalHandoffCard
         return self::section('Договор',$body,$files?'Комплект готов':($ready?'Подготовка комплекта':'Ожидает двух решений'),(bool)$files);
     }
 
-    public static function accountantDocuments(int $id,array $files): string
+    public static function accountantDocuments(int $id,array $files,bool $handoff=true): string
     {
-        return self::section('Документы от юриста',self::fileList($files).self::history($id,false),'Текущий комплект',true);
+        $body=$files?self::fileList($files):'<p class="registry-ui-modal-help">Текущий комплект не подтверждён.</p>';
+        return self::section('Документы от юриста',$body.self::history($id,!$handoff),$files?'Текущий комплект':'',(bool)$files);
     }
 
     private static function section(string $title,string $body,string $state,bool $done): string
     {
-        return '<section class="registry-ui-form-section registry-ui-review-section" data-form-disclosure-scope><div class="registry-ui-form-section-heading">'
-            .'<h3 class="modal-title">'.View::e($title).'</h3><span class="registry-ui-review-state"'
-            .($done?' data-complete':'').'>'.View::e($state).'</span></div>'.$body.'</section>';
+        return RentalUI::reviewSection($title,$body,$state,$done);
     }
 
     private static function disclosure(string $label,string $body): string

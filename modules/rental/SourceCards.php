@@ -33,6 +33,7 @@ final class SourceCards {
             && RegistryState::managed($c) && \App\PagePolicy::level('rental.approvals',Auth::user())>=2) {
             return LegalHandoffCard::render($c);
         }
+        if ($role==='accountant' && AccountantReviewCard::available($c)) return AccountantReviewCard::render($c);
         if(in_array($role,['admin','manager'],true) && Auth::can('rental.write') && \App\PagePolicy::level('rental.contracts',Auth::user())>=2 && empty(json_decode($c['source_json'],true)['imported']) && in_array($c['status'],['draft','returned'],true) && $c['return_to']!=='lawyer')return ContractForm::render();
         $managed = empty(json_decode($c['source_json'], true)['imported']);
         $rows = Controller::query("SELECT o.*,p.id plan_id FROM rental_objects o JOIN contract_objects co ON co.object_id=o.id "
@@ -121,10 +122,6 @@ final class SourceCards {
         $body.=CustomerBookings::contractOrigin($c).PremisesActsCard::summary($c);
         $body.=SecurityDepositCard::section($c);
         $body.=InitialInvoiceCard::entry($c).InitialInvoiceCard::attachments($c);
-        if ($role==='accountant' && in_array($c['status'],['accounting','approved'],true)) {
-            $handoffs=LegalHandoff::history(\App\DB::pdo(),$id);
-            if ($handoffs) $body.=LegalHandoffCard::accountantDocuments($id,$handoffs[0]['files']);
-        }
         if (!in_array($c['status'],['draft','cancelled'],true)) $body.=LeasePaymentTermsCard::summary($c);
         $body.=ExpiryNoticeCard::entry($c);
         $body.='<div class="demo-row">'.RentalUI::button('Клининг и допуслуги','/rental/services?contract_id='.$id).'</div>';
@@ -292,6 +289,10 @@ final class SourceCards {
         }
         if ($action===ContractRevision::ACTION) return ContractRevision::form($c);
         if ($action==='contract.send' && $c['status']==='approved' && PacketForm::requiresConfirmation('contract',$id)) $action='contract.packet';
+        if (Auth::user()['role']==='accountant' && AccountantReviewCard::available($c)
+            && ($action==='contract.packet' || ($action==='contract.return' && $c['status']==='accounting'))) {
+            return AccountantReviewCard::render($c,$previousPacket,$action);
+        }
         $allowed = [
             'contract.submit' => 'Отправить на согласование',
             'contract.legal' => 'Проверка юристом',

@@ -25,6 +25,15 @@
     event.preventDefault();
     reviewStatus.textContent='В рабочем окне комплект скачивается одним ZIP.';
   });
+  const accountantReview=document.getElementById('accountant-review-example');
+  document.querySelector('[data-open-accountant-review]').addEventListener('click',()=>accountantReview.showModal());
+  accountantReview.querySelectorAll('[data-close-accountant-review]').forEach(button=>button.addEventListener('click',()=>accountantReview.close()));
+  accountantReview.querySelectorAll('[data-demo-accountant-file]').forEach(link=>link.addEventListener('click',event=>event.preventDefault()));
+  accountantReview.querySelectorAll('form').forEach(form=>form.addEventListener('submit',event=>{
+    event.preventDefault();
+    form.reset();
+    accountantReview.close();
+  }));
   const reviewParty=document.getElementById('review-party-example');
   document.querySelector('[data-open-review-party]').addEventListener('click',()=>reviewParty.showModal());
   reviewParty.querySelectorAll('[data-close-review-party]').forEach(button=>button.addEventListener('click',()=>reviewParty.close()));

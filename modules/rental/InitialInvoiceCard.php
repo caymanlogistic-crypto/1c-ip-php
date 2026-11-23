@@ -20,22 +20,28 @@ final class InitialInvoiceCard
         return RentalUI::button($label,self::route((int)$contract['id']));
     }
 
-    public static function attachments(array $contract): string
+    public static function pdfFiles(int $id): array
     {
-        $id=(int)$contract['id'];
-        if (!\App\Auth::can('rental.read')) return '';
-        $db=DB::pdo();
-        $receipt=InitialInvoice::receipt($db,$id);
-        if (empty($receipt['pdf_ids'])) return '';
+        if (!Auth::can('rental.read')) return [];
+        $files=InitialInvoice::receipt(DB::pdo(),$id)['pdf_ids']??[];
+        if (!$files) return [];
         try {
             Access::finance();
         } catch (RuntimeException $error) {
-            if ($error->getCode()===403) return '';
+            if ($error->getCode()===403) return [];
             throw $error;
         }
+        return $files;
+    }
+
+    public static function attachments(array $contract): string
+    {
+        $id=(int)$contract['id'];
+        $files=self::pdfFiles($id);
+        if (!$files) return '';
         $rows=[];
-        foreach (InitialInvoice::issuedFor($db,$id) as $invoice) {
-            $fileId=$receipt['pdf_ids'][$invoice['id']]??null;
+        foreach (InitialInvoice::issuedFor(DB::pdo(),$id) as $invoice) {
+            $fileId=$files[$invoice['id']]??null;
             if (!$fileId) continue;
             $rows[]=[View::e('№'.InvoiceDocument::number($invoice['number'])),
                 Controller::money($invoice['amount']),'<a href="/rental/download?id='.View::e($fileId).'">Скачать PDF</a>'];

@@ -31,7 +31,54 @@
 <div class="registry-ui-review-actions"><button type="button" class="btn btn-secondary" data-open-review-party>Показать полные данные</button>
 <div class="demo-row"><details class="registry-ui-form-disclosure registry-ui-review-reason"><summary class="btn btn-danger">Заблокировать работу</summary><form class="registry-ui-form-section"><p class="registry-ui-modal-help">Новые договоры будут заблокированы. Текущий договор вернётся на доработку с указанной причиной.</p><label class="field"><span class="field-label">Причина</span><textarea class="field-input" rows="2" required></textarea></label><button type="button" class="btn btn-danger">Заблокировать и вернуть</button></form></details><button type="button" class="btn btn-success-solid">Разрешить работу</button></div></div>
 </section>
-<div class="demo-row"><button type="button" class="btn btn-secondary" data-open-review-terms>Показать условия договора и файлы</button></div>
+<div class="demo-row"><button type="button" class="btn btn-secondary" data-open-review-terms>Показать условия договора и файлы</button><button type="button" class="btn btn-secondary" data-open-accountant-review>Показать проверку бухгалтерией</button></div>
+<dialog class="modal registry-ui-modal registry-ui-modal--probe" id="accountant-review-example" aria-labelledby="accountant-review-title">
+<div class="registry-ui-modal-form">
+<div class="modal-head"><h2 class="modal-title" id="accountant-review-title">Договор №174 · проверка бухгалтерией</h2><button type="button" class="modal-close" data-close-accountant-review aria-label="Закрыть">×</button></div>
+<div class="modal-body"><div class="registry-ui-modal-grid"><div class="registry-ui-form-sections registry-ui-form-sections--compact">
+<section class="registry-ui-form-section registry-ui-review-section">
+<div class="registry-ui-form-section-heading"><h3 class="modal-title">Контрагент</h3></div>
+<div class="demo-value-pair"><span class="registry-ui-secondary">Наименование</span><span class="registry-ui-modal-text">ООО «Учебный арендатор»</span><span class="registry-ui-secondary">ИНН / КПП</span><span class="registry-ui-modal-text">7700000029 / 770001001</span></div>
+<details class="registry-ui-form-disclosure"><summary class="btn btn-secondary">Показать полные реквизиты</summary>
+<div class="registry-ui-form-section"><div class="demo-value-pair"><span class="registry-ui-secondary">Банк</span><span class="registry-ui-modal-text">Учебный банк</span></div></div></details>
+</section>
+<section class="registry-ui-form-section registry-ui-review-section">
+<div class="registry-ui-form-section-heading"><h3 class="modal-title">Финансовые условия</h3></div>
+<div class="demo-value-pair"><span class="registry-ui-secondary">Период аренды</span><span class="registry-ui-modal-text">01.12.2026 — 31.12.2026</span><span class="registry-ui-secondary">Аренда за месяц с НДС</span><span class="registry-ui-modal-text">10 000,00 ₽</span></div>
+<div class="registry-ui-review-terms"><div class="table-scroll"><table class="table registry-ui-table registry-ui-data" data-column-profile="rental-contracts">
+<colgroup><col class="registry-column-text"><col class="registry-column-text"><col class="registry-column-short"><col class="registry-column-money"></colgroup>
+<thead><tr><th>Объект</th><th>Тип</th><th>Площадь</th><th class="registry-ui-number">Аренда с НДС</th></tr></thead>
+<tbody><tr><td>1.11</td><td>Машиноместо</td><td>10,6 м²</td><td class="registry-ui-number">10 000,00 ₽</td></tr></tbody></table></div></div>
+</section>
+<section class="registry-ui-form-section registry-ui-review-section">
+<div class="registry-ui-form-section-heading"><h3 class="modal-title">Документы от юриста</h3><span class="registry-ui-review-state" data-complete>Текущий комплект</span></div>
+<ul class="registry-ui-form-section registry-ui-review-files"><li><a href="#accountant-review-example" data-demo-accountant-file>Договор · новая редакция.pdf</a></li></ul>
+<details class="registry-ui-form-disclosure"><summary class="btn btn-secondary">История передачи бухгалтеру</summary>
+<div class="registry-ui-form-section"><section class="registry-ui-form-section"><h4 class="registry-ui-modal-summary">Юрист · 23.11.2026 10:30</h4>
+<ul class="registry-ui-form-section registry-ui-review-files"><li><a href="#accountant-review-example" data-demo-accountant-file>Договор · первая редакция.pdf</a></li></ul></section></div></details>
+</section>
+<section class="registry-ui-form-section registry-ui-review-section">
+<div class="registry-ui-form-section-heading"><h3 class="modal-title">Первый счёт</h3><span class="registry-ui-review-state" data-complete>Зарегистрирован</span></div>
+<div class="registry-ui-review-terms"><div class="table-scroll"><table class="table registry-ui-table registry-ui-data" data-column-profile="rental-contracts">
+<colgroup><col class="registry-column-text"><col class="registry-column-text"><col class="registry-column-short"><col class="registry-column-money"></colgroup>
+<thead><tr><th>Счёт</th><th>Период</th><th>Срок оплаты</th><th class="registry-ui-number">Сумма с НДС</th></tr></thead>
+<tbody><tr><td>№15<div class="doc-meta">Первый период</div><a href="#accountant-review-example" data-demo-accountant-file>Скачать PDF</a><div class="doc-meta">Входит в пакет</div></td><td>2026-12</td><td>26.11.2026</td><td class="registry-ui-number">10 000,00 ₽<div class="doc-meta">НДС 5 %</div></td></tr></tbody></table></div></div>
+</section>
+<section class="registry-ui-form-section registry-ui-review-section">
+<div class="registry-ui-form-section-heading"><h3 class="modal-title">Проверка пакета</h3><span class="registry-ui-review-state">Ожидает согласования</span></div>
+<form id="demo-accountant-checks" class="registry-ui-form-section">
+<label class="registry-ui-checkbox"><input type="checkbox" required><span>Контрагент и реквизиты проверены</span></label>
+<label class="registry-ui-checkbox"><input type="checkbox" required><span>Финансовые условия проверены</span></label>
+<label class="registry-ui-checkbox"><input type="checkbox" required><span>Документы и состав пакета проверены</span></label>
+</form>
+<details class="registry-ui-form-disclosure"><summary class="btn btn-danger">Вернуть на доработку</summary><form class="registry-ui-form-section">
+<label class="field"><span class="field-label">Причина возврата</span><textarea class="field-input" rows="2" maxlength="1000" required></textarea></label>
+<p class="registry-ui-modal-help">Укажите, каких данных не хватает или что нужно уточнить.</p>
+<div class="demo-row"><button class="btn btn-danger" type="submit">Подтвердить возврат</button></div>
+</form></details></section>
+</div></div></div>
+<div class="modal-foot"><div class="modal-foot-actions"><button class="btn btn-secondary" type="button" data-close-accountant-review>Закрыть</button><button class="btn btn-primary" type="submit" form="demo-accountant-checks">Подтвердить пакет</button></div></div>
+</div></dialog>
 </section></main></div><dialog class="modal registry-ui-modal registry-ui-modal--probe" id="review-terms-example" aria-labelledby="review-terms-example-title">
 <div class="registry-ui-modal-form">
 <div class="modal-head"><h2 class="modal-title" id="review-terms-example-title">Договор №174</h2><button class="modal-close" type="button" aria-label="Закрыть" data-close-review-terms>×</button></div>

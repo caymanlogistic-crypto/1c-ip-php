@@ -105,7 +105,14 @@ try {
     InitialInvoice::assertIssueParty($db,record($id));
     actor('accountant');
     $preview=NativePacket::preview($db,'contract',$id,Auth::user());
+    $_GET=['id'=>$id];
+    $card=SourceCards::show();
+    $currentFile=LegalHandoff::history($db,$id)[0]['files'][0]['filename'];
+    check(str_contains($card,$currentFile) && str_contains($card,'name="expected_packet_hash"'),'Accountant reviews current files and confirmation together');
     $db->prepare('UPDATE parties SET name=? WHERE id=?')->execute(['Изменённый контрагент',$party['id']]);
+    $blockedCard=SourceCards::show();
+    check(str_contains($blockedCard,$currentFile) && str_contains($blockedCard,'Проверка пакета недоступна')
+        && !str_contains($blockedCard,'name="expected_packet_hash"'),'Unavailable confirmation keeps the current lawyer files visible');
     $packet=['id'=>$id,'version'=>record($id)['version'],'packet_confirmed'=>1,
         'expected_packet_hash'=>$preview['expected_packet_hash'],'counterparty_confirmed'=>1,
         'financial_confirmed'=>1,'document_confirmed'=>1];

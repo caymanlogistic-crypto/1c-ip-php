@@ -25,9 +25,8 @@ final class PacketForm
         }
     }
 
-    public static function preview(string $kind, int $id, ?array $previous = null): string
+    public static function confirmation(array $packet, ?array $previous = null): array
     {
-        $packet = NativePacket::preview(DB::pdo(), $kind, $id, Auth::user());
         $view = $packet['view'];
         $context = $view['context'];
         $record = $context['record'];
@@ -48,7 +47,21 @@ final class PacketForm
             if (is_string($oldDigest) && !hash_equals($digest, $oldDigest)) $changed[] = $label;
             $hidden .= '<input type="hidden" name="packet_sections['.$name.']" value="'.$digest.'">';
         }
-        $body = $previous === null ? '' : RentalUI::alert(self::CHANGED_MESSAGE, implode(' · ', $changed), 'warning');
+        $hidden .= '<input type="hidden" name="expected_packet_hash" value="'
+            .View::e($packet['expected_packet_hash']).'">'
+            .'<input type="hidden" name="packet_confirmed" value="1">';
+        $notice = $previous === null ? '' : RentalUI::alert(self::CHANGED_MESSAGE, implode(' · ', $changed), 'warning');
+        return ['fields'=>$hidden,'notice'=>$notice];
+    }
+
+    public static function preview(string $kind, int $id, ?array $previous = null): string
+    {
+        $packet = NativePacket::preview(DB::pdo(), $kind, $id, Auth::user());
+        $view = $packet['view'];
+        $context = $view['context'];
+        $record = $context['record'];
+        $confirmation = self::confirmation($packet,$previous);
+        $body = $confirmation['notice'];
         $body .= RentalUI::pairs([
             ['Документ', $kind === 'document'
                 ? 'ДС № '.$record['number'].' к договору '.$context['contract']['number']
@@ -101,9 +114,6 @@ final class PacketForm
         }
         if (isset($context['legal_handoff'])) $body.=LegalHandoffCard::accountantDocuments($id,$context['legal_handoff']);
         elseif(isset($context['word_pack']))$body.=WordPack::links($context['word_pack']);
-        $body .= $hidden.'<input type="hidden" name="expected_packet_hash" value="'
-            .View::e($packet['expected_packet_hash']).'">'
-            .'<input type="hidden" name="packet_confirmed" value="1">';
-        return $body;
+        return $body.$confirmation['fields'];
     }
 }

@@ -30,6 +30,14 @@ final class RentalUI
         return self::alert($message);
     }
 
+    public static function reviewSection(string $title,string $body,string $state='',bool $done=false): string
+    {
+        $status=$state===''?'':'<span class="registry-ui-review-state"'.($done?' data-complete':'').'>'.View::e($state).'</span>';
+        return '<section class="registry-ui-form-section registry-ui-review-section" data-form-disclosure-scope>'
+            .'<div class="registry-ui-form-section-heading"><h3 class="modal-title">'.View::e($title).'</h3>'.$status.'</div>'
+            .$body.'</section>';
+    }
+
     public static function modal(string $title,string $body,string $actions='',string $active='contracts',bool $wide=false,string $leadingActions='',string $closeLabel='Закрыть',bool $extractForms=true,bool $canvas=false,bool $tableOnly=false, string $design=""):string
     {
         if ($actions==='' && $extractForms)
