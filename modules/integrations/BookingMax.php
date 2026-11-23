@@ -72,12 +72,12 @@ final class BookingMax
         try {
             $this->checkContext($m);
             if (!$this->fixture) $this->caFile();
-            $q=$this->db->prepare("SELECT f.id,f.source_key FROM rental_facts f WHERE f.namespace=? AND f.operative=1 AND f.id>?
+            $q=$this->db->prepare("SELECT f.id,f.namespace,f.source_key FROM rental_facts f WHERE f.namespace IN (?,?) AND f.operative=1 AND f.id>?
                 AND JSON_UNQUOTE(JSON_EXTRACT(f.fact_json,'$.epoch'))=?
                 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(f.fact_json,'$.recorded_at')) AS UNSIGNED)>=?
                 AND NOT EXISTS(SELECT 1 FROM messaging_attempts a WHERE a.provider='max' AND a.request_key=CONCAT('reservation-max-',f.source_key))
                 ORDER BY f.id");
-            $q->execute([BookingNotices::NS,$m['event_floor'],$m['epoch'],$m['valid_from']]);
+            $q->execute([BookingNotices::NS,ReservationMaxRelay::INBOX,$m['event_floor'],$m['epoch'],$m['valid_from']]);
             $processed=0;
             foreach ($q->fetchAll() as $row) {
                 $plan=$this->plan($m,$row,$date);
@@ -147,8 +147,21 @@ final class BookingMax
     private function plan(array $scope,array $row,string $date): ?array
     {
         $fact=$this->read('SELECT fact_json FROM rental_facts WHERE id=? AND namespace=? AND source_key=? AND operative=1',
-            [$row['id'],BookingNotices::NS,$row['source_key']]);
+            [$row['id'],$row['namespace'],$row['source_key']]);
         if (!$fact) return null;
+        if ($row['namespace']===ReservationMaxRelay::INBOX) {
+            $e=(new ReservationMaxRelay($this->db))->plan(Importer::decodeExact($fact['fact_json']),$scope);
+            if (!$e || !$this->authorizedActor($e['actor_id'],null)) return null;
+            return $this->render($scope,$row['source_key'],$e['action'],$e['actor_id'],$e['values'],$e['key'],true);
+        }
+        $notice=$this->eligibleNotice($scope,$row,$date,$fact);
+        if (!$notice) return null;
+        return $this->render($scope,$row['source_key'],$notice['action'],$notice['actor_id'] ?? $notice['responsible_id'],
+            BookingNotices::values($notice),$notice['sha256']);
+    }
+
+    private function eligibleNotice(array $scope,array $row,string $date,array $fact): ?array
+    {
         $notice=Importer::decodeExact($fact['fact_json']);
         $sha=$notice['sha256']??null;
         unset($notice['sha256']);
@@ -163,15 +176,45 @@ final class BookingMax
         if ($action==='reservation.expire'
             && (new \DateTimeImmutable($notice['until']))->modify('+1 day')->format('Y-m-d')<date('Y-m-d',$scope['valid_from'])) return null;
         if ($row['source_key']!==hash('sha256',implode(':',[$notice['epoch'],$action,$id,$notice['version']]))) return null;
-        $template=BookingNotices::TEMPLATES[$action][0] ?? '';
-        if (!isset($scope['catalog_versions'][$template]) || !$this->provenance($notice)) return null;
+        if (!isset(BookingNotices::TEMPLATES[$action]) || !$this->provenance($notice)) return null;
         $actor=$notice['actor_id'] ?? $notice['responsible_id'];
         if (!$this->authorizedActor($actor,$notice['auth_version'])) return null;
-        $render=TemplateCatalog::renderEvent($this->db,'max',$template,BookingNotices::values($notice));
+        return $notice+['sha256'=>$sha];
+    }
+
+    private function render(array $scope,string $key,string $action,int $actor,array $values,string $sha,bool $local=false): ?array
+    {
+        $template=BookingNotices::TEMPLATES[$action][0];
+        if (!isset($scope['catalog_versions'][$template])) return null;
+        $render=TemplateCatalog::renderEvent($this->db,'max',$template,$values);
         if ($render['binding']['version']!==$scope['catalog_versions'][$template] || $render['format']!=='plain')
             throw new RuntimeException('RESERVATION_MAX_TEMPLATE_CHANGED');
-        return ['actor_id'=>$actor,'request_key'=>'reservation-max-'.$row['source_key'],'text'=>$render['body'],
+        $text=$render['body'].($local?"\nИсточник · локальная проверка":'');
+        return ['actor_id'=>$actor,'request_key'=>'reservation-max-'.$key,'text'=>$text,
             'source_sha256'=>$sha,'template'=>$render['binding']];
+    }
+
+    public function exports(int $floor,int $since,string $date): array
+    {
+        $scope=['epoch'=>$this->db->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn(),
+            'event_floor'=>$floor,'valid_from'=>$since];
+        $q=$this->db->prepare("SELECT id,source_key,fact_json FROM rental_facts f
+            WHERE namespace=? AND operative=1 AND id>?
+              AND JSON_UNQUOTE(JSON_EXTRACT(f.fact_json,'$.epoch'))=?
+              AND CAST(JSON_UNQUOTE(JSON_EXTRACT(f.fact_json,'$.recorded_at')) AS UNSIGNED)>=?
+              AND NOT EXISTS (SELECT 1 FROM rental_facts a WHERE a.namespace=? AND a.source_key=f.source_key)
+            ORDER BY id");
+        $q->execute([BookingNotices::NS,$floor,$scope['epoch'],$since,ReservationMaxRelay::HANDED_OFF]);
+        $events=[];
+        foreach ($q->fetchAll() as $row) {
+            $notice=$this->eligibleNotice($scope,$row,$date,$row);
+            if (!$notice) continue;
+            $events[]=['key'=>$row['source_key'],'action'=>$notice['action'],'recorded_at'=>$notice['recorded_at'],
+                'actor_id'=>$notice['actor_id'] ?? $notice['responsible_id'],'version'=>$notice['version'],
+                'values'=>BookingNotices::values($notice)];
+            if (count($events)>=20) break;
+        }
+        return $events;
     }
 
     private function provenance(array $notice): bool

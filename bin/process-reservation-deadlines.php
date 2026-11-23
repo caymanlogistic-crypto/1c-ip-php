@@ -4,7 +4,7 @@ if (PHP_SAPI!=='cli') exit(2);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\DB;
-use Modules\Integrations\{BookingMax, Config, Support};
+use Modules\Integrations\{BookingMax, Config, ReservationMaxRelay, Support};
 use Modules\Rental\BookingNotices;
 
 try {
@@ -32,7 +32,8 @@ try {
     }
     $result=BookingNotices::dated($date,$apply);
     $max=$apply && $production ? (new BookingMax($db))->run($date) : ['state'=>'disabled'];
-    echo Support::json(['date'=>$date,'mode'=>$apply?'apply':'plan','max'=>$max]+$result),PHP_EOL;
+    $relay=$local && $apply && $date===date('Y-m-d') ? (new ReservationMaxRelay($db))->forward($date) : [];
+    echo Support::json(['date'=>$date,'mode'=>$apply?'apply':'plan','max'=>$max]+$result+($relay?['relay'=>$relay]:[])),PHP_EOL;
 } catch (Throwable $e) {
     fwrite(STDERR,$e->getMessage().PHP_EOL);exit(1);
 }

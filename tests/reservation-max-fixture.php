@@ -3,7 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\DB;
-use Modules\Integrations\{BookingMax, Config, Support, TemplateCatalog};
+use Modules\Integrations\{BookingMax, Config, ReservationMaxRelay, Support, TemplateCatalog};
 use Modules\Rental\{Availability, BookingNotices, Service, WorkflowEvents};
 
 function check(bool $condition,string $message):void {if (!$condition) throw new RuntimeException($message);}
@@ -119,6 +119,37 @@ try {
     foreach ($expected as $message) check(count(array_keys($sent,$message,true))===1,'HTTP text differs: '.$message);
     check(count(array_filter($sent,static fn($s)=>str_contains($s,'Резервирование №'.$old.' ')))===0,'Pre-admission event was replayed');
     check($runner->run($date(5))['accepted']===0 && count($sent)===5,'Replay reached transport');
+
+
+    $exports=$runner->exports($floor,$scope['valid_from'],$date(5));
+    $mine=array_values(array_filter($exports,static fn($e)=>$e['values']['number']===(string)$a));
+    check(array_column($mine,'action')===['reservation.create','reservation.extend','reservation.reminder'],'Local export did not preserve exact eligible booking events');
+    check(!in_array((string)$old,array_column(array_column($exports,'values'),'number'),true),'Local export replayed a pre-admission event');
+    $payload=Support::json($mine[0]);
+    $now=time();
+    $relayKey=bin2hex(random_bytes(32));
+    $signed=ReservationMaxRelay::signature($payload,$now,$relayKey);
+    $event=ReservationMaxRelay::verifyRequest($payload,(string)$now,$signed,$relayKey,$now);
+    check($event===$mine[0],'Relay did not preserve the signed event');
+    try { ReservationMaxRelay::verifyRequest($payload.' ',(string)$now,$signed,$relayKey,$now);throw new LogicException('Changed payload was accepted'); }
+    catch (RuntimeException $e) { check($e->getCode()===403,'Tampered payload check'); }
+    try { ReservationMaxRelay::verifyRequest($payload,(string)$now,$signed,$relayKey,$now+91);throw new LogicException('Stale signature was accepted'); }
+    catch (RuntimeException $e) { check($e->getCode()===403,'Stale signature check'); }
+    $relay=new ReservationMaxRelay($db);
+    $receive=new ReflectionMethod($relay,'enqueue');
+    $binding=['source'=>Support::uuid(),'group_id'=>$group,'started_at'=>$scope['valid_from'],'key'=>$relayKey];
+    check($receive->invoke($relay,$event,$binding)===$event['key'],'Signed event was not queued');
+    check($receive->invoke($relay,$event,$binding)===$event['key'],'Request retry was not acknowledged');
+    $rowCount=$db->prepare('SELECT COUNT(*) FROM rental_facts WHERE namespace=?');
+    $rowCount->execute([ReservationMaxRelay::INBOX]);
+    check((int)$rowCount->fetchColumn()===1,'Request retry produced a second event');
+    $event['values']['party']='Changed';
+    try { $receive->invoke($relay,$event,$binding);throw new LogicException('Retry changed queued content'); }
+    catch (RuntimeException $e) { check($e->getCode()===409,'A key conflict was not rejected'); }
+    $db->prepare('INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,1)')
+        ->execute([ReservationMaxRelay::HANDED_OFF,$mine[0]['key'],'{}']);
+    check(!in_array($mine[0]['key'],array_column($runner->exports($floor,$scope['valid_from'],$date(5)),'key'),true),
+        'Confirmed local event was offered again');
 
     $blank=$create('Учебная заявка без комментария',9,2,'   ');
     check($runner->run($date(5))['accepted']===1 && count($sent)===6
