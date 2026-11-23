@@ -18,8 +18,13 @@ final class ContractWorkflowRelay
     private const LOCAL='contract-workflow-relay-local.json';
     public const FIELDS=[
         'submit'=>['contractSubmitTitle','contractSubmitAction'],
-        'lawyerReturn'=>['reason','actor','recipientNames'],
         'resubmit'=>['text','version','lawyer'],
+        'legalApprove'=>[],
+        'lawyerReturn'=>['reason','actor','recipientNames'],
+        'accountantReturn'=>['reason','actor','recipientNames'],
+        'package'=>['invoiceSummary','actor'],
+        'signed'=>['text','actor'],
+        'cancelled'=>['reason','actor'],
     ];
     private const COMMON=['number','party','contractStart','contractEnd','contractObjectLines'];
     private ?string $request=null;
@@ -91,7 +96,7 @@ final class ContractWorkflowRelay
         if (!$current || (int)$current['id']!==(int)($actor['id'] ?? 0)
             || (int)$current['id']!==$event['actor_id'] || (int)$current['auth_version']!==$event['auth_version']
             || $event['event_id']!==$id || $event['command_key']!==$commandKey
-            || $event['actor_role']!==self::actorRole($plan['kind'])) {
+            || !self::actorAllowed($plan['kind'],$event['actor_role'])) {
             throw new RuntimeException('CONTRACT_RELAY_ACTOR_CHANGED');
         }
         self::assertApproved($this->db,$plan['kind'],$version);
@@ -170,9 +175,14 @@ final class ContractWorkflowRelay
         return array_merge(self::COMMON,self::FIELDS[$kind]);
     }
 
-    public static function actorRole(string $kind): string
+    public static function actorAllowed(string $kind,string $role): bool
     {
-        return $kind==='lawyerReturn'?'lawyer':'manager';
+        return $role==='admin' || in_array($role,match ($kind) {
+            'legalApprove','lawyerReturn'=>['lawyer'],
+            'accountantReturn','package'=>['accountant'],
+            'cancelled'=>['manager','director'],
+            default=>['manager'],
+        },true);
     }
 
     private static function validatePlan(array $plan,array $scope,int $now): void
@@ -187,6 +197,11 @@ final class ContractWorkflowRelay
             'submit'=>['contract.create','contract.edit','contract.submit'],
             'lawyerReturn'=>['contract.return','contract.forward'],
             'resubmit'=>['contract.edit','contract.submit'],
+            'legalApprove'=>['contract.legal'],
+            'accountantReturn'=>['contract.return'],
+            'package'=>['contract.packet'],
+            'signed'=>['contract.sign'],
+            'cancelled'=>['contract.cancel'],
             default=>[],
         }:[];
         if (!in_array($plan['action'],$actions,true) || !is_array($plan['values'])) throw new RuntimeException('CONTRACT_RELAY_PAYLOAD',400);

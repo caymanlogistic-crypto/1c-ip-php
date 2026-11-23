@@ -108,11 +108,12 @@ final class ContractWorkflowReceiver
     private function serverActor(array $scope,array $plan): int
     {
         $id=$scope['actor_map'][$plan['actor_id']];
-        $q=$this->db->prepare('SELECT u.id,u.name,u.role AS role_id,u.active,r.grants_configured,p.kind AS role
-            FROM users u JOIN roles r ON r.id=u.role JOIN role_profiles p ON p.role_id=u.role WHERE u.id=?');
+        $q=$this->db->prepare("SELECT u.id,u.name,u.role AS role_id,u.active,r.grants_configured,
+            CASE WHEN u.role='admin' THEN 'admin' ELSE p.kind END AS role
+            FROM users u JOIN roles r ON r.id=u.role LEFT JOIN role_profiles p ON p.role_id=u.role WHERE u.id=?");
         $q->execute([$id]);
         $actor=$q->fetch();
-        if (!$actor || !$actor['active'] || $actor['role']!==ContractWorkflowRelay::actorRole($plan['kind'])) {
+        if (!$actor || !$actor['active'] || !ContractWorkflowRelay::actorAllowed($plan['kind'],(string)$actor['role'])) {
             throw new RuntimeException('CONTRACT_RELAY_ACTOR_DENIED',403);
         }
         $q=$this->db->prepare("SELECT 1 FROM role_permissions WHERE role_id=? AND permission_key IN (?,'*')");

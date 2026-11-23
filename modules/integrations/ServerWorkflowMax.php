@@ -41,7 +41,7 @@ final class ServerWorkflowMax
         $base=$m;unset($base['catalog_versions'],$base['handover_question']);$base['scope']='object-activity';ServerObjectMax::validate($base);
     }
 
-    private const KINDS=['submit','resubmit','legalApprove','lawyerReturn','accountantReturn','package','signed','cancelled'];
+    public const KINDS=['submit','resubmit','legalApprove','lawyerReturn','accountantReturn','package','signed','cancelled'];
     public const STAFF_SEQUENCE='staff-handoff-sequence';
     public const RECONCILIATION_REQUIRED='WORKFLOW_MAX_RECONCILIATION_REQUIRED';
 
