@@ -178,7 +178,8 @@ try {
     FileOrder::assign($db,$sourceId);
     actor('lawyer');
     $attachments=ContractReviewFiles::legalPresentation($withSource,$sourceParty);
-    check(str_contains($attachments,'Приложенные файлы')&&str_contains($attachments,'Исходная карточка контрагента')
+    check(str_contains($attachments,'aria-label="Приложенные файлы"')&&!str_contains($attachments,'>Приложенные файлы<')
+        &&str_contains($attachments,'Исходная карточка контрагента')
         &&str_contains($attachments,'/rental/download?id='.$sourceId),'The source is visible in the review attachments');
     denied(fn()=>command(LegalHandoff::PARTY,$sourceInput),'исходная карточка изменились',409);
     $sourceInput['party_basis']=LegalHandoff::partyBasis($db,$withSource);

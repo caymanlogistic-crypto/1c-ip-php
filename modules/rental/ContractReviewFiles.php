@@ -241,15 +241,17 @@ final class ContractReviewFiles
         $files=self::files($db,$contract);
         $source=PartyLegalReview::contractSource($db,$party,PartyLegalReview::state($db,(int)$party['id']));
         if ($source) array_unshift($files,$source+['description'=>'Исходная карточка контрагента']);
-        $body=($files?self::list($files):'').self::priorPresentation($contract);
-        return $body?'<section class="registry-ui-form-section"><h4 class="registry-ui-modal-summary">Приложенные файлы</h4>'.$body.'</section>':'';
+        $body=($files?self::list($files,inline:true):'').self::priorPresentation($contract);
+        return $body?'<section class="registry-ui-form-section" aria-label="Приложенные файлы">'.$body.'</section>':'';
     }
 
-    private static function list(array $files): string
+    private static function list(array $files,bool $inline=false): string
     {
-        $html='<ul class="registry-ui-form-section registry-ui-review-files">';
+        $layout=$inline?' registry-ui-review-files--inline':'';
+        $metadata=$inline?' class="registry-ui-form-section-heading"':'';
+        $html='<ul class="registry-ui-form-section registry-ui-review-files'.$layout.'">';
         foreach ($files as $file) {
-            $html.='<li><div><div class="registry-ui-modal-text">'.View::e($file['description']).'</div>'
+            $html.='<li><div'.$metadata.'><div class="registry-ui-modal-text">'.View::e($file['description']).'</div>'
                 .'<div class="registry-ui-modal-help">'.View::e((new \DateTimeImmutable($file['created_at']))->format('d.m.Y H:i'))
                 .'</div></div><a class="btn btn-secondary" href="/rental/download?id='.View::e($file['id']).'">'
                 .View::e($file['filename']).'</a></li>';
