@@ -9,6 +9,8 @@ use RuntimeException;
 /** Immutable Word package; no changes to contractual terms or external dispatch. */
 final class WordPack
 {
+    private const LAYOUT_VERSION=2;
+
     public static function plan(PDO $db,string $entity,int $id,int $version,array $selection=[],bool $forForm=false,bool $automatic=false): array
     {
         $auxiliary=($selection['mode']??'')==='room-change';
@@ -245,17 +247,20 @@ final class WordPack
             $files[]=['id'=>$fileId,'sha256'=>$sha256,'filename'=>$filename,'kind'=>$source['kind']];
             $proof[$key]=array_intersect_key($source,array_flip(['template_id','template_version','sha256']));
         }
-        foreach ($plan['plans'] as $image) {
-            if ($image['mime']!=='application/pdf') continue;
-            $fid=bin2hex(random_bytes(16));$path=$dir.'/'.$fid.'.pdf';$created[$fid]=$path;
-            if (file_put_contents($path,$image['bytes'])!==strlen($image['bytes'])) throw new RuntimeException('Не удалось сохранить PDF приложения № 1.');
-            Documents::validateFile($path,'pdf');
-            $filename=mb_substr('Приложение № 1 · план '.$image['name'].' к договору №'.$plan['contract']['number'],0,220).'.pdf';
-            self::attach($db,$fid,$entity,$id,$version,'word-office-plan',$filename,$path,$image['sha256'],'application/pdf');
-            $files[]=['id'=>$fid,'sha256'=>$image['sha256'],'filename'=>$filename,'kind'=>'office-plan'];
+        foreach ($plan['plans'] as $officePlan) {
+            $extension=$officePlan['extension'];
+            $fid=bin2hex(random_bytes(16));$path=$dir.'/'.$fid.'.'.$extension;$created[$fid]=$path;
+            if (file_put_contents($path,$officePlan['bytes'])!==strlen($officePlan['bytes'])) {
+                throw new RuntimeException('Не удалось сохранить поэтажный план объекта «'.$officePlan['name'].'».');
+            }
+            if ($extension==='pdf') Documents::validateFile($path,$extension);
+            $filename=mb_substr('Приложение № 1 · поэтажный план '.$officePlan['name'].' к договору №'.$plan['contract']['number'],0,220).'.'.$extension;
+            self::attach($db,$fid,$entity,$id,$version,'word-office-plan',$filename,$path,$officePlan['sha256'],$officePlan['mime']);
+            $files[]=['id'=>$fid,'sha256'=>$officePlan['sha256'],'filename'=>$filename,'kind'=>'office-plan'];
         }
         unset($values['party_passport']);
-        $pack=['primary'=>$files[0]['id'],'entity'=>$entity,'entity_id'=>$id,'version'=>$version,'files'=>$files,'sources'=>$proof,'values'=>$values];
+        $pack=['primary'=>$files[0]['id'],'entity'=>$entity,'entity_id'=>$id,'version'=>$version,
+            'layout_version'=>self::LAYOUT_VERSION,'files'=>$files,'sources'=>$proof,'values'=>$values];
         if ($plan['planProof']) $pack['plan_sources']=$plan['planProof'];
         $db->prepare("INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES('word_pack',?,?,0)")->execute([$pack['primary'],Importer::json($pack)]);
         $db->prepare("INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES('word_request',?,?,0)")->execute([$requestKey,Importer::json(['fingerprint'=>$fingerprint,'primary'=>$pack['primary']])]);
@@ -338,7 +343,9 @@ final class WordPack
                     $pack=self::evidence($db,self::currentDraft($db,$contract));
                     $dated=$contract['document_date']
                         && ($pack['values']['act_date_words']??'')===WordGenerationData::dateWords($contract['document_date']);
-                    if (!$dated) $pack=self::prepareArchive($db,$contract,(string)($_POST['request_key']??''),$created);
+                    $oldLayout=in_array($pack['files'][0]['kind']??null,['office','parking','mixed'],true)
+                        && ($pack['layout_version']??0)!==self::LAYOUT_VERSION;
+                    if (!$dated || $oldLayout) $pack=self::prepareArchive($db,$contract,(string)($_POST['request_key']??''),$created);
                     return [$contract,$pack];
                 });
             } catch (\Throwable $error) {

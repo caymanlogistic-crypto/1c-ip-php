@@ -10,7 +10,7 @@ function ok(bool $v,string $m):void{if(!$v)throw new RuntimeException($m);}
 function actor(string $role):void{$q=DB::pdo()->prepare('SELECT u.id,u.auth_version FROM users u JOIN role_profiles p ON p.role_id=u.role WHERE p.kind=? AND u.active=1 ORDER BY u.id LIMIT 1');$q->execute([$role]);$u=$q->fetch();ok((bool)$u,'Role exists '.$role);$_SESSION=['user_id'=>$u['id'],'auth_version'=>$u['auth_version']];}
 function reject(callable $f,string $part):void{try{$f();}catch(RuntimeException $e){ok(str_contains($e->getMessage(),$part),'Unexpected rejection: '.$e->getMessage());return;}throw new RuntimeException('Expected rejection '.$part);}
 function command(string $action,array $input):array{return Service::command($action,$input+['command_key'=>bin2hex(random_bytes(16))]);}
-function fixture(string $type,bool $withPlan=true,array $rates=['10500.01'],string $partyType='company'):int{
+function fixture(string $type,bool $withPlan=true,array $rates=['10500.01'],string $partyType='company',array $planFormats=[]):int{
     $db=DB::pdo();actor('manager');
     $pid=(int)$db->query('SELECT MAX(id)+1 FROM parties')->fetchColumn();
     $oid=(int)$db->query('SELECT MAX(id)+1 FROM rental_objects')->fetchColumn();
@@ -23,12 +23,21 @@ function fixture(string $type,bool $withPlan=true,array $rates=['10500.01'],stri
     DirectoryDetails::store($db,'parties',$pid,['party_type'=>$partyType]+$attributes);
     $objects=[];
     $sum='0.00';
-    foreach ($rates as $rate) {
+    foreach ($rates as $index=>$rate) {
         $db->prepare("INSERT INTO cadastre(id,number,area,type,source_json) VALUES(?,?,20,?,'{}')")->execute([$cid,'77:01:000000:'.$cid,$type]);
         $db->prepare("INSERT INTO rental_objects(id,name,type,area,cadastre_id,source_json) VALUES(?,?,?,20,?,'{}')")->execute([$oid,$type.' '.$oid,$type,$cid]);
         if ($type==='Офис' && $withPlan) {
-            $pdf=Documents::renderPdf('<p>Synthetic plan for '.$oid.'</p>');
-            DirectoryDetails::store($db,'object_plan',$oid,['name'=>'plan.pdf','mime'=>'application/pdf','sha256'=>hash('sha256',$pdf),'content'=>base64_encode($pdf)]);
+            $format=$planFormats[$index]??'pdf';
+            if ($format==='pdf') {
+                $bytes=Documents::renderPdf('<p>Synthetic plan for '.$oid.'</p>');
+            } else {
+                $image=imagecreatetruecolor(30,20);
+                ob_start();
+                if ($format==='png') imagepng($image); else imagejpeg($image);
+                $bytes=ob_get_clean();
+            }
+            $mime=match ($format) {'pdf'=>'application/pdf','png'=>'image/png','jpg'=>'image/jpeg'};
+            DirectoryDetails::store($db,'object_plan',$oid,['name'=>'plan.'.$format,'mime'=>$mime,'sha256'=>hash('sha256',$bytes),'content'=>base64_encode($bytes)]);
         }
         $objects[$oid++]=$rate;
         $cid++;
@@ -104,10 +113,14 @@ try{
             $unit=$plan['terms'][0]['name'];
             checkOfficeAct($deed,$unit);
             $main=wordText($db,$pack['files'][0]);
-            $embedded=mb_strstr($main,'1. В соответствии с пунктом 3.1.2. Договора аренды');
-            ok(is_string($embedded),'Contract retains the embedded transfer deed');
-            $embedded=mb_strstr($embedded,'Акт разграничения эксплуатационной ответственности',true)?:$embedded;
-            checkOfficeAct($embedded,$unit);
+            ok(!str_contains($main,'1. В соответствии с пунктом 3.1.2. Договора аренды')
+                && str_contains($main,'оформляемый отдельным документом на каждый объект'),'Office contract references the separately generated act');
+            foreach (['ПРИЛОЖЕНИЕ № 1','ПРИЛОЖЕНИЕ № 2','ПРИЛОЖЕНИЕ № 4','ПРИЛОЖЕНИЕ № 5','ПРИЛОЖЕНИЕ № 6'] as $appendix)
+                ok(str_contains($main,$appendix),'Contract retains '.$appendix);
+        } else {
+            $main=wordText($db,$pack['files'][0]);
+            ok(!str_contains($main,'приема-передачи машино-места (ФОРМА)')
+                &&str_contains($main,'отдельным документом на каждое машино-место'),'Parking contract references its separate act');
         }
         ok(WordPack::produce($db,'contract',$id,(int)$c['version'],$selection,$input,$hashes,$key,$created)['primary']===$pack['primary'],'Repeat does not duplicate');
         reject(fn()=>WordPack::produce($db,'contract',$id,(int)$c['version'],$selection,$input+['rent_net'=>'1'],$hashes,bin2hex(random_bytes(16)),$created),'Нельзя подменять');
@@ -132,7 +145,7 @@ try{
         }
     }
     foreach (['Офис'=>'office','Машиноместо'=>'parking'] as $type=>$kind) {
-        $id=fixture($type,true,['10000.00','12500.00'],'entrepreneur');
+        $id=fixture($type,true,['10000.00','12500.00'],'entrepreneur',['png','jpg']);
         $contract=Service::get($db,'contracts',$id);
         $selection=[$kind=>0];
         $plan=WordPack::plan($db,'contract',$id,(int)$contract['version'],$selection);
@@ -143,6 +156,19 @@ try{
         $fileKinds=array_column($pack['files'],'kind');
         ok($fileKinds===($kind==='office'?['office','handover','handover','office-plan','office-plan']:['parking','parking-handover','parking-handover']),
             'Different rates do not change the package structure');
+        if ($kind==='office') {
+            foreach (array_values($plan['plans']) as $index=>$officePlan) {
+                $archivePlan=$pack['files'][$index+3];
+                $lookup=$db->prepare('SELECT path,mime FROM rental_files WHERE id=?');
+                $lookup->execute([$archivePlan['id']]);
+                $saved=$lookup->fetch();
+                ok(str_ends_with($archivePlan['filename'],'.'.$officePlan['extension'])
+                    &&str_contains($archivePlan['filename'],$officePlan['name'])
+                    &&$saved['mime']===$officePlan['mime']
+                    &&hash_file('sha256',Documents::directory().'/'.$saved['path'])===$officePlan['sha256'],
+                    'PNG or JPEG for each office has the original bytes and acts as its own appendix file');
+            }
+        }
         $main=wordText($db,$pack['files'][0]);
         foreach (array_values($plan['terms']) as $index=>$term) {
             $amount=['10 000,00','12 500,00'][$index];
