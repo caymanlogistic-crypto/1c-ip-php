@@ -64,7 +64,7 @@ final class LegalHandoffCard
                 (string)$party['block_reason'],$blocked?'error':'warning');
         }
         $links=PagePolicy::level('rental.parties',Auth::user())>=1
-            ?RentalUI::button('Показать полные данные','/rental/legal-party-details?contract_id='.(int)$contract['id']):'';
+            ?RentalUI::button('Полные данные','/rental/legal-party-details?contract_id='.(int)$contract['id']):'';
         $actions=(!$party['blocked']?self::toggle('review-party-block','Заблокировать работу',true):'')
             .self::toggle('review-party-documents','Дозапросить документы',true,true)
             .self::confirm($contract,LegalHandoff::PARTY,'Разрешить работу',$checked || $blocked,
