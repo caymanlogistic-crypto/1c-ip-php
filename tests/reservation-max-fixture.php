@@ -125,6 +125,8 @@ try {
     $mine=array_values(array_filter($exports,static fn($e)=>$e['values']['number']===(string)$a));
     check(array_column($mine,'action')===['reservation.create','reservation.extend','reservation.reminder'],'Local export did not preserve exact eligible booking events');
     check(!in_array((string)$old,array_column(array_column($exports,'values'),'number'),true),'Local export replayed a pre-admission event');
+    check(!$runner->exports($floor,$scope['valid_from'],$date(5),[PHP_INT_MAX]),'Unmapped local actor was exported');
+    check($runner->exports($floor,$scope['valid_from'],$date(5),[(int)$actor['id']])===$exports,'Mapped actor export changed the event');
     $payload=Support::json($mine[0]);
     $now=time();
     $relayKey=bin2hex(random_bytes(32));
