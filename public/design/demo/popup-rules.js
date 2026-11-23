@@ -17,6 +17,12 @@
   const reviewTerms=document.getElementById('review-terms-example');
   document.querySelector('[data-open-review-terms]').addEventListener('click',()=>reviewTerms.showModal());
   reviewTerms.querySelectorAll('[data-close-review-terms]').forEach(button=>button.addEventListener('click',()=>reviewTerms.close()));
+  document.querySelectorAll('[data-demo-review-reason]').forEach(form=>form.addEventListener('submit',event=>{
+    event.preventDefault();
+    const panel=form.closest('[data-form-disclosure]');
+    panel.open=false;
+    document.querySelector('[aria-controls="'+panel.id+'"]')?.focus();
+  }));
   const reviewStatus=reviewTerms.querySelector('[data-demo-review-files-status]');
   reviewTerms.querySelector('[data-demo-review-files]').addEventListener('change',event=>{
     reviewStatus.textContent=[...event.target.files].map(file=>file.name).join(', ');

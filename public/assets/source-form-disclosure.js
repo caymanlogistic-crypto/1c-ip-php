@@ -12,6 +12,10 @@
     const sync=()=>{
       control.setAttribute('aria-expanded',String(panel.open));
       control.textContent=(panel.open?expanded:collapsed).textContent;
+      if (control.hasAttribute('data-disclosure-neutral-close')) {
+        control.classList.toggle('btn-danger',!panel.open);
+        control.classList.toggle('btn-secondary',panel.open);
+      }
     };
     control.addEventListener('click',()=>{
       panel.open=!panel.open;
