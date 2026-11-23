@@ -17,22 +17,27 @@ final class WordPack
         if (!$auxiliary && LegalReview::assigned($data['contract']) && !LegalHandoff::ready($db,$data['contract']))
             throw new RuntimeException('Сначала подтвердите контрагента и условия договора.',409);
         if($entity!=='contract')throw new RuntimeException('Этот пакет формируется из договора аренды.',422);
-        $primary=TemplateAssets::contractKind($db,$data['contract']);
+        $primary=$automatic
+            ? TemplateAssets::objectKind($db,$id)
+            : TemplateAssets::contractKind($db,$data['contract']);
         if($auxiliary&&$primary!=='office')throw new RuntimeException('Образец смены номера помещения предназначен для договора помещений. Для парковки или смешанного договора нужен соответствующий образец ДС.',422);
-        if(!$auxiliary&&!in_array($primary,['office','parking'],true))throw new RuntimeException('Для смешанного договора выберите отдельные документы по предмету аренды.',422);
-        if (!$auxiliary && $data['partyType']==='person') {
+        if (!$auxiliary && $primary==='mixed' && !$automatic) throw new RuntimeException('Смешанный договор доступен через скачивание ZIP.',422);
+        if (!$auxiliary && $primary!=='mixed' && $data['partyType']==='person') {
             $types=array_unique(array_column($data['terms'],'type'));
             $apartment=count($types)===1 && preg_match('/^апартамент/iu',reset($types));
             $primary=$apartment?'apartment-person':$primary.'-person';
         }
         $kind=$auxiliary?'room-change':$primary;
-        $choices=OriginalDocuments::choices($db,$kind);
+        $mixedTemplate=$kind==='mixed'?TemplateAssets::active($db,'mixed'):null;
+        $choices=$mixedTemplate
+            ? [(int)$mixedTemplate['id']=>$mixedTemplate['name'].' · версия '.$mixedTemplate['version']]
+            : OriginalDocuments::choices($db,$kind);
         if (!$choices) throw new RuntimeException('Для этого предмета аренды нужен утверждённый Word-шаблон для физлица без плана и ссылок на него. Согласованный файл можно приложить вручную.',422);
         $required=[];
         if ($kind==='office') $required[]='office_plan';
-        if (!$auxiliary && $data['partyType']==='entrepreneur') $required[]='party_intro';
-        $pricedObjects=in_array($kind,['office','parking'],true);
-        if ($pricedObjects && count($data['terms'])>1) $required[]='rent_object_rates';
+        if (!$auxiliary && $kind!=='mixed' && $data['partyType']==='entrepreneur') $required[]='party_intro';
+        $pricedObjects=in_array($kind,['office','parking','mixed'],true);
+        if ($pricedObjects && $kind!=='mixed' && count($data['terms'])>1) $required[]='rent_object_rates';
         $resolved=[];$excluded=[];
         if ($required) {
             foreach ($choices as $candidate=>$title) {
@@ -51,14 +56,22 @@ final class WordPack
         if (!isset($choices[$chosen])) {
             throw new RuntimeException('Выберите совместимый утверждённый шаблон и откройте форму заново.',422);
         }
-        $source=$resolved[$chosen]??OriginalDocuments::resolve($db,$kind,$chosen);
+        $source=$mixedTemplate
+            ? $mixedTemplate['asset']+[
+                'kind'=>'mixed','template_id'=>$chosen,'template_version'=>(int)$mixedTemplate['version'],
+                'fields'=>DocxTemplate::fields($mixedTemplate['asset']['path']),
+                'template_values'=>['base'=>'','custom_clauses'=>$mixedTemplate['body']??'',
+                    'template_version'=>(string)$mixedTemplate['version']],
+            ]
+            : ($resolved[$chosen]??OriginalDocuments::resolve($db,$kind,$chosen));
         $fields=array_values(array_diff($source['fields'],array_keys($source['template_values']??[])));
         if (in_array('party_intro',$fields,true) && !in_array($data['partyType'],['company','entrepreneur'],true)) {
             throw new RuntimeException('Проверьте тип контрагента в карточке клиента перед формированием Word.',422);
         }
         $plans=[];$missingPlans=[];
-        if ($kind==='office') {
-            $plans=WordAppendixPlan::load($db,$data['terms'],$missingPlans);
+        if (in_array($kind,['office','mixed'],true)) {
+            $officeTerms=array_filter($data['terms'],static fn(array $term): bool => !in_array($term['type'],TemplateAssets::PARKING_TYPES,true));
+            $plans=WordAppendixPlan::load($db,$officeTerms,$missingPlans);
             if ($missingPlans && !$forForm) {
                 throw new RuntimeException('Добавьте план в карточку объекта «'.reset($missingPlans).'» для приложения № 1.',422);
             }
@@ -84,7 +97,32 @@ final class WordPack
             $values['rent_object_rates']=implode("\n",$rates);
         }
         $values=WordGenerationData::complete($values,[],$fields,$data['partyType'],$automatic);
-        return array_replace($data,compact('sources','acts','fields','values','plans','planProof','choices','excluded','missingPlans'));
+        $leaseTerms=[];
+        if ($mixedTemplate) {
+            [$values,$leaseTerms]=self::mixedValues($values,$data['terms'],$data['contract']);
+        }
+        return array_replace($data,compact('sources','acts','fields','values','plans','planProof','choices','excluded','missingPlans','leaseTerms'));
+    }
+
+    private static function mixedValues(array $values,array $terms,array $contract): array
+    {
+        $rows=[];
+        foreach ($terms as $term) {
+            $type=in_array($term['type'],TemplateAssets::PARKING_TYPES,true)?'Машино-место':'Помещение';
+            $from=Documents::dateText($term['start_date']??$contract['start_date']);
+            $to=Documents::dateText($term['end_date']??$contract['end_date']);
+            $rows[]=[$type.' № '.$term['name'],$term['area']===null?'—':DirectoryUi::area((string)$term['area']),
+                $from.' — '.$to,Documents::amountText($term['amount'])];
+        }
+        $notes="Приложение № 1 — поэтажные планы помещений.\nНа каждый объект составляется отдельный акт приёма-передачи.";
+        $values['terms']=implode("\n",array_map(static fn(array $row): string => implode(' · ',$row),$rows))."\n".$notes;
+        $values['effective']='Срок аренды: '.Documents::dateText($contract['start_date']).' — '.Documents::dateText($contract['end_date']);
+        $values['vat']='В том числе НДС '.$values['vat'].'%.';
+        $values['total']=rtrim($values['total'],'.');
+        if (!empty($values['party_intro'])) {
+            $values['party']=$values['party_intro'].'. ИНН '.$values['party_inn'].', '.$values['party_address'];
+        }
+        return [$values,['rows'=>$rows,'notes'=>$notes]];
     }
 
     private static function hidden(string $name,mixed $value): string
@@ -177,7 +215,13 @@ final class WordPack
         $files=[];$proof=[];$auxiliary=isset($selection['mode']);
         foreach($plan['sources'] as $kind=>$source) {
             $fid=bin2hex(random_bytes(16));$path=$dir.'/'.$fid.'.docx';$created[$fid]=$path;
-            OriginalDocuments::buildSource($source,$values,$path,$plan['plans']);Documents::validateFile($path,'docx');
+            if ($kind==='mixed') {
+                $inlinePlans=in_array('office_plan',$source['fields'],true)?$plan['plans']:[];
+                DocxTemplate::build($source['path'],array_replace($values,$source['template_values']),$kind,$path,null,$inlinePlans,$plan['leaseTerms']);
+            } else {
+                OriginalDocuments::buildSource($source,$values,$path,$plan['plans']);
+            }
+            Documents::validateFile($path,'docx');
             $filename=mb_substr(OriginalDocuments::TITLES[$kind].' №'.$plan['contract']['number'],0,220).'.docx';
             $fileKind='word-'.$kind;
             $hash=hash_file('sha256',$path);
@@ -243,7 +287,7 @@ final class WordPack
     public static function currentDraft(PDO $db,array $contract): string
     {
         $query=$db->prepare("SELECT id FROM rental_files WHERE entity_type='contract' AND entity_id=? AND version=?
-            AND kind IN ('word-office','word-parking','word-office-person','word-parking-person','word-apartment-person')
+            AND kind IN ('word-mixed','word-office','word-parking','word-office-person','word-parking-person','word-apartment-person')
             ORDER BY upload_order DESC LIMIT 1");
         $query->execute([$contract['id'],$contract['version']]);
         return (string)$query->fetchColumn();

@@ -202,7 +202,24 @@ try{
     $draftId=(int)command('contract.create',['intent'=>'draft']+$update)['id'];
     $draft=Service::get($db,'contracts',$draftId);
     reject(fn()=>command('contract.edit',['id'=>$draftId,'version'=>(int)$draft['version'],'number'=>$draft['number'],'intent'=>'submit']+$update),'отдельными договорами');
-    actor('lawyer');$file=Documents::export($db,'contract',$id,(int)$c['version'],'docx');
+    actor('lawyer');
+    confirmChecks($c);
+    $mixedPlan=WordPack::plan($db,'contract',$id,(int)$c['version'],automatic:true);
+    ok(array_keys($mixedPlan['plans'])===[$office] && count($mixedPlan['acts'])===2,
+        'Mixed lease requires an office plan and one act for each object');
+    ok(WordGenerationData::inputs($mixedPlan['fields'],$mixedPlan['values'],$mixedPlan['partyType'],true)===[],
+        'Mixed ZIP uses the saved contract and counterparties');
+    $mixedPack=WordPack::produce($db,'contract',$id,(int)$c['version'],[],[],hashes($mixedPlan),bin2hex(random_bytes(16)),$created,true);
+    ok(array_column($mixedPack['files'],'kind')===['mixed','handover','parking-handover','office-plan'],
+        'Mixed ZIP contains the approved contract, separate acts and the office plan');
+    $mixedText=wordText($db,$mixedPack['files'][0]);
+    ok(str_contains($mixedText,'10 500,01') && str_contains($mixedText,'5 000,00') && str_contains($mixedText,'15 500,01')
+        && str_contains($mixedText,'Приложение № 1 — поэтажные планы помещений'), 'Mixed Word identifies its rates, total and appendix');
+    foreach (array_slice($mixedPack['files'],1,2) as $act) {
+        ok(str_contains(wordText($db,$act),'«21» ноября 2026 года'),'Mixed acts use the signed-in-project contract date');
+    }
+    ok(WordPack::currentDraft($db,$c)===$mixedPack['primary'],'The mixed archive can be downloaded again');
+    $file=Documents::export($db,'contract',$id,(int)$c['version'],'docx');
     $created[]=APP_ROOT.'/.local/documents/'.basename($file['path']);
     confirmChecks($c);
     $files=[array_intersect_key($file,['id'=>true,'filename'=>true,'sha256'=>true])];

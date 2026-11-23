@@ -469,7 +469,8 @@ final class Service {
                     \App\BillingPartTerms::finish($p, $partEdit);
                 }
                 $date = !empty($in['document_date'])?self::date($in['document_date']):($old['document_date'] ?? null);
-                $template = count(array_unique($types))>1?'mixed':(in_array($types[0] ?? '',$parkingTypes,true)?'parking':'office');
+                $template = array_intersect($types,$parkingTypes)
+                    ? (array_diff($types,$parkingTypes)?'mixed':'parking') : 'office';
                 $p->prepare('UPDATE contracts SET document_date=?,template_type=? WHERE id=?')->execute([
                     $date,
                     $template,

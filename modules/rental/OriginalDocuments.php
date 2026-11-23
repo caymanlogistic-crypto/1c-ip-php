@@ -9,6 +9,7 @@ use PDO;
 final class OriginalDocuments
 {
     public const TITLES=[
+        'mixed'=>'Смешанный договор аренды',
         'office'=>'Договор аренды помещений', 'parking'=>'Договор аренды машино-места',
         'services'=>'Договор оказания услуг', 'handover'=>'Акт приёма-передачи помещений',
         'room-change'=>'Допсоглашение о смене номера помещения',
