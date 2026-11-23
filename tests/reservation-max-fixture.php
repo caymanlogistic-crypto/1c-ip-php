@@ -22,7 +22,10 @@ try {
     $day=new DateTimeImmutable('today');
     $date=static fn(int $n): string=>$day->modify("+$n days")->format('Y-m-d');
     $room=array_values(array_filter(Availability::items($date(0),$date(0),null,null,true),static fn($r)=>!$r['disabled']))[0]['id'];
-    $object=$db->prepare('SELECT name FROM rental_objects WHERE id=?');$object->execute([$room]);$objectName=$object->fetchColumn();
+    $object=$db->prepare('SELECT name,type,area FROM rental_objects WHERE id=?');$object->execute([$room]);$object=$object->fetch();
+    $escape=static fn(string $value): string=>htmlspecialchars($value,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
+    $objectLine='Объект: <b>'.$escape($object['name']).'</b> ('.$escape($object['type']).')'
+        .($object['area']===null?'':' — '.$escape(\Modules\Rental\DirectoryUi::area($object['area'])).' м²');
     $ru=static fn(int $n):string=>$day->modify("+$n days")->format('d.m.Y');
     $command=static fn(string $action,array $input):array=>Service::command($action,$input+['command_key'=>bin2hex(random_bytes(16))]);
     $create=static fn(string $name,int $deadline,int $start=0,string $comment=''):int=>$command('reservation.create',
@@ -108,11 +111,11 @@ try {
     check($run['accepted']===5 && $run['skipped']===2 && count($sent)===5,'Expected five notices and one stale reminder: '.Support::json([$run,count($sent)]));
     $name=preg_split('/\s+/u',trim($actor['name']),2)[0];
     $expected=[
-        "<b>ПОМЕЩЕНИЕ ЗАРЕЗЕРВИРОВАНО</b>\nПомещение <b>$objectName</b>\nНачало <b>".$ru(1)."</b>\nОкончание <b>".$ru(2)."</b>\nКомментарий · <b>Позвонить после 14:30.</b>\nОтветственный · <b>$name</b>",
-        "<b>РЕЗЕРВИРОВАНИЕ ПРОДЛЕНО</b>\nПомещение <b>$objectName</b>\nНачало <b>".$ru(1)."</b>\nПрежнее окончание <b>".$ru(2)."</b>\nНовое окончание <b>".$ru(6)."</b>\nОтветственный · <b>$name</b>",
-        "<b>РЕЗЕРВИРОВАНИЕ СНЯТО</b>\nПомещение <b>$objectName</b>\nПричина · <b>Клиент отказался. Учебный отказ</b>\nСнял · <b>$name</b>",
-        "<b>РЕЗЕРВИРОВАНИЕ ЗАКАНЧИВАЕТСЯ ЗАВТРА</b>\nПомещение <b>$objectName</b>\nОкончание <b>".$ru(6)."</b>\nОтветственный · <b>$name</b>\nЕсли клиенту нужно больше времени, продлите резервирование.",
-        "<b>СРОК РЕЗЕРВИРОВАНИЯ ИСТЁК</b>\nПомещение <b>$objectName</b>\nОкончание <b>".$ru(3)."</b>\nОтветственный · <b>$name</b>\nРезервирование снято автоматически.",
+        "<b>📌 ОБЪЕКТ ЗАРЕЗЕРВИРОВАН</b>\n$objectLine\nс <b>".$ru(1)."</b> по <b>".$ru(2)."</b>\nКомментарий · <b>Позвонить после 14:30.</b>\nОтветственный · <b>$name</b>",
+        "<b>🗓️ РЕЗЕРВИРОВАНИЕ ПРОДЛЕНО</b>\n$objectLine\nс <b>".$ru(1)."</b> по <b>".$ru(6)."</b>\nПрежний срок до <b>".$ru(2)."</b>\nОтветственный · <b>$name</b>",
+        "<b>🔓 РЕЗЕРВИРОВАНИЕ СНЯТО</b>\n$objectLine\nПричина · <b>Клиент отказался. Учебный отказ</b>\nСнял · <b>$name</b>",
+        "<b>⏳ РЕЗЕРВИРОВАНИЕ ЗАКАНЧИВАЕТСЯ ЗАВТРА</b>\n$objectLine\nСрок до <b>".$ru(6)."</b>\nОтветственный · <b>$name</b>\nДействие · <b>Продлить резервирование, если клиенту нужно больше времени</b>",
+        "<b>⌛ СРОК РЕЗЕРВИРОВАНИЯ ИСТЁК</b>\n$objectLine\nСрок до <b>".$ru(3)."</b>\nОтветственный · <b>$name</b>\nРезервирование снято автоматически.",
     ];
     check($formats===array_fill(0,5,'html'),'Booking formatting was not carried by the signed HTTP payload');
     foreach ($expected as $message) check(count(array_keys($sent,$message,true))===1,'HTTP text differs: '.$message);
@@ -129,6 +132,23 @@ try {
     $payload=Support::json($mine[0]);
     $now=time();
     $relayKey=bin2hex(random_bytes(32));
+    $forwardPayload=new ReflectionMethod(ReservationMaxRelay::class,'forwardPayload');
+    foreach ($exports as $export) {
+        $legacy=$export;
+        unset($legacy['values']['reservationTypeLabel'],$legacy['values']['reservationAreaLabel']);
+        check($forwardPayload->invoke(null,$export,null)===Support::json($legacy),'Default relay format changed');
+        check($forwardPayload->invoke(null,$export,$export['recorded_at']+1)===Support::json($legacy),'Cutoff changed an older payload');
+        $rich=$forwardPayload->invoke(null,$export,$export['recorded_at']);
+        check(ReservationMaxRelay::verifyRequest($rich,(string)$now,ReservationMaxRelay::signature($rich,$now,$relayKey),$relayKey,$now)
+            ===$export,'New relay format lost type or area fields');
+    }
+    $partial=$mine[0];
+    unset($partial['values']['reservationAreaLabel']);
+    $invalid=Support::json($partial);
+    try {
+        ReservationMaxRelay::verifyRequest($invalid,(string)$now,ReservationMaxRelay::signature($invalid,$now,$relayKey),$relayKey,$now);
+        throw new LogicException('Incomplete object fields were accepted');
+    } catch (RuntimeException $e) { check($e->getCode()===400,'Incomplete object fields check'); }
     $signed=ReservationMaxRelay::signature($payload,$now,$relayKey);
     $event=ReservationMaxRelay::verifyRequest($payload,(string)$now,$signed,$relayKey,$now);
     check($event===$mine[0],'Relay did not preserve the signed event');
@@ -154,7 +174,7 @@ try {
 
     $blank=$create('Учебная заявка без комментария',9,2,'   ');
     check($runner->run($date(5))['accepted']===1 && count($sent)===6
-        && $sent[5]==="<b>ПОМЕЩЕНИЕ ЗАРЕЗЕРВИРОВАНО</b>\nПомещение <b>$objectName</b>\nНачало <b>".$ru(2)."</b>\nОкончание <b>".$ru(9)."</b>\nОтветственный · <b>$name</b>" ,'Blank comment left an extra line');
+        && $sent[5]==="<b>📌 ОБЪЕКТ ЗАРЕЗЕРВИРОВАН</b>\n$objectLine\nс <b>".$ru(2)."</b> по <b>".$ru(9)."</b>\nОтветственный · <b>$name</b>" ,'Blank comment left an extra line');
     $revoked=$create('Учебный отзыв роли MAX 15',9);
     $db->prepare('UPDATE users SET auth_version=auth_version+1 WHERE id=?')->execute([$actor['id']]);
     check($runner->run($date(5))['accepted']===0 && count($sent)===6,'Revoked actor reached transport');

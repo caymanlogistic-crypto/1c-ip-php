@@ -16,7 +16,8 @@ final class TemplateCatalog
     public static function messageVariables(string $channel,string $key): array
     {
         return $channel==='max'
-            ? array_merge(self::MESSAGE_VARS,ContractSubmitMax::VARIABLES,self::RESERVATION_VARS[$key] ?? [])
+            ? array_merge(self::MESSAGE_VARS,ContractSubmitMax::VARIABLES,
+                isset(self::RESERVATION_VARS[$key]) ? [...self::RESERVATION_VARS[$key],'reservationTypeLabel','reservationAreaLabel'] : [])
             : self::MESSAGE_VARS;
     }
 
@@ -60,9 +61,19 @@ final class TemplateCatalog
 
     public function installContractWorkflowLayout(bool $apply,array $pinned,?array $expected=null): array
     {
-        $entries=Support::decode(file_get_contents(__DIR__.'/defaults/contract-max-templates.json'));
-        if (array_diff(ServerWorkflowMax::KINDS,array_keys($entries))
-            || array_diff(array_keys($entries),ServerWorkflowMax::KINDS)) {
+        return $this->installPinnedMaxLayout('contract-max-templates.json',ServerWorkflowMax::KINDS,$apply,$pinned,$expected);
+    }
+
+    public function installReservationWorkflowLayout(bool $apply,array $pinned,?array $expected=null): array
+    {
+        return $this->installPinnedMaxLayout('reservation-max-templates.json',
+            array_column(\Modules\Rental\BookingNotices::TEMPLATES,0),$apply,$pinned,$expected);
+    }
+
+    private function installPinnedMaxLayout(string $file,array $keys,bool $apply,array $pinned,?array $expected): array
+    {
+        $entries=Support::decode(file_get_contents(__DIR__.'/defaults/'.$file));
+        if (array_diff($keys,array_keys($entries)) || array_diff(array_keys($entries),$keys)) {
             throw new \RuntimeException('APPROVED_WORKFLOW_CATALOG_MISMATCH');
         }
         $this->db->beginTransaction();
@@ -83,7 +94,7 @@ final class TemplateCatalog
                 }
                 if ($apply && $changed) {
                     $this->rememberVersion($old);
-                    $update->execute([$entry['body'],$entry['format'],'По поручению владельца: оформление договорного MAX',date(DATE_ATOM),$key]);
+                    $update->execute([$entry['body'],$entry['format'],'По поручению владельца: оформление MAX',date(DATE_ATOM),$key]);
                 }
                 $result[$key]=['changed'=>$changed,'before'=>(int)$old['version'],'version'=>(int)$old['version']+(int)$changed];
             }
