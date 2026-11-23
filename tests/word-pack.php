@@ -84,6 +84,8 @@ function checkOfficeAct(string $text,string $unit): void {
 }
 $created=[];$db->beginTransaction();
 try{
+    ok(WordGenerationData::floorWords('-1')==='минус первом'&&WordGenerationData::floorWords('0')==='нулевом'
+        &&WordGenerationData::floorWords('2')==='втором'&&WordGenerationData::floorWords('')==='','Floor numerals include the levels below ground');
     foreach(['Офис','Машиноместо'] as $type){
         $selection=['office'=>0,'parking'=>0];
         $id=fixture($type);$c=Service::get($db,'contracts',$id);actor('lawyer');$plan=WordPack::plan($db,'contract',$id,(int)$c['version'],$selection);
@@ -97,7 +99,7 @@ try{
         $pack=WordPack::produce($db,'contract',$id,(int)$c['version'],$selection,$input,$hashes,$key,$created);
         ok(array_column($pack['files'],'kind')===($type==='Офис'?['office','handover','office-plan']:['parking','parking-handover']),'Lease, object act, and applicable plan');
         $deed=wordText($db,$pack['files'][1]);
-        ok(str_contains($deed,'именуемое далее по тексту «Арендатор», в лице Генерального директора'),'Corporate act retains its preamble');
+        ok(str_contains($deed,'именуемое далее по тексту «Арендатор», в лице Генерального директора'),'Manual mode retains the corporate preamble');
         if ($type==='Офис') {
             $unit=$plan['terms'][0]['name'];
             checkOfficeAct($deed,$unit);
@@ -169,7 +171,7 @@ try{
     $selection=['parking'=>0];
     $plan=WordPack::plan($db,'contract',$id,(int)$contract['version'],$selection);
     $input=inputFor($plan);
-    ok(isset($input['party_signer_genitive'])&&!isset($input['party_signer_title_genitive']),'Known representative needs their name in the preamble');
+    ok(isset($input['party_signer_genitive'])&&!isset($input['party_signer_title_genitive']),'Known representative needs their name in the manual preamble');
     $input['party_signer_genitive']='Сидорова Сергея Сергеевича';
     $pack=WordPack::produce($db,'contract',$id,(int)$contract['version'],$selection,$input,hashes($plan),bin2hex(random_bytes(16)),$created);
     $act=wordText($db,$pack['files'][1]);

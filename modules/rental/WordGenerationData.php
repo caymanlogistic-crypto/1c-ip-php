@@ -15,6 +15,16 @@ final class WordGenerationData
             '07'=>'июля','08'=>'августа','09'=>'сентября','10'=>'октября','11'=>'ноября','12'=>'декабря'][$month].' '.$year.' года';
     }
 
+    public static function floorWords(string $floor): string
+    {
+        if (!preg_match('/^-?\d{1,3}$/D',trim($floor))) return '';
+        $number=(int)$floor;
+        $ordinal=new \NumberFormatter('ru_RU',\NumberFormatter::SPELLOUT);
+        $ordinal->setTextAttribute(\NumberFormatter::DEFAULT_RULESET,'%spellout-ordinal-masculine-prepositional');
+        $words=$ordinal->format(abs($number));
+        return $words===false?'':($number<0?'минус ':'').$words;
+    }
+
     public static function load(PDO $db,string $entity,int $id,int $version,bool $auxiliary=false): array
     {
         Auth::requirePermission('rental.read');Auth::requirePermission('rental.approve.legal');Service::roles(['lawyer']);
@@ -36,8 +46,6 @@ final class WordGenerationData
         $q=$db->prepare('SELECT * FROM party_bank_accounts WHERE party_id=? AND operational=1 ORDER BY id LIMIT 1');$q->execute([$party['id']]);$bank=$q->fetch()?:[];
         $area='0.0000';$areaKnown=true;$numbers=[];$floors=[];$cadastres=[];
         $buildingNumbers=[];$rights=[];$rightDates=[];
-        $ordinal=new \NumberFormatter('ru_RU',\NumberFormatter::SPELLOUT);
-        $ordinal->setTextAttribute(\NumberFormatter::DEFAULT_RULESET,'%spellout-ordinal-masculine-prepositional');
         $q=$db->prepare('SELECT c.id,c.number FROM rental_objects o JOIN cadastre c ON c.id=o.cadastre_id WHERE o.id=?');
         foreach ($terms as $term) {
             if ($term['amount']===null||bccomp($term['amount'],'0',2)<=0)throw new RuntimeException('Нужна подтверждённая цена каждого помещения.',422);
@@ -54,8 +62,7 @@ final class WordGenerationData
             }
         }
         $knownList=static fn(array $items): string=>in_array('',$items,true)?'':implode(', ',array_unique($items));
-        $floorWords=array_map(static fn(string $floor): string=>preg_match('/^[1-9]\d{0,2}$/D',$floor)
-            ? (string)$ordinal->format((int)$floor) : '',$floors);
+        $floorWords=array_map(self::floorWords(...),$floors);
         $values=['number'=>(string)$contract['number'],'date'=>$contract['document_date']?Documents::dateText($contract['document_date']):'',
             'date_words'=>$contract['document_date']?self::dateWords($contract['document_date']):'',
             'start_date_words'=>$record['start_date']?self::dateWords($record['start_date']):'',
@@ -82,6 +89,7 @@ final class WordGenerationData
             'service_start_words'=>$record['start_date']?self::dateWords($record['start_date']):'',
             'service_end_words'=>$record['end_date']?self::dateWords($record['end_date']):'',
             'addendum_date_words'=>$entity==='document'&&$record['document_date']?self::dateWords($record['document_date']):''];
+        if ($entity==='contract' && !$auxiliary) $values['act_date_words']=$values['date_words'];
         if (preg_match('/^(\S+)\s+(\S)\S*(?:\s+(\S)\S*)?$/u',$partyDetails['signer'] ?? '',$signer))
             $values['party_signer_short']=$signer[1].' '.$signer[2].'.'.(isset($signer[3])?$signer[3].'.':'');
         if (!empty($party['postal_same_as_legal'])&&$values['party_address']!=='')$values['party_postal_address']=$values['party_address'];
@@ -126,7 +134,7 @@ final class WordGenerationData
         return $normalize($values['party_signer_name'])!==$normalize($values['party_full_name']);
     }
 
-    public static function complete(array $values,array $input,array $fields=[],string $partyType=''): array
+    public static function complete(array $values,array $input,array $fields=[],string $partyType='',bool $automatic=false): array
     {
         $allowed=[];foreach(OriginalDocuments::catalog() as $definition)foreach($definition['fields'] as $field)$allowed[$field]=true;
         foreach(['act_date','handover_deadline','ownership_date','service_date','service_gross'] as $field)$allowed[$field]=true;
@@ -161,10 +169,19 @@ final class WordGenerationData
                 $values['party_intro']='Индивидуальный предприниматель '.self::entrepreneurName($values['party_full_name'])
                     .', ОГРНИП '.$values['party_ogrn'].', именуемый далее по тексту «Арендатор»';
                 if ($representative) {
-                    $values['party_intro']=!empty($values['party_signer_genitive']) && !empty($values['party_authority'])
-                        ? $values['party_intro'].', в лице представителя '.$values['party_signer_genitive'].', действующего на основании '.$values['party_authority']
-                        : '';
+                    if ($automatic && !empty($values['party_authority'])) {
+                        $values['party_intro'].=', от имени которого действует представитель '.$values['party_signer_name']
+                            .' (основание полномочий — '.$values['party_authority'].')';
+                    } else {
+                        $values['party_intro']=!empty($values['party_signer_genitive']) && !empty($values['party_authority'])
+                            ? $values['party_intro'].', в лице представителя '.$values['party_signer_genitive'].', действующего на основании '.$values['party_authority']
+                            : '';
+                    }
                 }
+            } elseif ($automatic && $partyType==='company' && !empty($values['party_signer_title']) &&
+                !empty($values['party_signer_name']) && !empty($values['party_authority'])) {
+                $values['party_intro']=$values['party_full_name'].', именуемое далее по тексту «Арендатор», от имени которого действует '
+                    .$values['party_signer_title'].' '.$values['party_signer_name'].' (основание полномочий — '.$values['party_authority'].')';
             } elseif ($partyType==='company' && !empty($values['party_signer_title_genitive']) &&
                 !empty($values['party_signer_genitive']) && !empty($values['party_authority'])) {
                 $values['party_intro']=$values['party_full_name'].', именуемое далее по тексту «Арендатор», в лице '.
@@ -178,7 +195,7 @@ final class WordGenerationData
             $values['party_act_signature']=match($partyType) {
                 'entrepreneur'=>$representative?$values['party_signer_name']:self::entrepreneurName($values['party_full_name']),
                 'person'=>$values['party_full_name'],
-                default=>$values['party_signer_short']??'',
+                default=>$values['party_signer_short']??$values['party_signer_name']??'',
             };
         }
         if (in_array('party_signature_name',$fields,true)) {
@@ -192,12 +209,12 @@ final class WordGenerationData
         return $values;
     }
 
-    public static function inputs(array $fields,array $values,string $partyType=''): array
+    public static function inputs(array $fields,array $values,string $partyType='',bool $automatic=false): array
     {
-        $result=[];$values=self::complete($values,[], $fields,$partyType);
-        $introInputs=['party_signer_title_genitive','party_signer_genitive','party_authority'];
+        $result=[];$values=self::complete($values,[], $fields,$partyType,$automatic);
+        $introInputs=$automatic?['party_signer_title','party_signer_name','party_authority']:['party_signer_title_genitive','party_signer_genitive','party_authority'];
         if ($partyType==='entrepreneur') $introInputs=self::hasEntrepreneurRepresentative($values,$partyType)
-            ? ['party_ogrn','party_signer_genitive','party_authority']
+            ? ($automatic?['party_ogrn','party_authority']:['party_ogrn','party_signer_genitive','party_authority'])
             : ['party_ogrn'];
         foreach($fields as $field) {
             if ($field==='office_plan' || in_array($field,OriginalDocuments::optionalFields($partyType),true)) continue;

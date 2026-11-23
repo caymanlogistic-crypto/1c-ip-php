@@ -36,12 +36,10 @@ final class WordHandoverDrafts
         $cadastre=$query->fetchColumn();
         $count=PremisesActs::count($db,(int)$contract['id'],$id);
         $floor=(string)($object['floor']??'');
-        $ordinal=new \NumberFormatter('ru_RU',\NumberFormatter::SPELLOUT);
-        $ordinal->setTextAttribute(\NumberFormatter::DEFAULT_RULESET,'%spellout-ordinal-masculine-prepositional');
         $facts=[
             'room_numbers'=>$object['name'],'area'=>$object['area']===null?'_____':DirectoryUi::area((string)$object['area']),
             'floor'=>$floor===''?'_____':$floor,
-            'floor_words'=>preg_match('/^[1-9]\d{0,2}$/D',$floor)?(string)$ordinal->format((int)$floor):($floor===''?'_____':$floor),
+            'floor_words'=>WordGenerationData::floorWords($floor) ?: ($floor===''?'_____':$floor),
             'cadastre_numbers'=>$cadastre?:'_____',
             'passes_count'=>(string)($count['count']??'_____'),
         ];

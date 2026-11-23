@@ -9,7 +9,7 @@ use RuntimeException;
 /** Immutable Word package; no changes to contractual terms or external dispatch. */
 final class WordPack
 {
-    public static function plan(PDO $db,string $entity,int $id,int $version,array $selection=[],bool $forForm=false): array
+    public static function plan(PDO $db,string $entity,int $id,int $version,array $selection=[],bool $forForm=false,bool $automatic=false): array
     {
         $auxiliary=($selection['mode']??'')==='room-change';
         if(isset($selection['mode'])&&!$auxiliary)throw new RuntimeException('Неизвестный состав пакета.',422);
@@ -68,6 +68,9 @@ final class WordPack
         $acts=$auxiliary?[]:WordHandoverDrafts::plan($db,$data['terms']);
         $fields=array_values(array_unique([...$fields,...WordHandoverDrafts::commonFields($acts)]));
         $values=$data['values'];
+        if ($automatic && $kind==='office' && empty($values['handover_deadline_words'])) {
+            $values['handover_deadline_words']='«___» ____________ 20___ года';
+        }
         if ($pricedObjects) {
             $rates=[];
             $sum='0.00';
@@ -80,7 +83,7 @@ final class WordPack
             }
             $values['rent_object_rates']=implode("\n",$rates);
         }
-        $values=WordGenerationData::complete($values,[],$fields,$data['partyType']);
+        $values=WordGenerationData::complete($values,[],$fields,$data['partyType'],$automatic);
         return array_replace($data,compact('sources','acts','fields','values','plans','planProof','choices','excluded','missingPlans'));
     }
 
@@ -148,17 +151,19 @@ final class WordPack
             '<button class="btn btn-primary" type="submit" form="'.$form.'">Сформировать документы</button>','approvals');
     }
 
-    public static function produce(PDO $db,string $entity,int $id,int $version,array $selection,array $input,array $hashes,string $requestKey,array &$created): array
+    public static function produce(PDO $db,string $entity,int $id,int $version,array $selection,array $input,array $hashes,string $requestKey,array &$created,bool $automatic=false): array
     {
         FileOrder::lock($db);
-        $plan=self::plan($db,$entity,$id,$version,$selection);
+        $plan=self::plan($db,$entity,$id,$version,$selection,automatic:$automatic);
         if(!preg_match('/^[a-f0-9]{32}$/D',$requestKey))throw new RuntimeException('Откройте форму генерации повторно.',422);
-        $fingerprint=hash('sha256',Importer::canonicalJson([$entity,$id,$version,$selection,$input,$hashes]));
+        $request=[$entity,$id,$version,$selection,$input,$hashes];
+        if ($automatic) $request[]='automatic';
+        $fingerprint=hash('sha256',Importer::canonicalJson($request));
         $q=$db->prepare("SELECT fact_json FROM rental_facts WHERE namespace='word_request' AND source_key=?");$q->execute([$requestKey]);$previous=$q->fetchColumn();
         if($previous){$previous=json_decode($previous,true,512,JSON_THROW_ON_ERROR);if($previous['fingerprint']!==$fingerprint)throw new RuntimeException('Ключ формы уже использован.',409);return self::evidence($db,$previous['primary']);}
-        $inputs=WordGenerationData::inputs($plan['fields'],$plan['values'],$plan['partyType']);
+        $inputs=WordGenerationData::inputs($plan['fields'],$plan['values'],$plan['partyType'],$automatic);
         if(array_diff_key($input,$inputs))throw new RuntimeException('Нельзя подменять данные договора или расчётные суммы.',422);
-        $values=WordGenerationData::complete($plan['values'],$input,$plan['fields'],$plan['partyType']);
+        $values=WordGenerationData::complete($plan['values'],$input,$plan['fields'],$plan['partyType'],$automatic);
         if ($plan['plans'] && (!is_string($hashes['office_plan']??null) ||
             !hash_equals(hash('sha256',Importer::canonicalJson($plan['planProof'])),$hashes['office_plan']))) {
             throw new RuntimeException('План изменился. Откройте форму заново.',409);
@@ -171,7 +176,7 @@ final class WordPack
         $dir=APP_ROOT.'/.local/documents';if(!is_dir($dir)&&!mkdir($dir,0700,true)&&!is_dir($dir))throw new RuntimeException('Хранилище документов недоступно.');
         $files=[];$proof=[];$auxiliary=isset($selection['mode']);
         foreach($plan['sources'] as $kind=>$source) {
-            $fid=bin2hex(random_bytes(16));$path=$dir.'/'.$fid.'.docx';$created[]=$path;
+            $fid=bin2hex(random_bytes(16));$path=$dir.'/'.$fid.'.docx';$created[$fid]=$path;
             OriginalDocuments::buildSource($source,$values,$path,$plan['plans']);Documents::validateFile($path,'docx');
             $filename=mb_substr(OriginalDocuments::TITLES[$kind].' №'.$plan['contract']['number'],0,220).'.docx';
             $fileKind='word-'.$kind;
@@ -188,7 +193,7 @@ final class WordPack
             }
             $fileId=bin2hex(random_bytes(16));
             $path=$dir.'/'.$fileId.'.docx';
-            $created[]=$path;
+            $created[$fileId]=$path;
             $filename=WordHandoverDrafts::build($db,$plan['contract'],$act,$values,$path);
             $sha256=hash_file('sha256',$path);
             self::attach($db,$fileId,$entity,$id,$version,'word-handover',$filename,$path,$sha256,
@@ -198,7 +203,7 @@ final class WordPack
         }
         foreach ($plan['plans'] as $image) {
             if ($image['mime']!=='application/pdf') continue;
-            $fid=bin2hex(random_bytes(16));$path=$dir.'/'.$fid.'.pdf';$created[]=$path;
+            $fid=bin2hex(random_bytes(16));$path=$dir.'/'.$fid.'.pdf';$created[$fid]=$path;
             if (file_put_contents($path,$image['bytes'])!==strlen($image['bytes'])) throw new RuntimeException('Не удалось сохранить PDF приложения № 1.');
             Documents::validateFile($path,'pdf');
             $filename=mb_substr('Приложение № 1 · план '.$image['name'].' к договору №'.$plan['contract']['number'],0,220).'.pdf';
@@ -228,7 +233,7 @@ final class WordPack
             foreach(['template','data','source_hash'] as $key)if(!is_array($_POST[$key]??[]))throw new RuntimeException('Некорректная форма.',422);
             return self::produce($db,(string)($_POST['entity_type']??''),(int)($_POST['id']??0),(int)($_POST['version']??0),
                 $_POST['template']??[],$_POST['data']??[],$_POST['source_hash']??[],(string)($_POST['request_key']??''),$created);
-        });}catch(\Throwable $e){foreach($created as $path)if(is_file($path))unlink($path);throw $e;}
+        });}catch(\Throwable $e){Documents::removeUncommitted(DB::pdo(),$created);throw $e;}
         if (isset($_POST['review_workspace'])) {
             Http::redirect('/rental/contract?id='.$pack['entity_id'].'&word_file='.$pack['primary']);
         }
@@ -275,12 +280,31 @@ final class WordPack
         if ((Auth::user()['role']??null)!=='lawyer') throw new RuntimeException('Архив доступен юристу.',403);
         Auth::requirePermission('rental.approve.legal');
         PagePolicy::requireCommand('contract.legal');
-        $contract=Access::contract((int)($_GET['id']??0),2);
         $db=DB::pdo();
-        if (!LegalReview::assigned($contract) || !LegalHandoff::ready($db,$contract)) {
-            throw new RuntimeException('Сначала подтвердите контрагента и условия договора.',409);
+        $prepare=($_SERVER['REQUEST_METHOD']??'GET')==='POST';
+        if ($prepare) {
+            Http::checkCsrf();
+            $id=(int)($_POST['id']??0);
+            $created=[];
+            try {
+                [$contract,$pack]=DB::transaction(function (PDO $db) use ($id,&$created): array {
+                    FileOrder::lock($db);
+                    $contract=self::archiveContract($db,$id);
+                    Service::version($contract,$_POST);
+                    $pack=self::evidence($db,self::currentDraft($db,$contract));
+                    $dated=$contract['document_date']
+                        && ($pack['values']['act_date_words']??'')===WordGenerationData::dateWords($contract['document_date']);
+                    if (!$dated) $pack=self::prepareArchive($db,$contract,(string)($_POST['request_key']??''),$created);
+                    return [$contract,$pack];
+                });
+            } catch (\Throwable $error) {
+                Documents::removeUncommitted($db,$created);
+                throw $error;
+            }
+        } else {
+            $contract=self::archiveContract($db,(int)($_GET['id']??0));
+            $pack=self::evidence($db,self::currentDraft($db,$contract));
         }
-        $pack=self::evidence($db,self::currentDraft($db,$contract));
         if (!$pack || ($pack['entity']??null)!=='contract' || $pack['entity_id']!==(int)$contract['id']
             || $pack['version']!==(int)$contract['version']) {
             throw new RuntimeException('Сначала подготовьте заполненные шаблоны для этой версии договора.',404);
@@ -319,6 +343,31 @@ final class WordPack
             unlink($archive);
         }
         exit;
+    }
+
+    private static function archiveContract(PDO $db,int $id): array
+    {
+        $contract=Access::contract($id,2);
+        if (!LegalReview::assigned($contract) || !LegalHandoff::ready($db,$contract)) {
+            throw new RuntimeException('Сначала подтвердите контрагента и условия договора.',409);
+        }
+        return $contract;
+    }
+
+    private static function prepareArchive(PDO $db,array $contract,string $key,array &$created): array
+    {
+        $id=(int)$contract['id'];
+        $version=(int)$contract['version'];
+        $plan=self::plan($db,'contract',$id,$version,automatic:true);
+        $missing=WordGenerationData::inputs($plan['fields'],$plan['values'],$plan['partyType'],automatic:true);
+        if ($missing) {
+            throw new RuntimeException('Не хватает данных для Word: '.implode(', ',array_column($missing,'label')).'.',422);
+        }
+        $selection=array_map(static fn(array $source):int=>$source['template_id'],$plan['sources']);
+        $hashes=array_map(static fn(array $source):string=>$source['sha256'],$plan['sources']);
+        foreach ($plan['acts'] as $objectId=>$act) $hashes['act-'.$objectId]=$act['source']['sha256'];
+        if ($plan['plans']) $hashes['office_plan']=hash('sha256',Importer::canonicalJson($plan['planProof']));
+        return self::produce($db,'contract',$id,$version,$selection,[],$hashes,$key,$created,automatic:true);
     }
 
     public static function card(): string

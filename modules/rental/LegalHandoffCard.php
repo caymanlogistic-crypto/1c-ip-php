@@ -128,22 +128,12 @@ final class LegalHandoffCard
                 .'<input type="file" name="legal_files[]" accept=".doc,.docx,.pdf" aria-label="Выбрать итоговые файлы"'
                 .' aria-describedby="legal-files-help" multiple required data-rental-upload-on-select></label></form>'
                 .($files?self::fileList($files,$contract):'');
-            $wordId=WordPack::currentDraft(DB::pdo(),$contract);
-            $body.='<div class="demo-row">';
-            if ($wordId!=='') {
-                $body.='<a class="btn btn-secondary" href="/rental/word-zip?id='.$id.'" download>Скачать заполненные шаблоны</a>';
-            } elseif (!isset($_GET['word'])) {
-                $body.=RentalUI::button('Скачать заполненные шаблоны','/rental/contract?id='.$id.'&word=1');
-            }
-            $body.='</div>';
-            if (isset($_GET['word']) && $wordId==='') {
-                try {
-                    $body.=WordPack::form($contract);
-                } catch (\RuntimeException $error) {
-                    if ($error instanceof \PDOException || !in_array($error->getCode(),[409,422],true)) throw $error;
-                    $body.=RentalUI::alert('Не удалось подготовить Word',$error->getMessage(),'warning');
-                }
-            }
+            $body.='<div class="demo-row"><form method="post" action="/rental/word-zip">'
+                .PremisesActsCard::hidden('_csrf',\App\Http::csrf())
+                .PremisesActsCard::hidden('id',$id)
+                .PremisesActsCard::hidden('version',(int)$contract['version'])
+                .PremisesActsCard::hidden('request_key',bin2hex(random_bytes(16)))
+                .'<button type="submit" class="btn btn-secondary">Скачать заполненные шаблоны</button></form></div>';
         } else {
             $body=RentalUI::alert('Подтвердите контрагента и условия',
                 'После двух решений откроются загрузка итоговых файлов и скачивание шаблонов.');

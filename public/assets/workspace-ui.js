@@ -277,7 +277,8 @@
         const url=URL.createObjectURL(blob);
         const link=document.createElement('a');
         link.href=url;
-        link.download=type.includes('pdf')?'document.pdf':'document.docx';
+        const zipName=type.includes('application/zip')&&response.headers.get('content-disposition')?.match(/filename\*=UTF-8''([^;]+)/i);
+        link.download=zipName?decodeURIComponent(zipName[1]):type.includes('application/zip')?'contract-templates.zip':type.includes('pdf')?'document.pdf':'document.docx';
         link.click();
         setTimeout(()=>URL.revokeObjectURL(url),1000);
         return;
