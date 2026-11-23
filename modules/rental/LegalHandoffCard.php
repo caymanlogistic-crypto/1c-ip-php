@@ -106,15 +106,12 @@ final class LegalHandoffCard
                 ['Кратность обеспечительного платежа',(string)$form['multiple']],
             ]);
         }
-        $payment=self::initialTermsFields($contract,$form);
-        $left=$payment?self::toggle('review-first-terms','Уточнить первый счёт') :'';
-        $facts.='<div class="registry-ui-review-actions"><div>'.$left.'</div><div class="demo-row">'
+        $facts.='<div class="registry-ui-review-actions"><div></div><div class="demo-row">'
             .self::toggle('review-terms-return','Условия неверны',true,true)
-            .self::confirm($contract,LegalHandoff::TERMS,'Условия верны',$checked && !$payment,'review-positive-terms')
+            .self::confirm($contract,LegalHandoff::TERMS,'Условия верны',$checked)
             .'</div></div>'
             .self::reason($contract,'contract.return','review-terms-return','Условия неверны','Закрыть форму возврата',
-                'Укажите, каких данных не хватает или что нужно уточнить.','Вернуть на доработку')
-            .$payment;
+                'Укажите, каких данных не хватает или что нужно уточнить.','Вернуть на доработку');
         return self::section('Проверка условий',$facts,$checked?'Условия подтверждены':'Ожидает решения',$checked);
     }
 
@@ -180,23 +177,9 @@ final class LegalHandoffCard
             .PremisesActsCard::hidden('command_key',bin2hex(random_bytes(16)));
     }
 
-    private static function initialTermsFields(array $contract,?array $saved): string
+    private static function confirm(array $contract,string $action,string $label,bool $disabled,string $extra=''): string
     {
-        $db=DB::pdo();
-        if ($saved || InitialInvoice::receipt($db,(int)$contract['id'])) return '';
-        $forms=LeasePaymentTerms::allowedForms($db,$contract);
-        if (!$forms) return '';
-        $fields=DirectoryUi::select('lease_form','Правило первого начисления',$forms,array_key_first($forms))
-            .Controller::input('multiple','Обеспечение в месячных ставках (0 — без обеспечения)','','number',false)
-            .Controller::input('reason','Пункт договора о первом начислении','','text',false);
-        $fields=str_replace(['<select ','<input '],['<select form="review-positive-terms" ','<input form="review-positive-terms" '],$fields);
-        return self::panel('review-first-terms','Уточнить первый счёт','Свернуть условия счёта',$fields
-            .'<p class="registry-ui-modal-help">Укажите кратность и основание, если бухгалтеру нужно выставить счёт.</p>');
-    }
-
-    private static function confirm(array $contract,string $action,string $label,bool $disabled,string $id='',string $extra=''): string
-    {
-        return '<form'.($id?' id="'.View::e($id).'"':'').' method="post" action="/rental/action">'
+        return '<form method="post" action="/rental/action">'
             .self::fields($contract,$action).$extra
             .'<button class="btn btn-success-solid" type="submit"'.($disabled?' disabled':'').'>'.View::e($label).'</button></form>';
     }
