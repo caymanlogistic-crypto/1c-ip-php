@@ -60,6 +60,11 @@ final class ContractReviewFiles
         return json_decode($contract['source_json'],true,512,JSON_THROW_ON_ERROR)['review_materials'] ?? [];
     }
 
+    public static function selectedIds(array $contract): array
+    {
+        return array_values(self::selection($contract)['files'] ?? []);
+    }
+
     private static function files(PDO $db,array $contract): array
     {
         $files=[];
