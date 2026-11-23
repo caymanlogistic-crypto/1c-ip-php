@@ -274,6 +274,7 @@ final class Service {
     }
 
     private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
+        if (in_array($action,OnecRequest::ACTIONS,true)) return OnecRequest::execute($p,$u,$action,$in);
         if (isset(SecurityDeposit::TITLES[$action])) return SecurityDeposit::execute($p,$u,$action,$in);
         if (in_array($action,FinalReview::ACTIONS,true)) return FinalReview::execute($p,$u,$action,$in);
         if (in_array($action,FinalSettlement::ACTIONS,true)) return FinalSettlement::execute($p,$u,$action,$in);
