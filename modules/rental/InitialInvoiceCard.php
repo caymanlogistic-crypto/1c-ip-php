@@ -15,7 +15,33 @@ final class InitialInvoiceCard
     public static function entry(array $contract): string
     {
         if (!InitialInvoice::available($contract) && !InitialInvoice::issuedFor(DB::pdo(),(int)$contract['id'])) return '';
-        return RentalUI::button('Выставить первый счёт',self::route((int)$contract['id']));
+        if (!in_array(Auth::user()['role']??'',['accountant','manager'],true)) return '';
+        $label=Auth::user()['role']==='accountant'?'Выставить первый счёт':'Первый счёт';
+        return RentalUI::button($label,self::route((int)$contract['id']));
+    }
+
+    public static function attachments(array $contract): string
+    {
+        $id=(int)$contract['id'];
+        if (!\App\Auth::can('rental.read')) return '';
+        $db=DB::pdo();
+        $receipt=InitialInvoice::receipt($db,$id);
+        if (empty($receipt['pdf_ids'])) return '';
+        try {
+            Access::finance();
+        } catch (RuntimeException $error) {
+            if ($error->getCode()===403) return '';
+            throw $error;
+        }
+        $rows=[];
+        foreach (InitialInvoice::issuedFor($db,$id) as $invoice) {
+            $fileId=$receipt['pdf_ids'][$invoice['id']]??null;
+            if (!$fileId) continue;
+            $rows[]=[View::e('№'.InvoiceDocument::number($invoice['number'])),
+                Controller::money($invoice['amount']),'<a href="/rental/download?id='.View::e($fileId).'">Скачать PDF</a>'];
+        }
+        return $rows?'<h3 class="registry-ui-modal-summary">Первые счета</h3>'
+            .Controller::table(['Счёт','Сумма с НДС','Файл'],$rows,['text','money','text']):'';
     }
 
     public static function card(): string
@@ -69,7 +95,7 @@ final class InitialInvoiceCard
             $canIssue = InitialInvoice::can($contract,InitialInvoice::ISSUE);
             if ($canIssue) {
                 try {
-                    InitialInvoice::assertIssueParty(DB::pdo(),$contract,Auth::user()['role']);
+                    InitialInvoice::assertIssueParty(DB::pdo(),$contract);
                 } catch (RuntimeException $error) {
                     if ($error instanceof \PDOException) throw $error;
                     $body .= RentalUI::alert('Выпуск первого счёта пока недоступен',$error->getMessage(),'warning');
@@ -77,12 +103,14 @@ final class InitialInvoiceCard
                 }
             }
             if ($plan['rows'] && $canIssue) {
-                $pending = in_array(null,array_column($plan['rows'],'due'),true);
-                $label = $pending ? 'Подтверждаю состав начислений и регистрацию строк с неподтверждённым сроком'
-                    : 'Подтверждаю дату и состав начислений';
-                $body .= Controller::form(InitialInvoice::ISSUE,$id,(int)$contract['version'],
-                    PremisesActsCard::hidden('issued',$issued).PremisesActsCard::hidden('plan_token',$plan['token'])
-                    .self::check($label),'Зарегистрировать первый счёт');
+                if (in_array(null,array_column($plan['rows'],'due'),true)) {
+                    $body.=RentalUI::alert('Подтвердите сроки оплаты',
+                        'После подтверждения можно зарегистрировать первый счёт и прикрепить PDF.','warning');
+                } else {
+                    $body.=Controller::form(InitialInvoice::ISSUE,$id,(int)$contract['version'],
+                        PremisesActsCard::hidden('issued',$issued).PremisesActsCard::hidden('plan_token',$plan['token'])
+                        .self::check('Подтверждаю дату и состав начислений'),'Зарегистрировать первый счёт');
+                }
             }
         }
         if (InitialInvoice::available($contract)) $body .= HandoverQuestionCard::section($contract);

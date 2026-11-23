@@ -12,25 +12,45 @@ final class ContractReviewFiles
 {
     public const ACTIONS=['contract.create','contract.edit','contract.submit'];
     private const FIELD='contract_review_files';
+    public const DESCRIPTIONS='contract_review_descriptions';
+    private const KIND='review-attachment';
+    private const LIMIT=10;
+    private const DESCRIPTION_LIMIT=160;
 
     private array $written=[];
 
     private function __construct(private array $uploads) {}
 
-    public static function fromRequest(array $files): ?self
+    public static function fromRequest(array $files,array $input,bool $legal=false): ?self
     {
-        $group=$files[self::FIELD] ?? [];
+        $group=$files[$legal?'legal_files':self::FIELD] ?? [];
         $errors=$group['error'] ?? [];
-        if (!is_array($errors)) throw new RuntimeException('Проверьте формат вложений.',422);
+        $descriptions=$input[self::DESCRIPTIONS] ?? [];
+        if (!is_array($errors) || !is_array($descriptions) || count($errors)>self::LIMIT) {
+            throw new RuntimeException('За один раз можно добавить до '.self::LIMIT.' файлов.',422);
+        }
+        foreach ($descriptions as $slot=>$text) {
+            if (!is_int($slot) || $slot<0 || !is_string($text) ||
+                (trim($text)!=='' && ($errors[$slot] ?? UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_NO_FILE)) {
+                throw new RuntimeException('Выберите файл для каждого указанного описания.',422);
+            }
+        }
         $uploads=[];
-        foreach ($errors as $kind=>$error) {
+        foreach ($errors as $slot=>$error) {
             if ($error===UPLOAD_ERR_NO_FILE) continue;
-            $path=$group['tmp_name'][$kind] ?? '';
-            $name=$group['name'][$kind] ?? '';
-            $size=$group['size'][$kind] ?? 0;
-            if (!isset(ContractRevision::KINDS[$kind]) || $error!==UPLOAD_ERR_OK || !is_string($path)
+            $kind=is_int($slot) && $slot>=0 ? self::KIND : $slot;
+            $path=$group['tmp_name'][$slot] ?? '';
+            $name=$group['name'][$slot] ?? '';
+            $size=$group['size'][$slot] ?? 0;
+            if (($kind!==self::KIND && !isset(ContractRevision::KINDS[$kind])) || $error!==UPLOAD_ERR_OK || !is_string($path)
                 || !is_string($name) || $size<1 || $size>20*1024*1024 || !is_uploaded_file($path)) {
                 throw new RuntimeException('Выберите файлы Word или PDF размером до 20 МБ каждый.',422);
+            }
+            $description=$legal?'Документ юриста':($kind===self::KIND
+                ? DirectoryDetails::text($descriptions,(string)$slot,self::DESCRIPTION_LIMIT)
+                : ContractRevision::KINDS[$kind]);
+            if ($description==='' || preg_match('/\R/u',$description)) {
+                throw new RuntimeException('Введите короткое описание для каждого файла.',422);
             }
             $name=basename(str_replace('\\','/',$name));
             $filename=mb_substr(pathinfo($name,PATHINFO_FILENAME),0,245).'.'.pathinfo($name,PATHINFO_EXTENSION);
@@ -44,7 +64,7 @@ final class ContractReviewFiles
             Documents::validateFile($path,$extension);
             $sha=hash_file('sha256',$path);
             if ($sha===false) throw new RuntimeException('Не удалось прочитать материал к договору.',422);
-            $uploads[$kind]=['filename'=>$filename,'sha256'=>$sha,'mime'=>$mime,'tmp'=>$path,'extension'=>$extension];
+            $uploads[$slot]=compact('kind','description','filename','sha','mime','path','extension');
         }
         ksort($uploads);
         return $uploads ? new self($uploads) : null;
@@ -52,17 +72,28 @@ final class ContractReviewFiles
 
     public function fingerprint(): array
     {
-        return array_map(static fn(array $upload): array=>array_intersect_key($upload,['filename'=>true,'sha256'=>true]), $this->uploads);
+        return array_map(static fn(array $upload): array=>[
+            'filename'=>$upload['filename'],'sha256'=>$upload['sha'],
+        ]+($upload['kind']===self::KIND?['description'=>$upload['description']]:[]),$this->uploads);
     }
 
     private static function selection(array $contract): array
     {
-        return json_decode($contract['source_json'],true,512,JSON_THROW_ON_ERROR)['review_materials'] ?? [];
+        $selection=json_decode($contract['source_json'],true,512,JSON_THROW_ON_ERROR)['review_materials'] ?? [];
+        if ($selection && !array_is_list($selection['files'])) {
+            $entries=[];
+            foreach ($selection['files'] as $kind=>$id) {
+                $description=ContractRevision::KINDS[$kind] ?? throw new RuntimeException('Неизвестный вид материала к договору.',409);
+                $entries[]=compact('kind','id','description');
+            }
+            $selection['files']=$entries;
+        }
+        return $selection;
     }
 
     public static function selectedIds(array $contract): array
     {
-        return array_values(self::selection($contract)['files'] ?? []);
+        return array_column(self::selection($contract)['files'] ?? [],'id');
     }
 
     private static function files(PDO $db,array $contract): array
@@ -70,11 +101,14 @@ final class ContractReviewFiles
         $files=[];
         $selection=self::selection($contract);
         if (!$selection) return $files;
-        $query=$db->prepare("SELECT id,kind,filename,path,sha256 FROM rental_files WHERE entity_type='contract' AND entity_id=? AND kind=? AND id=?");
-        foreach ($selection['files'] as $kind=>$id) {
-            if (!isset(ContractRevision::KINDS[$kind])) throw new RuntimeException('Неизвестный вид материала к договору.',409);
-            $query->execute([$contract['id'],$kind,$id]);
-            $files[$kind]=$query->fetch() ?: throw new RuntimeException('Материал к договору не найден.',409);
+        $query=$db->prepare("SELECT id,kind,filename,path,sha256,created_at FROM rental_files WHERE entity_type='contract' AND entity_id=? AND kind=? AND id=?");
+        foreach ($selection['files'] as $entry) {
+            if ($entry['kind']!==self::KIND && !isset(ContractRevision::KINDS[$entry['kind']])) {
+                throw new RuntimeException('Неизвестный вид материала к договору.',409);
+            }
+            $query->execute([$contract['id'],$entry['kind'],$entry['id']]);
+            $file=$query->fetch() ?: throw new RuntimeException('Материал к договору не найден.',409);
+            $files[]=$file+['description'=>$entry['description']];
         }
         return $files;
     }
@@ -84,27 +118,54 @@ final class ContractReviewFiles
         $contract=Service::get($db,'contracts',$id);
         if (!in_array($contract['status'],['draft','returned','legal'],true)) return;
         $files=self::files($db,$contract);
-        foreach ($request->uploads ?? [] as $kind=>$upload) {
-            $previous=$files[$kind] ?? null;
-            if ($previous && $previous['sha256']===$upload['sha256'] && $previous['filename']===$upload['filename']) continue;
-            $fileId=bin2hex(random_bytes(16));
-            $path=Documents::directory().'/'.$fileId.'.'.$upload['extension'];
-            if (!move_uploaded_file($upload['tmp'],$path)) throw new RuntimeException('Материал к договору не сохранён.');
-            $request->written[$fileId]=$path;
-            $db->prepare("INSERT INTO rental_files (id,entity_type,entity_id,version,kind,filename,path,sha256,mime)
-                VALUES (?,'contract',?,?,?,?,?,?,?)")->execute([
-                    $fileId,$id,$contract['version'],$kind,$upload['filename'],basename($path),$upload['sha256'],$upload['mime'],
-                ]);
-            FileOrder::assign($db,$fileId);
-            $files[$kind]=['id'=>$fileId,'path'=>basename($path),'sha256'=>$upload['sha256']];
-            Audit::record('document.upload','contract',$id,null,['file'=>$fileId,'kind'=>$kind,'sha256'=>$upload['sha256']]);
+        foreach ($request->uploads ?? [] as $upload) {
+            $kind=$upload['kind'];
+            $replace=null;
+            $duplicate=false;
+            foreach ($files as $index=>$prior) {
+                if ($prior['kind']!==$kind) continue;
+                $duplicate=$prior['sha256']===$upload['sha'] && $prior['filename']===$upload['filename']
+                    && $prior['description']===$upload['description'];
+                if ($kind!==self::KIND) $replace=$index;
+                if ($duplicate || $replace!==null) break;
+            }
+            if ($duplicate) continue;
+            $file=$request->write($db,$contract,$upload,$kind);
+            if ($replace===null) $files[]=$file; else $files[$replace]=$file;
         }
         if (!$files) return;
         foreach ($files as $file) Evidence::integrity($file);
-        $selection=['version'=>(int)$contract['version'],'files'=>array_map(static fn(array $file): string=>$file['id'],$files),
+        $selection=['version'=>(int)$contract['version'],'files'=>array_map(static fn(array $file): array=>
+            array_intersect_key($file,['id'=>true,'kind'=>true,'description'=>true]),$files),
             'submitted'=>$contract['status']==='legal'];
         $db->prepare("UPDATE contracts SET source_json=JSON_SET(source_json,'$.review_materials',CAST(? AS JSON)) WHERE id=?")
             ->execute([Importer::json($selection),$id]);
+    }
+
+    private function write(PDO $db,array $contract,array $upload,string $kind): array
+    {
+        $id=bin2hex(random_bytes(16));
+        $path=Documents::directory().'/'.$id.'.'.$upload['extension'];
+        if (!move_uploaded_file($upload['path'],$path)) throw new RuntimeException('Файл договора не сохранён.');
+        $this->written[$id]=$path;
+        $filename=$upload['filename'];
+        $sha256=$upload['sha'];
+        $db->prepare("INSERT INTO rental_files (id,entity_type,entity_id,version,kind,filename,path,sha256,mime)
+            VALUES (?,'contract',?,?,?,?,?,?,?)")
+            ->execute([$id,$contract['id'],$contract['version'],$kind,$filename,basename($path),$sha256,$upload['mime']]);
+        FileOrder::assign($db,$id);
+        Audit::record('document.upload','contract',$contract['id'],null,['file'=>$id,'kind'=>$kind,'sha256'=>$sha256]);
+        return compact('id','kind','sha256','filename')+['path'=>basename($path),'description'=>$upload['description']];
+    }
+
+    public function saveForLegal(PDO $db,array $contract): array
+    {
+        $files=[];
+        foreach ($this->uploads as $upload) {
+            $file=$this->write($db,$contract,$upload,'lawyer-file');
+            $files[]=array_intersect_key($file,['id'=>true,'sha256'=>true,'filename'=>true]);
+        }
+        return $files;
     }
 
     public static function rememberSubmission(PDO $db,array $contract,array $actor,string $commandKey): void
@@ -133,11 +194,33 @@ final class ContractReviewFiles
     {
         $html='<section class="registry-ui-modal-grid" aria-label="Материалы для юриста"><h3 class="registry-ui-modal-summary">Материалы для юриста</h3>'
             .($contract ? self::presentation($contract) : '');
-        foreach (['third-party-draft'=>'Проект договора']+ContractRevision::KINDS as $kind=>$label) {
-            $html.='<label class="field"><span class="field-label">'.View::e($label).'</span>'
-                .'<input class="field-input" type="file" name="'.self::FIELD.'['.$kind.']" accept=".doc,.docx,.pdf"></label>';
+        return $html.'<div class="registry-ui-modal-grid" data-described-files data-file-name="'.self::FIELD
+            .'" data-description-name="'.self::DESCRIPTIONS.'" data-description-limit="'.self::DESCRIPTION_LIMIT
+            .'" data-file-limit="'.self::LIMIT.'" data-file-accept=".doc,.docx,.pdf">'
+            .'<div class="registry-ui-modal-grid" data-described-file-list></div><div class="demo-row">'
+            .'<button type="button" class="btn btn-secondary" data-add-described-file>Добавить файл</button></div></div>'
+            .'<p class="registry-ui-modal-help">Необязательно. Word или PDF до 20 МБ на файл.</p></section>';
+    }
+
+    public static function priorPresentation(array $contract): string
+    {
+        $db=DB::pdo();
+        $seen=array_fill_keys(self::selectedIds($contract),true);
+        $body='';
+        $query=$db->prepare("SELECT created_at,snapshot_text,snapshot_sha256 FROM rental_contract_versions
+            WHERE contract_id=? ORDER BY version DESC");
+        $query->execute([$contract['id']]);
+        foreach ($query as $row) {
+            if (!hash_equals($row['snapshot_sha256'],hash('sha256',$row['snapshot_text']))) continue;
+            $prior=Importer::decodeExact($row['snapshot_text'])['contract'] ?? [];
+            $files=array_filter(self::files($db,$prior),static fn(array $file):bool=>!isset($seen[$file['id']]));
+            if (!$files) continue;
+            $body.='<section class="registry-ui-form-section"><h4 class="registry-ui-modal-summary">'
+                .View::e((new \DateTimeImmutable($row['created_at']))->format('d.m.Y H:i')).'</h4>'.self::list($files).'</section>';
+            $seen+=array_fill_keys(array_column($files,'id'),true);
         }
-        return $html.'<p class="registry-ui-modal-help">Необязательно. Word или PDF до 20 МБ на файл. Новый файл заменяет материал этого вида в следующей редакции.</p></section>';
+        return $body?'<details class="registry-ui-form-disclosure"><summary class="btn btn-secondary">Предыдущие материалы</summary>'
+            .'<div class="registry-ui-form-section">'.$body.'</div></details>':'';
     }
 
     public static function presentation(array $contract): string
@@ -146,11 +229,18 @@ final class ContractReviewFiles
         if (!$files) return '';
         $selection=self::selection($contract);
         $label=$selection['submitted']?'Материалы менеджера':'Сохранённые материалы проекта';
-        $html='<p class="registry-ui-modal-summary">'.View::e($label).' · версия '.(int)$selection['version'].'</p><div class="demo-row">';
+        return '<p class="registry-ui-modal-help">'.View::e($label).' · версия '.(int)$selection['version'].'</p>'.self::list($files);
+    }
+
+    private static function list(array $files): string
+    {
+        $html='<ul class="registry-ui-form-section registry-ui-review-files">';
         foreach ($files as $file) {
-            $html.='<a class="btn btn-secondary" href="/rental/download?id='.View::e($file['id']).'">'
-                .View::e(ContractRevision::KINDS[$file['kind']].' · '.$file['filename']).'</a>';
+            $html.='<li><div><div class="registry-ui-modal-text">'.View::e($file['description']).'</div>'
+                .'<div class="registry-ui-modal-help">'.View::e((new \DateTimeImmutable($file['created_at']))->format('d.m.Y H:i'))
+                .'</div></div><a class="btn btn-secondary" href="/rental/download?id='.View::e($file['id']).'">'
+                .View::e($file['filename']).'</a></li>';
         }
-        return $html.'</div>';
+        return $html.'</ul>';
     }
 }

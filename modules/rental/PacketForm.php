@@ -99,7 +99,8 @@ final class PacketForm
             }
             $body .= '</div>';
         }
-        if(isset($context['word_pack']))$body.=WordPack::links($context['word_pack']);
+        if (isset($context['legal_handoff'])) $body.=LegalHandoffCard::accountantDocuments($id,$context['legal_handoff']);
+        elseif(isset($context['word_pack']))$body.=WordPack::links($context['word_pack']);
         $body .= $hidden.'<input type="hidden" name="expected_packet_hash" value="'
             .View::e($packet['expected_packet_hash']).'">'
             .'<input type="hidden" name="packet_confirmed" value="1">';

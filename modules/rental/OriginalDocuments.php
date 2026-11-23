@@ -51,7 +51,10 @@ final class OriginalDocuments
 
     public static function resolve(PDO $db,string $kind,int $templateId): array
     {
-        if(!$templateId)return self::source($kind)+['template_id'=>0,'template_version'=>1,'kind'=>$kind];
+        if(!$templateId) {
+            $source=self::source($kind);
+            return $source+['template_id'=>0,'template_version'=>$source['version']??1,'kind'=>$kind];
+        }
         $q=$db->prepare('SELECT * FROM rental_templates WHERE id=?');$q->execute([$templateId]);$row=$q->fetch();
         if(!$row||!$row['word_file_id']||(int)$row['version']<1||(json_decode($row['source_json'],true)['generation_kind']??null)!==$kind)throw new RuntimeException('Утверждённый шаблон этого вида не найден.',422);
         $asset=TemplateAssets::file($db,$templateId,$row['word_file_id']);$fields=self::fieldsForKind($asset['path'],$kind);
@@ -107,6 +110,7 @@ final class OriginalDocuments
             'party_signer_title'=>'Должность подписанта', 'party_signer_title_genitive'=>'Должность в обороте «в лице кого»',
             'party_signature_name'=>'Полные ФИО для подписи','party_passport'=>'Паспортные сведения',
             'party_intro'=>'Преамбула арендатора','party_signer_name'=>'Полные ФИО подписанта',
+            'party_act_intro'=>'Преамбула арендатора в акте','party_act_signature'=>'Подпись арендатора в акте',
             'party_signature_title'=>'Должность подписанта','premises_address'=>'Адрес объекта',
             'lease_duration'=>'Срок аренды прописью',
             'party_signer_genitive'=>'ФИО подписанта в обороте «в лице кого»', 'party_signer_short'=>'Фамилия и инициалы в подписи',
@@ -117,6 +121,7 @@ final class OriginalDocuments
             'party_correspondent'=>'Корреспондентский счёт арендатора', 'party_bik'=>'БИК банка арендатора',
             'vat'=>'Ставка НДС, %', 'rent_net'=>'Аренда без НДС, целые рубли', 'rent_net_words'=>'Аренда без НДС прописью',
             'rent_net_kopecks'=>'Аренда без НДС, копейки', 'rent_vat'=>'Сумма НДС аренды',
+            'rent_object_rates'=>'Месячные ставки по объектам с НДС',
             'handover_deadline_words'=>'Крайний срок приёма помещения прописью', 'act_date_words'=>'Дата акта прописью',
             'meter_readings'=>'Показания счётчиков с номерами и единицами', 'passes_count'=>'Количество пропусков для входа',
             'parking_passes_count'=>'Количество брелоков на парковку', 'service_number'=>'Номер договора услуг',

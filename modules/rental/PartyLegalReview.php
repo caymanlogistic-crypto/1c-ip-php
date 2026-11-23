@@ -57,10 +57,11 @@ final class PartyLegalReview
         return hash('sha256',Importer::canonicalJson([array_intersect_key($party,array_flip($fields)),$details,$bank->fetch()?:null]));
     }
 
-    public static function assertCurrent(PDO $db,int $id,bool $requireApproval=false): void
+    public static function assertCurrent(PDO $db,int $id,bool $requireApproval=false,bool $allowNewOnlyBlock=false): void
     {
         $party=Service::get($db,'parties',$id);
-        if ($party['blocked']) throw new RuntimeException('Работа с контрагентом заблокирована.',409);
+        if ($party['blocked'] && (!$allowNewOnlyBlock || !LegalHandoff::blocksOnlyNew($party)))
+            throw new RuntimeException('Работа с контрагентом заблокирована.',409);
         $review=self::state($db,$id);
         if (!$review && !$requireApproval) return;
         if (($review['status']??null)!=='accepted' || !hash_equals((string)($review['signature']??''),self::signature($db,$party)))
@@ -154,6 +155,15 @@ final class PartyLegalReview
         $file=isset($review['file_id'])?self::findFile($db,$id,$review['file_id']):null;
         if ($file) $body.=self::link($file);
         return $body;
+    }
+
+    public static function evidenceLink(array $party): string
+    {
+        $db=DB::pdo();
+        $review=self::state($db,(int)$party['id']);
+        $file=isset($review['file_id'])?self::findFile($db,(int)$party['id'],$review['file_id']):null;
+        return $file?'<p><a href="/rental/download?id='.View::e($file['id']).'" title="'
+            .View::e($file['filename']).'">Скачать прикреплённые файлы</a></p>':'';
     }
 
     private static function link(array $file): string

@@ -554,7 +554,7 @@
 .registry-ui-modal-quality{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px}
 .registry-ui-modal-quality .registry-ui-modal-help{min-width:0;flex:1 1 200px}
 .registry-ui-modal .modal-head{min-height:48px;background:var(--tone-f0ede6)}
-.registry-ui-modal .modal-title{font-family:var(--font);font-size:19px;font-weight:700;line-height:22px;letter-spacing:-.035em;color:var(--p-text)}
+.registry-ui-modal .modal-title,.registry-ui-review-section .modal-title{font-family:var(--font);font-size:19px;font-weight:700;line-height:22px;letter-spacing:-.035em;color:var(--p-text)}
 .registry-ui-modal .modal-body{padding:12px 16px;background:var(--p-surface)}
 .registry-ui-modal .modal-foot{min-height:48px;padding:7px 16px;background:var(--tone-f0ede6);border-top:1px solid var(--tone-dedad0)}
 .registry-ui-modal .modal-foot-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
@@ -742,3 +742,38 @@
 .registry-ui-form-composition>.registry-ui-form-disclosure>.registry-ui-form-section>.registry-ui-modal-summary{display:none}
 
 .registry-ui-form-composition>.registry-ui-form-disclosure>summary{box-sizing:border-box;min-height:32px}
+
+/* Review decisions within a form section. */
+.registry-ui-review-section{padding:12px;border:1px solid var(--p-border);background:var(--p-panel)}
+.registry-ui-review-section :is(.demo-row,.registry-ui-form-section,.registry-ui-form-disclosure,form,ul,li,p){min-width:0;max-width:100%}
+.registry-ui-review-section :is(.btn,.registry-ui-modal-text){max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.registry-ui-review-section .btn[download]{text-decoration:none}
+.registry-ui-review-section .registry-ui-form-section-heading{justify-content:space-between}
+.registry-ui-review-section .modal-title{margin:0;min-width:0;overflow-wrap:anywhere}
+.registry-ui-review-terms{width:100%;min-width:0;--review-object-width:30%;--review-type-width:25%;--review-area-width:18%;--review-rent-width:27%}
+.registry-ui-review-terms .registry-ui-data[data-column-profile]{width:100%;min-width:0;table-layout:fixed}
+.registry-ui-review-terms .registry-ui-data[data-column-profile] col:nth-child(1){width:var(--review-object-width)}
+.registry-ui-review-terms .registry-ui-data[data-column-profile] col:nth-child(2){width:var(--review-type-width)}
+.registry-ui-review-terms .registry-ui-data[data-column-profile] col:nth-child(3){width:var(--review-area-width)}
+.registry-ui-review-terms .registry-ui-data[data-column-profile] col:nth-child(4){width:var(--review-rent-width)}
+.registry-ui-review-terms .registry-ui-data[data-column-profile] :is(th,td){white-space:normal;overflow-wrap:anywhere;text-overflow:clip}
+@media(max-width:460px){
+  .registry-ui-review-terms{--review-object-width:22%;--review-type-width:28%;--review-area-width:20%;--review-rent-width:30%}
+  .registry-ui-review-terms .registry-ui-data[data-column-profile] :is(th,td){padding-inline:5px}
+  .registry-ui-review-terms .registry-ui-data[data-column-profile] th{font-size:10px}
+}
+.registry-ui-review-state{color:var(--p-secondary);font:600 12px/1.4 var(--font);white-space:normal}
+.registry-ui-review-state[data-complete]{color:var(--p-success)}
+.registry-ui-review-actions{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap}
+.registry-ui-review-reason{border-inline-start:3px solid var(--p-error);padding:8px 12px;margin-top:8px}
+.registry-ui-review-files{padding:0;margin:0;list-style:none}
+.registry-ui-review-files>li{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;overflow-wrap:anywhere}
+.registry-ui-review-files a{min-width:0}
+.registry-ui-review-upload{position:relative;box-sizing:border-box;min-width:0;padding:16px 12px;text-align:center;cursor:pointer}
+.registry-ui-review-upload .dz-title{font-size:13px;color:var(--p-text)}
+[data-submitting] .registry-ui-review-upload{pointer-events:none;opacity:.65}
+.registry-ui-review-upload:focus-within{outline:2px solid var(--p-accent);outline-offset:2px}
+.registry-ui-review-upload input[type=file]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.registry-ui-review-actions>.demo-row{justify-content:flex-end;margin-inline-start:auto;min-width:0;max-width:100%;flex-wrap:wrap}
+.registry-ui-review-actions>:first-child{min-width:0;max-width:100%}
+@media(max-width:700px){.registry-ui-review-actions>.demo-row{justify-content:flex-start;margin-inline-start:0}}

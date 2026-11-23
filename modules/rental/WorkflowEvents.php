@@ -17,8 +17,9 @@ final class WorkflowEvents
         $party=count($parts)===2&&$parts[0]==='party'&&in_array($parts[1],['block','unblock'],true);
         $cancel=$action==='contract.cancel';
         $question=in_array($action,[HandoverQuestion::OPEN,HandoverQuestion::RETRY],true);
+        $contractEvent=in_array($action,[InitialInvoice::ISSUE,LegalHandoff::BLOCK],true);
         $staff=StaffHandoff::managed($action);
-        if(!$party&&!$cancel&&!$question&&!$staff&&(count($parts)!==2||!in_array($parts[0],['contract','document'],true)||!in_array($parts[1],self::ACTIONS,true)))return null;
+        if(!$party&&!$cancel&&!$question&&!$staff&&!$contractEvent&&(count($parts)!==2||!in_array($parts[0],['contract','document'],true)||!in_array($parts[1],self::ACTIONS,true)))return null;
         $kind=$parts[0]==='document'?'document':($party?'party':'contract');
         $id=(int)($input['id']??0);
         $row=null;
@@ -39,7 +40,7 @@ final class WorkflowEvents
         elseif($to==='legal'&&($op==='submit'||in_array($op,['create','edit'],true)&&($input['intent']??'')==='submit')){
             $kind=$from==='returned'&&($before['return_to']??null)==='manager'?'resubmit':'submit';$target='lawyer';
         }elseif($op==='legal'&&$to==='accounting'){$kind='legalApprove';$target='accountant';}
-        elseif($op==='return'&&$to==='returned'){$kind=$from==='accounting'?'accountantReturn':'lawyerReturn';$target=$after['return_to']??null;}
+        elseif(in_array($op,['return','legal-block'],true)&&$to==='returned'){$kind=$from==='accounting'?'accountantReturn':'lawyerReturn';$target=$after['return_to']??null;}
         elseif($op==='forward'&&$to==='returned'&&($after['return_to']??null)==='manager'){$kind='lawyerReturn';$target='manager';}
         elseif($op==='packet'&&$to==='approved'&&!empty($input['packet_confirmed'])){$kind='package';$target='manager';}
         elseif($op==='handed'&&$from==='approved'&&$to==='sent'){$kind='handed';$target='manager';}
@@ -55,6 +56,9 @@ final class WorkflowEvents
         $kind=$context['kind'];$party=$kind==='party';$id=(int)($result['id']??$context['before']['id']??0);
         $after=Service::get($db,$party?'parties':($kind==='contract'?'contracts':'rental_documents'),$id);
         $transition=self::transition($action,$input,$context['before'],$after);
+        if ($action===InitialInvoice::ISSUE && !empty($result['newly_issued'])) {
+            $transition=['event_kind'=>'firstInvoice','target_role'=>'manager','resubmitted'=>false];
+        }
         if (!empty($result['question_notification']) && $action!==PremisesActs::CONFIRM) {
             $transition=['event_kind'=>HandoverQuestion::EVENT,'target_role'=>'accountant','resubmitted'=>false];
         }
@@ -84,6 +88,7 @@ final class WorkflowEvents
             'actor_id'=>(int)$actor['id'],'role_id'=>$actor['role_id']??$actor['role'],'actor_role'=>$actor['role'],
             'auth_version'=>(int)$actor['auth_version'],'actor_name'=>$actor['name'],'epoch'=>(string)$epoch,
             'text'=>(string)$events[0]['description'],'reason'=>(string)($party?($after['block_reason']??''):($after['reason']??''))]+$transition;
+        if ($action===InitialInvoice::ISSUE) $body['invoice_ids']=$result['invoice_ids'];
         if (StaffHandoff::managed($action)) $body['staff_handoff']=$staff;
         if ($action==='contract.submit' && $staff && ($named=\Modules\Integrations\StaffHandoffProbe::assign($db,$body))) {
             $body['staff_handoff']['targets']=[$named];

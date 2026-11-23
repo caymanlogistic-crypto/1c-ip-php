@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Modules\Integrations;
 use App\PagePolicy;
-use Modules\Rental\{HandoverQuestion,PremisesActs,Service,StaffHandoff,WorkflowEvents};
+use Modules\Rental\{Controller, Documents, Evidence, HandoverQuestion, InitialInvoice, InvoiceDocument, PremisesActs, Service, StaffHandoff, WorkflowEvents};
 use PDO;
 use RuntimeException;
 
@@ -25,16 +25,23 @@ final class CurrentContractMaxProof
             }
             return $kind;
         }
+        if ($kind==='firstInvoice') {
+            if (($event['action']??null)!==InitialInvoice::ISSUE || empty($event['invoice_ids'])
+                || $event['contract_id']!==$event['entity_id'] || $event['target_role']!=='manager') {
+                throw new RuntimeException('RENTAL_MAX_TRANSITION_PROOF_INVALID');
+            }
+            return $kind;
+        }
         if(!in_array($kind,['submit','resubmit','legalApprove','lawyerReturn','accountantReturn','package','signed','activated','block','unblock','cancelled'],true))
             throw new RuntimeException('RENTAL_MAX_EVENT_NOT_PLANNED');
         if(!in_array($event['entity_kind']??null,['contract','document','party'],true)
-            ||!preg_match('/^(?:(?:contract|document)\.(?:create|edit|submit|legal|return|forward|packet|sign|apply)|contract\.cancel|party\.(?:block|unblock))$/D',$event['action']??''))
+            ||!preg_match('/^(?:(?:contract|document)\.(?:create|edit|submit|legal|return|forward|packet|sign|apply)|contract\.(?:cancel|legal-block)|party\.(?:block|unblock))$/D',$event['action']??''))
             throw new RuntimeException('RENTAL_MAX_ACTION_NOT_PLANNED');
         [$entity,$operation]=explode('.',$event['action']);
         $valid=match($kind){
             'submit','resubmit'=>in_array($operation,['create','edit','submit'],true)&&($event['to_status']??null)==='legal',
             'legalApprove'=>$operation==='legal'&&($event['to_status']??null)==='accounting',
-            'lawyerReturn','accountantReturn'=>in_array($operation,['return','forward'],true)&&($event['to_status']??null)==='returned',
+            'lawyerReturn','accountantReturn'=>in_array($operation,['return','forward','legal-block'],true)&&($event['to_status']??null)==='returned',
             'package'=>$operation==='packet'&&($event['to_status']??null)==='approved',
             'signed'=>$operation==='sign'&&in_array($event['to_status']??null,['signed','active'],true),
             'activated'=>$operation==='apply',
@@ -134,6 +141,25 @@ final class CurrentContractMaxProof
         if (!$party && $key!==HandoverQuestion::EVENT) {
             $lease=$event['entity_kind']==='contract'?$owner:Service::get($this->db,'contracts',$event['contract_id']);
             $values+=ContractSubmitMax::values($this->db,$lease,$key==='submit')+['party'=>$event['party_name']];
+        }
+        if ($key==='firstInvoice') {
+            $receipt=InitialInvoice::receipt($this->db,(int)$event['contract_id']);
+            if (($receipt['command_key']??null)!==$event['command_key'] || $receipt['invoice_ids']!==$event['invoice_ids']) {
+                throw new RuntimeException('FIRST_INVOICE_RECEIPT_CHANGED');
+            }
+            $invoices=[];
+            $pdf=$this->db->prepare("SELECT * FROM rental_files WHERE id=? AND entity_type='invoice' AND entity_id=?
+                AND kind IN ('pdf','invoice-file') AND mime='application/pdf'");
+            foreach ($event['invoice_ids'] as $invoiceId) {
+                $pdf->execute([$receipt['pdf_ids'][$invoiceId]??null,$invoiceId]);
+                $file=$pdf->fetch();
+                if (!$file) throw new RuntimeException('FIRST_INVOICE_FILE_CHANGED');
+                Evidence::integrity($file);
+                $invoice=Service::get($this->db,'invoices',(int)$invoiceId);
+                $invoices[]='№'.InvoiceDocument::number($invoice['number']).' · '.Controller::money($invoice['amount']);
+            }
+            $values['invoiceSummary']=implode("\n",$invoices);
+            $values['recordUrl']=ContractWorkflowRelay::contractLink($event['entity_id']);
         }
         $render=TemplateCatalog::renderEvent($this->db,'max',$key,$values);
         if($render['binding']['version']!==$catalogVersion)throw new RuntimeException('RENTAL_MAX_CATALOG_REVISION_CHANGED');

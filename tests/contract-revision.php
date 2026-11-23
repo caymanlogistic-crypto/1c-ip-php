@@ -3,7 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\{Auth,DB};
-use Modules\Rental\{ContractRevision,FileOrder,LegalReview,NativePacket,Service};
+use Modules\Rental\{ContractRevision,FileOrder,Importer,LegalHandoff,LegalReview,NativePacket,Service};
 
 set_exception_handler(static function(Throwable $error): void {
     fwrite(STDERR,$error->getMessage().PHP_EOL);
@@ -72,12 +72,18 @@ try {
     $review=json_decode($firstArchive,true,512,JSON_THROW_ON_ERROR)['review'];
     verify(count($review['legal'])===1 && $review['accounting']['legal_file_id']===$template,'Revision A lost its accounting decision.');
 
-    $confirmChecks=['counterparty_confirmed'=>1,'financial_confirmed'=>1,'document_confirmed'=>1];
-    $legalApprove=static function(array $record)use($act,$stage,$id,$confirmChecks): string {
+    $legalApprove=static function(array $record)use($act,$stage,$id,$db): string {
         $act('lawyer');
+        foreach ([LegalHandoff::PARTY,LegalHandoff::TERMS] as $action) {
+            Service::command($action,['id'=>$id,'version'=>$record['version'],'command_key'=>bin2hex(random_bytes(16))]);
+        }
         $fileId=$stage('lawyer-file',$record);
+        $query=$db->prepare('SELECT id,filename,sha256 FROM rental_files WHERE id=?');
+        $query->execute([$fileId]);$files=[$query->fetch()];
+        $db->prepare("UPDATE rental_facts SET fact_json=JSON_SET(fact_json,'$.files',CAST(? AS JSON))
+            WHERE namespace='legal_handoff_draft' AND source_key=?")->execute([Importer::json($files),$id]);
         Service::command('contract.legal',['id'=>$id,'version'=>$record['version'],
-            'command_key'=>bin2hex(random_bytes(16)),'legal_file_id'=>$fileId]+$confirmChecks);
+            'command_key'=>bin2hex(random_bytes(16)),'packet_fingerprint'=>LegalHandoff::fingerprint($files)]);
         return $fileId;
     };
     $secondFile=$legalApprove($current);
@@ -97,6 +103,7 @@ try {
     $act('accountant');
     $preview=NativePacket::preview($db,'contract',$id,Auth::user());
     verify($preview['view']['context']['file']['id']===$thirdFile,'Accountant did not receive revision C.');
+    $confirmChecks=['counterparty_confirmed'=>1,'financial_confirmed'=>1,'document_confirmed'=>1];
     $result=Service::command('contract.packet',['id'=>$id,'version'=>$preview['record']['version'],
         'command_key'=>bin2hex(random_bytes(16)),'packet_confirmed'=>1,'expected_packet_hash'=>$preview['expected_packet_hash']]+$confirmChecks);
     verify($result['status']==='approved','Revision C could not be approved.');

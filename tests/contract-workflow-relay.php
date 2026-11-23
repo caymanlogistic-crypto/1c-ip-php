@@ -52,9 +52,10 @@ try {
         check(!file_exists($path) && !is_link($path),'Fixture file already exists');
     }
     $source=DB::pdo();
-    check($source->query('SELECT DATABASE()')->fetchColumn()==='ipphp_task_relay_source','Private source database required');
+    $sourceName=$source->query('SELECT DATABASE()')->fetchColumn();
+    check(preg_match('/^ipphp_task_relay_source[0-9]?$/D',$sourceName)===1,'Private source database required');
     $config=require APP_ROOT.'/.local/receiver-db.php';
-    check($config['host']==='127.0.0.1' && $config['name']==='ipphp_task_relay_target','Private target database required');
+    check($config['host']==='127.0.0.1' && preg_match('/^ipphp_task_relay_target[0-9]?$/D',$config['name'])===1,'Private target database required');
     $target=new PDO('mysql:host='.$config['host'].';port='.$config['port'].';dbname='.$config['name'].';charset=utf8mb4',
         $config['user'],$config['password'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
     $target->exec("SET time_zone='+03:00'");
@@ -81,12 +82,14 @@ try {
         'source_epoch'=>$source->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn(),
         'valid_from'=>$now,'expires_at'=>$now+600,'event_floor'=>$floor,'future_after'=>$afterNumber,
         'contract_ids'=>[],'actor_map'=>[$sourceManager['id']=>$targetManager['id'],$sourceLawyer['id']=>$targetLawyer['id']],
-        'catalog_versions'=>['submit'=>4,'lawyerReturn'=>3,'resubmit'=>3],
+        'catalog_versions'=>['submit'=>4,'resubmit'=>3,'legalApprove'=>4,'lawyerReturn'=>3,
+            'accountantReturn'=>3,'package'=>3,'signed'=>3,'cancelled'=>3],
     ];
+    check(array_keys(ContractWorkflowRelay::FIELDS)===[...ServerWorkflowMax::KINDS,'firstInvoice'],'Relay and server event coverage differ');
     $written[]=$sourceMark;
-    file_put_contents($sourceMark,Support::json($shared+['app_root'=>APP_ROOT,'database'=>'ipphp_task_relay_source']));
+    file_put_contents($sourceMark,Support::json($shared+['app_root'=>APP_ROOT,'database'=>$sourceName]));
     $targetScope=$shared+[
-        'database'=>'ipphp_task_relay_target','group_name'=>'ТЕСТОВАЯ','group_id'=>$group,'chat_id'=>$chat,
+        'database'=>$config['name'],'group_name'=>'ТЕСТОВАЯ','group_id'=>$group,'chat_id'=>$chat,
         'revision'=>6,'vault_sha256'=>hash_file('sha256',$vault),
         'destination_epoch'=>$target->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn(),
     ];
@@ -136,7 +139,7 @@ try {
     denied(fn()=>$receiver->accept($received[0][0],$expired,ContractWorkflowRelay::signature($received[0][0],(int)$expired,$shared['key'])),
         'CONTRACT_RELAY_SIGNATURE');
     $old=Support::decode($received[0][0]);
-    $old['event_id']=$floor;
+    $old['recorded_at']=$now-91;
     $send=static function(array $plan) use($receiver,$shared): array {
         $raw=Support::json($plan);$time=time();
         return $receiver->accept($raw,(string)$time,ContractWorkflowRelay::signature($raw,$time,$shared['key']));
@@ -160,22 +163,22 @@ try {
     check(str_contains($sent[0],'ЗАРЕГИСТРИРОВАН НОВЫЙ КОНТРАГЕНТ И ДОГОВОР'),'Wrong submission title');
     check(str_contains($sent[1],'ВОЗВРАЩЁН МЕНЕДЖЕРУ') && str_contains($sent[1],'&lt;тест&gt;'),'Wrong lawyer return');
     check(str_contains($sent[2],'ПОВТОРНО НАПРАВЛЕН ЮРИСТУ'),'Wrong resubmission title');
+    $cancel=['id'=>$id,'version'=>3,'reason'=>'Учебное аннулирование','command_key'=>bin2hex(random_bytes(16))];
+    Service::command('contract.cancel',$cancel,$cancelEvent);
+    check($relay->afterCommittedCommand($cancelEvent,$cancel['command_key'],Auth::user())['status']==='accepted'
+        && str_contains($sent[3],'ПРОЕКТ ДОГОВОРА АННУЛИРОВАН'),'Cancellation handoff');
 
     $uncertain=true;
-    login($sourceLawyer);
-    $return['version']=3;
-    $return['command_key']=bin2hex(random_bytes(16));
-    Service::command('contract.return',$return,$retryReturnEvent);
-    check($relay->afterCommittedCommand($retryReturnEvent,$return['command_key'],Auth::user())['status']==='uncertain','Timeout not held');
-    check($receiver->accept(...$received[3])['status']==='uncertain' && count($sent)===4,'Unknown receipt replayed');
-    login($sourceManager);
-    $resubmit['version']=4;
-    $resubmit['command_key']=bin2hex(random_bytes(16));
-    Service::command('contract.edit',$resubmit,$heldEvent);
-    denied(fn()=>$relay->afterCommittedCommand($heldEvent,$resubmit['command_key'],Auth::user()),ServerWorkflowMax::RECONCILIATION_REQUIRED);
-    check(count($sent)===4,'Unknown send did not fence next delivery');
+    $another=array_replace($input,['number'=>'RELAY-'.bin2hex(random_bytes(4)),'command_key'=>bin2hex(random_bytes(16))]);
+    $draft=Service::command('contract.create',$another,$uncertainEvent);
+    check($relay->afterCommittedCommand($uncertainEvent,$another['command_key'],Auth::user())['status']==='uncertain','Timeout not held');
+    check($receiver->accept(...$received[4])['status']==='uncertain' && count($sent)===5,'Unknown receipt replayed');
+    $cancel=array_replace($cancel,['id'=>$draft['id'],'version'=>1,'command_key'=>bin2hex(random_bytes(16))]);
+    Service::command('contract.cancel',$cancel,$heldEvent);
+    denied(fn()=>$relay->afterCommittedCommand($heldEvent,$cancel['command_key'],Auth::user()),ServerWorkflowMax::RECONCILIATION_REQUIRED);
+    check(count($sent)===5,'Unknown send did not fence next delivery');
     check((int)$source->query('SELECT COUNT(*) FROM messaging_attempts')->fetchColumn()===0,'Source attempted direct MAX send');
-    echo "PASS create to legal, lawyer return, resubmission, approved HTML, signed relay, no repeat, unknown-result fence, source attempts 0.\n";
+    echo "PASS create to legal, lawyer return, resubmission, cancellation, approved HTML, signed relay, no repeat, unknown-result fence, source attempts 0.\n";
 } catch (Throwable $error) {
     fwrite(STDERR,$error->getMessage().' at '.$error->getLine().PHP_EOL);
     $failure=true;

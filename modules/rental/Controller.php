@@ -1194,7 +1194,10 @@ final class Controller {
                 if ($plan!==null) $in['object_plan']=$plan;
             }
             $freshCommittedEventId=null;
-            $materials=in_array($action,ContractReviewFiles::ACTIONS,true)?ContractReviewFiles::fromRequest($_FILES):null;
+            unset($in[ContractReviewFiles::DESCRIPTIONS]);
+            $legalUpload=$action===LegalHandoff::UPLOAD;
+            $materials=$legalUpload || in_array($action,ContractReviewFiles::ACTIONS,true)
+                ? ContractReviewFiles::fromRequest($_FILES,$_POST,$legalUpload) : null;
             $result = Service::command($action, $in, $freshCommittedEventId,$materials);
             if (in_array($action,RentalServices::ACTIONS,true) && !empty($result['service_id'])) $target='/rental/service?id='.$result['service_id'];
             if ($action===PremisesInventory::MOVE) $target='/rental/object-inventory?id='.(int)$result['id'];
@@ -1215,7 +1218,11 @@ final class Controller {
             if (str_starts_with($action, 'reservation.') && !empty($result['id']))$target = '/rental/booking?id='
             . $result['id'];
             if (str_starts_with($action,'party.review.')) $target='/rental/party?id='.(int)$result['id'];
-            $_SESSION['rental_notice'] = ($result['message'] ?? 'Сохранено.').$maxNotice;
+            if ($action===LegalHandoff::REMOVE && $maxNotice==='') {
+                unset($_SESSION['rental_notice']);
+            } else {
+                $_SESSION['rental_notice'] = ($result['message'] ?? 'Сохранено.').$maxNotice;
+            }
             if(is_string($in['command_key']??null))$_SESSION['rental_top_command']=$in['command_key'];
             $completion = self::completionTarget($action, $in);
             if ($completion !== null) {

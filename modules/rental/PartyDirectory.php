@@ -119,6 +119,15 @@ final class PartyDirectory
     public static function card(): string
     {
         $party=self::record((int)($_GET['id'] ?? 0));
+        $body=$party['blocked']?RentalUI::alert('Контрагент заблокирован',$party['block_reason'] ?? '','error'):'';
+        $body.=self::reviewDetails($party,true).PartyLegalReview::presentation($party).self::contracts((int)$party['id']);
+        $actions=self::editable($party)?RentalUI::button('Редактировать','/rental/edit-party?id='.$party['id'],true):'';
+        $actions.=PartyLegalReview::actions($party);
+        return RentalUI::modal('Контрагент: '.$party['name'],$body,$actions,'parties',false,self::statusButton($party));
+    }
+
+    public static function reviewDetails(array $party,bool $technical=false): string
+    {
         $details=DirectoryDetails::read(DB::pdo(),'parties',(int)$party['id']);
         $type=$details['party_type'] ?? '';
         $requisites=match($type) {
@@ -129,12 +138,16 @@ final class PartyDirectory
         };
         if ($type==='person' && in_array(Auth::user()['role'],['manager','lawyer','admin'],true))
             $requisites[]=['Паспортные сведения',$details['passport'] ?? ''];
-        $origin=PartyOrigin::read($party);
-        $body=$party['blocked']?RentalUI::alert('Контрагент заблокирован',$party['block_reason'] ?? '','error'):'';
-        $body.=DirectoryUi::pairs([
+        $originFields=[];
+        if ($technical) {
+            $origin=PartyOrigin::read($party);
+            $originFields=[['Источник',$origin['label']],['ID в базе',$origin['local_id']],
+                ['Код 1С',$origin['code'] ?: '—'],['GUID 1С',$origin['guid'] ?: '—']];
+        }
+        $body=DirectoryUi::pairs([
             ['Тип клиента',DirectoryRules::PARTY_TYPES[$type] ?? '—'],
             ['Название для поиска',($details['search_name'] ?? '') ?: $party['name']],['Название в документах',$party['name']],
-            ['Источник',$origin['label']],['ID в базе',$origin['local_id']],['Код 1С',$origin['code'] ?: '—'],['GUID 1С',$origin['guid'] ?: '—'],['ИНН',$party['inn']],['Адрес',$party['address']],
+            ...$originFields,['ИНН',$party['inn']],['Адрес',$party['address']],
             ...$requisites,
             ['Почтовый адрес',$party['postal_address'] ?: 'Не указан'],['Основной контакт',$party['contact']],['Телефон',$party['phone']],
             ['Должность',$details['contact_position'] ?? ''],['Роль контакта',$details['contact_role'] ?? ''],
@@ -150,10 +163,7 @@ final class PartyDirectory
         $body.=Controller::table(['Основной','Банк','Расч. счёт','БИК','Корр. счёт'],$bank?[
             ['Основной',View::e(DirectoryUi::bankName($bank)),View::e($bank['account']),View::e($bank['bik']),View::e($bank['correspondent_account'])],
         ]:[],['short','text','code','code','code']);
-        $body.=PartyLegalReview::presentation($party).self::contracts((int)$party['id']);
-        $actions=self::editable($party)?RentalUI::button('Редактировать','/rental/edit-party?id='.$party['id'],true):'';
-        $actions.=PartyLegalReview::actions($party);
-        return RentalUI::modal('Контрагент: '.$party['name'],$body,$actions,'parties',false,self::statusButton($party));
+        return $body;
     }
 
     public static function editor(): string

@@ -1,0 +1,10 @@
+{
+  "id": "firstInvoice",
+  "name": "Первый счёт выставлен",
+  "format": "html",
+  "version": 1,
+  "trigger": "После регистрации и прикрепления первых счетов бухгалтером",
+  "recipientsPolicy": "approved-group",
+  "attachmentPolicy": "none",
+  "body": "<b>ПЕРВЫЙ СЧЁТ ВЫСТАВЛЕН</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\n{invoiceSummary}\nВыставил · <b>{actor}</b>\nСчёт прикреплён к карточке договора.\n{recordUrl}"
+}

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use App\{Auth, DB};
-use Modules\Rental\{InitialInvoice, InitialInvoiceCard, PartyLegalReview, Service};
+use Modules\Rental\{Documents, InitialInvoice, InitialInvoiceCard, PartyLegalReview, Service};
 
 require dirname(__DIR__).'/app/bootstrap.php';
 
@@ -57,7 +57,7 @@ try {
     $party=(int)$db->query('SELECT MAX(id)+1 FROM parties')->fetchColumn();
     $object=(int)$db->query('SELECT MAX(id)+1 FROM rental_objects')->fetchColumn();
     $cadastre=(int)$db->query('SELECT MAX(id)+1 FROM cadastre')->fetchColumn();
-    $label='Тест первого счёта менеджером';
+    $label='Тест первого счёта бухгалтером';
     $db->prepare("INSERT INTO parties(id,name,inn,address,source_json) VALUES(?,?,'7701234560','Учебный адрес','{}')")->execute([$party,$label]);
     $db->prepare("INSERT INTO cadastre(id,number,area,type,source_json) VALUES(?,?,20,'Офис','{}')")->execute([$cadastre,'77:01:000000:'.$cadastre]);
     $db->prepare("INSERT INTO rental_objects(id,name,type,area,cadastre_id,source_json) VALUES(?,?, 'Офис',20,?,'{}')")->execute([$object,$label,$cadastre]);
@@ -69,7 +69,7 @@ try {
     $contractInput=static fn()=>['id'=>$id,'version'=>$contract()['version']];
     $issued=max(date('Y-m-d'),$contract()['document_date'] ?? '');
     check($contract()['status']==='legal' && !$contract()['signed'],'Expected unsigned project at lawyer stage');
-    check(InitialInvoice::can($contract(),InitialInvoice::ISSUE),'Manager must have access to the narrow issue action');
+    check(!InitialInvoice::can($contract(),InitialInvoice::ISSUE),'Manager cannot issue a first invoice');
     check(!InitialInvoice::can($contract(),InitialInvoice::DUE),'Manager cannot set the due date');
     check(!InitialInvoice::preview($db,$contract(),$issued)['rows'],'Missing legal terms block the plan');
 
@@ -81,7 +81,7 @@ try {
     file_put_contents($path,"%PDF-1.4\n% Local legal-review evidence\n%%EOF\n");
     $fileId=bin2hex(random_bytes(16));
     $db->prepare("INSERT INTO rental_files(id,entity_type,entity_id,version,kind,filename,path,sha256,mime) VALUES(?,'party',?,?,'party-source',?,?,?,'application/pdf')")
-        ->execute([$fileId,$party,$partyInput()['version'],'Учебная карточка предприятия.pdf',$path,hash_file('sha256',$path)]);
+        ->execute([$fileId,$party,$partyInput()['version'],'Учебная карточка предприятия.pdf',basename($path),hash_file('sha256',$path)]);
 
     actor('lawyer');
     $terms=$contractInput()+['lease_form'=>'D17','multiple'=>'3','confirmed'=>'1','reason'=>'Учебный договор, три месячные ставки'];
@@ -94,13 +94,13 @@ try {
     check(count($plan['rows'])===3,'Expected rent and security: '.implode(' ',$plan['questions']));
     check(array_column($plan['rows'],'amount')[2]==='300000.00','Three monthly rates must yield 300000.00');
     $issue=$contractInput()+['issued'=>$issued,'plan_token'=>$plan['token'],'confirmed'=>'1','command_key'=>bin2hex(random_bytes(16))];
+    expectDenied(fn()=>Service::command(InitialInvoice::ISSUE,$issue),'Недостаточно прав');
+    command(PartyLegalReview::SUBMIT,$partyInput()+['file_id'=>$fileId]);
+    actor('accountant');
     expectDenied(fn()=>Service::command(InitialInvoice::ISSUE,$issue),'Юрист должен отдельно согласовать');
     $_GET=['id'=>$id,'issued'=>$issued];
     $page=InitialInvoiceCard::card();
-    check(str_contains($page,'Юрист должен отдельно согласовать') && !str_contains($page,'Зарегистрировать первый счёт'),'Blocked card should explain the missing approval');
-
-    command(PartyLegalReview::SUBMIT,$partyInput()+['file_id'=>$fileId]);
-    expectDenied(fn()=>Service::command(InitialInvoice::ISSUE,$issue),'Юрист должен отдельно согласовать');
+    check(str_contains($page,'Юрист должен отдельно согласовать') && !str_contains($page,'Зарегистрировать первый счёт'),'Explain missing approval to accountant');
     actor('lawyer');
     expectDenied(fn()=>Service::command(InitialInvoice::ISSUE,$issue),'Недостаточно прав');
     command(PartyLegalReview::ACCEPT,$partyInput()+['file_id'=>$fileId,'verified'=>'1']);
@@ -110,7 +110,7 @@ try {
         $issue['plan_token']=InitialInvoice::preview($db,$contract(),$issued)['token'];
     }
 
-    actor('manager');
+    actor('accountant');
     $db->prepare("UPDATE parties SET email='different@example.invalid' WHERE id=?")->execute([$party]);
     expectDenied(fn()=>Service::command(InitialInvoice::ISSUE,$issue),'Юрист должен отдельно согласовать');
     $db->prepare("UPDATE parties SET email=NULL WHERE id=?")->execute([$party]);
@@ -119,9 +119,19 @@ try {
     expectDenied(fn()=>Service::command(InitialInvoice::ISSUE,$issue),'целостности документа');
     file_put_contents($path,$original);
     check(!InitialInvoice::issuedFor($db,$id),'Rejected commands must not create invoices');
-    check(str_contains(InitialInvoiceCard::card(),'Зарегистрировать первый счёт'),'Manager registration button absent after valid approval');
+    expectDenied(fn()=>Service::command(InitialInvoice::ISSUE,$issue),'Подтвердите сроки оплаты');
+    command(InitialInvoice::DUE,$contractInput()+['reason'=>'Учебный индивидуальный срок','confirmed'=>'1',
+        'due_part'=>'security','due'=>$start->format('Y-m-d')]);
+    $issue['plan_token']=InitialInvoice::preview($db,$contract(),$issued)['token'];
+    check(str_contains(InitialInvoiceCard::card(),'Зарегистрировать первый счёт'),'Accountant registration button absent after approval');
 
     $result=Service::command(InitialInvoice::ISSUE,$issue);
+    foreach ($result['pdf_ids'] as $fileId) {
+        $query=$db->prepare('SELECT path FROM rental_files WHERE id=? AND mime=?');
+        $query->execute([$fileId,'application/pdf']);$path=Documents::directory().'/'.basename($query->fetchColumn());
+        $files[]=$path;
+        check(str_starts_with(file_get_contents($path),'%PDF-'),'Expected PDF for each issued invoice');
+    }
     check(count($result['invoice_ids'])===3,'Expected three initial invoices');
     check(Service::command(InitialInvoice::ISSUE,$issue)['invoice_ids']===$result['invoice_ids'],'Exact command replay should return the original invoices');
     $issue['command_key']=bin2hex(random_bytes(16));
@@ -130,7 +140,7 @@ try {
     $new=$contract();
     check($new['status']===($returned?'returned':'legal') && !$new['signed'],'Billing must preserve the unsigned agreement stage');
     check(!str_contains(InitialInvoiceCard::card(),'Зарегистрировать первый счёт'),'Hide registration after success');
-    echo 'PASS manager issue with legal approval, denied roles and stale evidence, dates/security, idempotency',PHP_EOL;
+    echo 'PASS accountant issue with legal approval, denied roles and stale evidence, PDF attachments, dates/security and idempotency',PHP_EOL;
 } finally {
     if ($db->inTransaction()) {
         $db->rollBack();

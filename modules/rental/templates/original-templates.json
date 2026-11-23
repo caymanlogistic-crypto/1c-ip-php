@@ -2,7 +2,7 @@
   "office": {
     "filename": "original-office.docx",
     "source_sha256": "f88ea05da96b9fc727a75d5ff895d8ef23a60d3a9f7562bdb3c82f7bfc90dee3",
-    "sha256": "5728fc6c2af5bea6f4cd53afcc5d85c28634e67ac6f864d8bf7da894c724aefc",
+    "sha256": "c3c8d0bc62680686efa2f5dea0d5f6fc4d93c02331889c938b38acf0c4d4b779",
     "fields": [
       "area",
       "building_room_numbers",
@@ -36,18 +36,21 @@
       "rent_net",
       "rent_net_kopecks",
       "rent_net_words",
+      "rent_object_rates",
       "rent_vat",
       "room_numbers",
+      "total",
       "vat"
     ],
-    "paragraphs": 753,
+    "paragraphs": 754,
     "tables": 10,
-    "source_pages": 28
+    "source_pages": 28,
+    "version": 2
   },
   "parking": {
     "filename": "original-parking.docx",
     "source_sha256": "54b56cea187038a7ad6a339d304d208ad311e23b5a884b838a2bb979042c26bc",
-    "sha256": "a62f90c74b326fe08d23f6d4a0594d4daa4b2432451fc65ae0fcb4eea52ac2d3",
+    "sha256": "227fa157e3e5fdff19795ae12d0ad9ff0ebe1601208eecbbffb8944eb78b9a23",
     "fields": [
       "area",
       "date",
@@ -80,14 +83,17 @@
       "rent_net",
       "rent_net_kopecks",
       "rent_net_words",
+      "rent_object_rates",
       "rent_vat",
       "room_numbers",
+      "total",
       "vat"
     ],
-    "paragraphs": 123,
+    "paragraphs": 124,
     "tables": 4,
     "source_pages": 4,
-    "act_layout_source_sha256": "f8ec5c68fa72513084f8c2076b415bab9fc970883d7d5e4b3226c797c23021e6"
+    "act_layout_source_sha256": "f8ec5c68fa72513084f8c2076b415bab9fc970883d7d5e4b3226c797c23021e6",
+    "version": 2
   },
   "services": {
     "filename": "original-services.docx",
@@ -129,33 +135,27 @@
   "handover": {
     "filename": "original-handover.docx",
     "source_sha256": "79ec0b4d53aa771d8e7f7c980064f0038d3004b51c25f0efa12beb4230128d13",
-    "sha256": "c20716d99f7b4d107c0ef2157701a42622434e5479ed205ebbb7b4aa964f294d",
+    "sha256": "6a8c36ed88e21da66b950827946aaadbe6d8bdfa7e0884d43140155854432786",
     "fields": [
       "act_date_words",
       "area",
-      "building_room_numbers",
       "cadastre_numbers",
       "date",
       "date_words",
       "floor",
-      "meter_readings",
       "number",
       "organization_full_name",
       "organization_ogrnip",
-      "organization_registration_date",
-      "organization_signer_genitive",
       "organization_signer_short",
-      "parking_passes_count",
-      "party_authority",
-      "party_full_name",
-      "party_signer_genitive",
-      "party_signer_short",
-      "party_signer_title_genitive",
-      "passes_count"
+      "party_act_intro",
+      "party_act_signature",
+      "passes_count",
+      "room_numbers"
     ],
-    "paragraphs": 38,
-    "tables": 1,
-    "source_pages": 1
+    "paragraphs": 85,
+    "tables": 2,
+    "source_pages": 1,
+    "version": 3
   },
   "room-change": {
     "filename": "original-room-change.docx",
@@ -185,7 +185,7 @@
   "parking-handover": {
     "filename": "original-parking-handover.docx",
     "source_sha256": "f8ec5c68fa72513084f8c2076b415bab9fc970883d7d5e4b3226c797c23021e6",
-    "sha256": "3affba3988a0b04a49ebe1b4b7878af10f2b691700dc86a7e1c725fc8ea594a8",
+    "sha256": "c10f0607fbd371f0cd57e711f3c2de0e114186198477ecce11571a232c0cec10",
     "fields": [
       "act_date_words",
       "area",
@@ -196,16 +196,14 @@
       "organization_full_name",
       "organization_ogrnip",
       "organization_short_name",
-      "party_authority",
-      "party_full_name",
+      "party_act_intro",
+      "party_act_signature",
       "party_short_name",
-      "party_signer_genitive",
-      "party_signer_short",
-      "party_signer_title_genitive",
       "room_numbers"
     ],
     "paragraphs": 31,
     "tables": 2,
-    "source_pages": 1
+    "source_pages": 1,
+    "version": 2
   }
 }

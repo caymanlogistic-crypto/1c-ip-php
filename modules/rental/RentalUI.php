@@ -45,10 +45,11 @@ final class RentalUI
                 return $html;
             },$body);
         $fetch=($_SERVER['HTTP_X_REQUESTED_WITH']??'')==='ERP-Fetch';
-        $h='<dialog data-rental-dialog data-rental-return="/rental/'.View::e($active).'"'
+        $titleId='rental-modal-title-'.bin2hex(random_bytes(6));
+        $h='<dialog data-rental-dialog aria-labelledby="'.$titleId.'" data-rental-return="/rental/'.View::e($active).'"'
             .(!$fetch?' data-rental-autopen':'').($design!==''?\App\InterfaceDesign::attributes($design):'').' class="modal registry-ui-modal '
             .($wide?'registry-ui-modal--probe':'registry-ui-modal--reading').($canvas?' registry-ui-modal--form-canvas':'').($tableOnly?' registry-ui-modal--table':'')
-            .' demo-dialog"><div class="registry-ui-modal-form"><div class="modal-head"><h2 class="modal-title">'
+            .' demo-dialog"><div class="registry-ui-modal-form"><div class="modal-head"><h2 class="modal-title" id="'.$titleId.'">'
             .View::e($title)
             .'</h2><button class="modal-close" type="button" data-rental-close aria-label="Закрыть">×</button></div><div class="modal-body"><div class="registry-ui-modal-grid"><div id="form-error" hidden></div>'
             .$body.'</div></div><div class="modal-foot">'.$leadingActions

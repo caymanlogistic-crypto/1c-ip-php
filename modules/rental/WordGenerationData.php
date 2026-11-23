@@ -114,6 +114,18 @@ final class WordGenerationData
         return [$prefix.'_net'=>$rub,$prefix.'_net_kopecks'=>$kop,$prefix.'_net_words'=>$words,$prefix.'_vat'=>Documents::amountText($tax)];
     }
 
+    private static function entrepreneurName(string $name): string
+    {
+        return preg_replace('/^(?:ИП|Индивидуальный предприниматель)\s+/ui','',trim($name));
+    }
+
+    private static function hasEntrepreneurRepresentative(array $values,string $partyType): bool
+    {
+        if ($partyType!=='entrepreneur' || trim($values['party_signer_name']??'')==='') return false;
+        $normalize=static fn(string $name): string=>str_replace('ё','е',mb_strtolower(preg_replace('/\s+/u',' ',self::entrepreneurName($name))));
+        return $normalize($values['party_signer_name'])!==$normalize($values['party_full_name']);
+    }
+
     public static function complete(array $values,array $input,array $fields=[],string $partyType=''): array
     {
         $allowed=[];foreach(OriginalDocuments::catalog() as $definition)foreach($definition['fields'] as $field)$allowed[$field]=true;
@@ -143,22 +155,38 @@ final class WordGenerationData
                 if(!empty($values[$key]))$parts[]=$label.': '.$values[$key];
             if(!empty($values['party_inn'])&&!empty($values['party_bank_line'])&&!empty($values['party_bik']))$values['party_requisites']=implode("\n",$parts);
         }
-        if (in_array('party_intro',$fields,true)) {
+        $representative=self::hasEntrepreneurRepresentative($values,$partyType);
+        if (array_intersect(['party_intro','party_act_intro'],$fields)) {
             if ($partyType==='entrepreneur' && !empty($values['party_ogrn'])) {
-                $fullName=preg_replace('/^ИП\s+/u','Индивидуальный предприниматель ',$values['party_full_name']);
-                $values['party_intro']=$fullName.', ОГРНИП '.$values['party_ogrn'].', именуемый далее по тексту «Арендатор»';
+                $values['party_intro']='Индивидуальный предприниматель '.self::entrepreneurName($values['party_full_name'])
+                    .', ОГРНИП '.$values['party_ogrn'].', именуемый далее по тексту «Арендатор»';
+                if ($representative) {
+                    $values['party_intro']=!empty($values['party_signer_genitive']) && !empty($values['party_authority'])
+                        ? $values['party_intro'].', в лице представителя '.$values['party_signer_genitive'].', действующего на основании '.$values['party_authority']
+                        : '';
+                }
             } elseif ($partyType==='company' && !empty($values['party_signer_title_genitive']) &&
                 !empty($values['party_signer_genitive']) && !empty($values['party_authority'])) {
                 $values['party_intro']=$values['party_full_name'].', именуемое далее по тексту «Арендатор», в лице '.
                     $values['party_signer_title_genitive'].' '.$values['party_signer_genitive'].', действующего на основании '.$values['party_authority'];
             }
+            $values['party_act_intro']=$partyType==='person'
+                ? $values['party_full_name'].', далее по тексту «Арендатор»'
+                : ($values['party_intro']??'');
+        }
+        if (in_array('party_act_signature',$fields,true)) {
+            $values['party_act_signature']=match($partyType) {
+                'entrepreneur'=>$representative?$values['party_signer_name']:self::entrepreneurName($values['party_full_name']),
+                'person'=>$values['party_full_name'],
+                default=>$values['party_signer_short']??'',
+            };
         }
         if (in_array('party_signature_name',$fields,true)) {
             $values['party_signature_name']=$partyType==='entrepreneur'
-                ? preg_replace('/^(?:ИП|Индивидуальный предприниматель)\s+/ui','',$values['party_full_name'])
+                ? ($representative?$values['party_signer_name']:self::entrepreneurName($values['party_full_name']))
                 : ($partyType==='person'?$values['party_full_name']:($values['party_signer_name']??''));
         }
-        $values['party_signature_title']=$partyType==='company'?($values['party_signer_title']??''):'';
+        $values['party_signature_title']=$partyType==='company'?($values['party_signer_title']??''):($representative?'Представитель':'');
         $values['party_kpp_line']=empty($values['party_kpp'])?'':'КПП '.$values['party_kpp'];
         $values['party_registration_line']=empty($values['party_ogrn'])?'':($partyType==='entrepreneur'?'ОГРНИП ':'ОГРН ').$values['party_ogrn'];
         return $values;
@@ -167,12 +195,17 @@ final class WordGenerationData
     public static function inputs(array $fields,array $values,string $partyType=''): array
     {
         $result=[];$values=self::complete($values,[], $fields,$partyType);
+        $introInputs=['party_signer_title_genitive','party_signer_genitive','party_authority'];
+        if ($partyType==='entrepreneur') $introInputs=self::hasEntrepreneurRepresentative($values,$partyType)
+            ? ['party_ogrn','party_signer_genitive','party_authority']
+            : ['party_ogrn'];
         foreach($fields as $field) {
             if ($field==='office_plan' || in_array($field,OriginalDocuments::optionalFields($partyType),true)) continue;
             if(isset($values[$field])&&trim($values[$field])!=='')continue;
             $keys=match($field) {
                 'party_requisites'=>['party_address','party_inn','party_bank_line','party_correspondent','party_bik'],
-                'party_intro'=>$partyType==='entrepreneur'?['party_ogrn']:['party_signer_title_genitive','party_signer_genitive','party_authority'],
+                'party_intro','party_act_intro'=>$introInputs,
+                'party_act_signature'=>['party_signer_short'],
                 'party_signature_name'=>['party_signer_name'],
                 'party_signature_title'=>['party_signer_title'],
                 'party_kpp_line'=>['party_kpp'],

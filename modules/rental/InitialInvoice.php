@@ -23,7 +23,6 @@ final class InitialInvoice
     {
         return match (true) {
             $action === self::TERMS => 'rental.approve.legal',
-            $action === self::ISSUE && $role === 'manager' => 'rental.write',
             default => 'finance.write',
         };
     }
@@ -31,26 +30,28 @@ final class InitialInvoice
     public static function can(array $contract, string $action): bool
     {
         $actor = Auth::user();
-        $managerIssue = $action === self::ISSUE && ($actor['role'] ?? '') === 'manager';
-        $role = $action === self::TERMS ? 'lawyer' : 'accountant';
-        if ((!$managerIssue && !in_array($actor['role'] ?? '',[$role,'admin'],true))
-            || !Auth::can(self::grant($action,$actor['role']))
+        $roles=match($action) {
+            self::TERMS=>['lawyer','admin'],
+            self::ISSUE=>['accountant'],
+            default=>['accountant','admin'],
+        };
+        if (!in_array($actor['role']??'',$roles,true) || !Auth::can(self::grant($action,$actor['role']))
             || !self::available($contract)) return false;
-        if ($managerIssue && (!empty($contract['signed']) || $contract['status'] === 'active')) return false;
         try {
             Access::contract((int)$contract['id'],2);
         } catch (RuntimeException $error) {
             if ($error->getCode() === 403) return false;
             throw $error;
         }
-        return $managerIssue || $action === self::TERMS || empty($actor['grants_configured'])
+        return $action === self::TERMS || empty($actor['grants_configured'])
             || $actor['role'] === 'admin' || PagePolicy::level('rental.invoice-list',$actor) >= 2;
     }
 
-    public static function assertIssueParty(PDO $db, array $contract, string $role): void
+    public static function assertIssueParty(PDO $db,array $contract): void
     {
-        if ($role !== 'manager') return;
-        if (empty($contract['party_id'])) throw new RuntimeException('Сначала укажите контрагента и передайте его карточку на согласование юристу.',409);
+        if (!empty($contract['signed'])) return;
+        if (empty($contract['party_id'])) throw new RuntimeException('Сначала укажите контрагента.',409);
+        if (LegalHandoff::counterpartyApproved($db,$contract)) return;
         PartyLegalReview::assertCurrent($db,(int)$contract['party_id'],requireApproval:true);
     }
 
@@ -320,7 +321,7 @@ final class InitialInvoice
         return $q->fetchColumn() ? 'За '.$row['period'].' уже выставлен счёт за аренду. Сверьте покрытие.' : null;
     }
 
-    public static function execute(PDO $db,array $actor,string $action,array $contract,array $input): array
+    public static function execute(PDO $db,array $actor,string $action,array $contract,array $input,array &$createdFiles=[]): array
     {
         if (!self::can($contract,$action)) throw new RuntimeException('Действие недоступно для этой роли или этапа.',403);
         $id = (int)$contract['id'];
@@ -331,11 +332,13 @@ final class InitialInvoice
                 return ['id'=>$id,'invoice_ids'=>$receipt['invoice_ids'],'message'=>'Первоначальные счета уже зарегистрированы.'];
             }
             if (self::issuedFor($db,$id)) throw new RuntimeException('Первоначальные счета уже есть. Откройте сохранённые документы.',409);
-            self::assertIssueParty($db,$contract,$actor['role']);
+            self::assertIssueParty($db,$contract);
             $plan = self::preview($db,$contract,$issued);
             if (!$plan['rows']) throw new RuntimeException($plan['questions'][0] ?? 'Нет подтверждённых начислений.',422);
             if (!hash_equals($plan['token'],(string)($input['plan_token'] ?? '')))
                 throw new RuntimeException('Расчёт изменился. Откройте предпросмотр заново.',409);
+            if (in_array(null,array_column($plan['rows'],'due'),true))
+                throw new RuntimeException('Подтвердите сроки оплаты, чтобы зарегистрировать и приложить PDF счёта.',422);
             if (($input['confirmed'] ?? null) !== '1') throw new RuntimeException('Подтвердите дату и состав начислений.',422);
             $physical = array_keys(array_filter(Occupancy::relations($db,$id),Occupancy::physical(...)));
             Service::available($db,$physical,$plan['from'],$contract['end_date'],$id,(int)$contract['party_id'],false,null,true);
@@ -343,12 +346,14 @@ final class InitialInvoice
             $ids = InitialBilling::write($db,$contract,$plan['rows'],$plan['issued'],
                 ['policy'=>self::POLICY,'confirmed_at'=>$created,'signed'=>$plan['signed'],'lease_start'=>$plan['from'],'form'=>$plan['condition']['form'],
                     'plan_sha256'=>$plan['token'],'command_key'=>$input['command_key'],'actor_id'=>(int)$actor['id']]);
-            self::remember($db,$id,'issue',['invoice_ids'=>$ids,'issued'=>$plan['issued'],'created_at'=>$created,
+            $pdfs=[];
+            foreach ($ids as $invoiceId) $pdfs[$invoiceId]=Documents::persistInvoicePdf($db,(int)$invoiceId,$createdFiles);
+            self::remember($db,$id,'issue',['invoice_ids'=>$ids,'pdf_ids'=>$pdfs,'issued'=>$plan['issued'],'created_at'=>$created,
                 'from'=>$plan['from'],'signed'=>$plan['signed'],'questions'=>$plan['questions'],'condition'=>$plan['condition'],
                 'command_key'=>$input['command_key'],'plan_sha256'=>$plan['token']]);
-            Service::event($db,$actor,$action,'Отдельным действием зарегистрированы первоначальные счета.', $id,
-                ['invoice_ids'=>$ids,'plan_sha256'=>$plan['token']]);
-            return ['id'=>$id,'invoice_ids'=>$ids,'message'=>'Первоначальные счета зарегистрированы.'];
+            Service::event($db,$actor,$action,'Первоначальные счета зарегистрированы и прикреплены к договору.',$id);
+            return ['id'=>$id,'invoice_ids'=>$ids,'pdf_ids'=>$pdfs,'newly_issued'=>true,
+                'message'=>'Первоначальные счета зарегистрированы и прикреплены к договору.'];
         }
 
         if (self::issuedFor($db,$id) || self::receipt($db,$id))
