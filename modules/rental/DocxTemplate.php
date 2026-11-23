@@ -160,11 +160,11 @@ final class DocxTemplate
     {
         $table=$document->createElementNS(self::W,'w:tbl');
         $properties=$document->createDocumentFragment();
-        $properties->appendXML('<w:tblPr xmlns:w="'.self::W.'"><w:tblW w:w="5000" w:type="pct"/><w:tblLayout w:type="fixed"/>'
+        $properties->appendXML('<w:tblPr xmlns:w="'.self::W.'"><w:tblW w:w="5000" w:type="pct"/>'
             .'<w:tblBorders><w:top w:val="single" w:color="D9D9D9"/><w:left w:val="single" w:color="D9D9D9"/>'
             .'<w:bottom w:val="single" w:color="D9D9D9"/><w:right w:val="single" w:color="D9D9D9"/>'
             .'<w:insideH w:val="single" w:color="D9D9D9"/><w:insideV w:val="single" w:color="D9D9D9"/>'
-            .'</w:tblBorders></w:tblPr>');
+            .'</w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr>');
         $table->appendChild($properties);
         $page=$document->getElementsByTagNameNS(self::W,'pgSz')->item(0);
         $margins=$document->getElementsByTagNameNS(self::W,'pgMar')->item(0);

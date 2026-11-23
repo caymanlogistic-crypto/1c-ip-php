@@ -28,14 +28,15 @@ function fixture(string $type,bool $withPlan=true,array $rates=['10500.01'],stri
         $db->prepare("INSERT INTO rental_objects(id,name,type,area,cadastre_id,source_json) VALUES(?,?,?,20,?,'{}')")->execute([$oid,$type.' '.$oid,$type,$cid]);
         if ($type==='Офис' && $withPlan) {
             $format=$planFormats[$index]??'pdf';
-            if ($format==='pdf') {
-                $bytes=Documents::renderPdf('<p>Synthetic plan for '.$oid.'</p>');
-            } else {
-                $image=imagecreatetruecolor(30,20);
-                ob_start();
-                if ($format==='png') imagepng($image); else imagejpeg($image);
-                $bytes=ob_get_clean();
-            }
+            $bytes=match ($format) {
+                'pdf'=>Documents::renderPdf('<p>Synthetic plan for '.$oid.'</p>'),
+                'png'=>base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAFElEQVR42mP8//8/AwwwMSABFA4Aby0DA/PM5D8AAAAASUVORK5CYII='),
+                'jpg'=>base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwc'
+                    .'KDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIy'
+                    .'MjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAADAAQDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEA'
+                    .'AAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhED'
+                    .'EQA/AL+AD//Z'),
+            };
             $mime=match ($format) {'pdf'=>'application/pdf','png'=>'image/png','jpg'=>'image/jpeg'};
             DirectoryDetails::store($db,'object_plan',$oid,['name'=>'plan.'.$format,'mime'=>$mime,'sha256'=>hash('sha256',$bytes),'content'=>base64_encode($bytes)]);
         }
