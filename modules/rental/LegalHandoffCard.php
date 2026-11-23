@@ -24,7 +24,6 @@ final class LegalHandoffCard
         $body.='<div class="registry-ui-form-sections registry-ui-form-sections--compact">'
             .self::party($contract,$party,$details,$review['party'])
             .self::terms($contract,$review['terms'])
-            .self::materials($contract)
             .self::documents($contract,$files,$ready).self::history($id,true).'</div>';
         $formId='legal-handoff';
         $body.='<form id="'.$formId.'" method="post" action="/rental/action">'
@@ -57,7 +56,6 @@ final class LegalHandoffCard
             ['ИНН / КПП',implode(' / ',array_filter([$party['inn'],$party['kpp']]))?:'Не указаны'],
             ['Подписант',$details['signer']??'Не указан'],
         ]);
-        $facts.=PartyLegalReview::evidenceLink($party);
         $blocked=($party['blocked'] && !LegalHandoff::blocksOnlyNew($party));
         if ($party['blocked']) {
             $facts.=RentalUI::alert($blocked?'Работа с контрагентом заблокирована':'Новые договоры заблокированы',
@@ -77,7 +75,8 @@ final class LegalHandoffCard
                 'Заблокировать и вернуть');
         }
         return self::section('Согласование контрагента',$facts
-            .'<div class="registry-ui-review-actions"><div>'.$links.'</div><div class="demo-row">'.$actions.'</div></div>'.$panels,
+            .'<div class="registry-ui-review-actions"><div>'.$links.'</div><div class="demo-row">'.$actions.'</div></div>'
+            .$panels.ContractReviewFiles::legalPresentation($contract,$party),
             $checked?'Работа разрешена':($blocked?'Работа заблокирована':'Ожидает решения'),$checked);
     }
 
@@ -116,13 +115,7 @@ final class LegalHandoffCard
             .self::reason($contract,'contract.return','review-terms-return','Условия неверны','Закрыть форму возврата',
                 'Укажите, каких данных не хватает или что нужно уточнить.','Вернуть на доработку')
             .$payment;
-        return self::section('Проверка условий договора',$facts,$checked?'Условия подтверждены':'Ожидает решения',$checked);
-    }
-
-    private static function materials(array $contract): string
-    {
-        $body=ContractReviewFiles::presentation($contract).ContractReviewFiles::priorPresentation($contract);
-        return $body?self::disclosure('Материалы менеджера',$body):'';
+        return self::section('Проверка условий',$facts,$checked?'Условия подтверждены':'Ожидает решения',$checked);
     }
 
     private static function documents(array $contract,array $files,bool $ready): string

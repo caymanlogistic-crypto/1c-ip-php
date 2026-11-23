@@ -7,7 +7,7 @@ set_exception_handler(static function(Throwable $error): void {
 });
 
 use App\{Auth, DB};
-use Modules\Rental\{DirectoryDetails, Documents, FileOrder, Importer, InitialInvoice, LegalHandoff, LegalReview, NativePacket, PartyLegalReview, Service, SourceCards, WorkflowEvents};
+use Modules\Rental\{ContractReviewFiles, DirectoryDetails, Documents, FileOrder, Importer, InitialInvoice, LegalHandoff, LegalReview, NativePacket, PartyLegalReview, Service, SourceCards, WorkflowEvents};
 
 // Run only against a verified, separately restored local worktree copy.
 $db=DB::pdo();
@@ -77,7 +77,7 @@ try {
     $db->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE');
     $id=fixture();$c=record($id);check($c['status']==='legal','Manager handoff');
     $party=Service::get($db,'parties',(int)$c['party_id']);
-    check(PartyLegalReview::evidenceLink($party)==='','A missing attachment has no download link');
+    check(ContractReviewFiles::legalPresentation($c,$party)==='','An empty review omits the attachments section');
     actor('lawyer');
     check(!LegalHandoff::files($db,$c),'No historical file reuse');
     denied(fn()=>command('contract.legal',approveInput($id)),'подтвердите контрагента',409);
@@ -177,6 +177,9 @@ try {
         ->execute([$sourceId,$sourceParty['id'],$sourceParty['version'],$sourceName,$sourceName,hash('sha256',$sourceBytes)]);
     FileOrder::assign($db,$sourceId);
     actor('lawyer');
+    $attachments=ContractReviewFiles::legalPresentation($withSource,$sourceParty);
+    check(str_contains($attachments,'Приложенные файлы')&&str_contains($attachments,'Исходная карточка контрагента')
+        &&str_contains($attachments,'/rental/download?id='.$sourceId),'The source is visible in the review attachments');
     denied(fn()=>command(LegalHandoff::PARTY,$sourceInput),'исходная карточка изменились',409);
     $sourceInput['party_basis']=LegalHandoff::partyBasis($db,$withSource);
     file_put_contents($sourcePath,'changed');

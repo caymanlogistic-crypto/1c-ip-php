@@ -205,7 +205,7 @@ final class ContractReviewFiles
             .'<div class="registry-ui-modal-grid" data-described-file-list></div></div></section>';
     }
 
-    public static function priorPresentation(array $contract): string
+    private static function priorPresentation(array $contract): string
     {
         $db=DB::pdo();
         $seen=array_fill_keys(self::selectedIds($contract),true);
@@ -233,6 +233,16 @@ final class ContractReviewFiles
         $selection=self::selection($contract);
         $label=$selection['submitted']?'Материалы менеджера':'Сохранённые материалы проекта';
         return '<p class="registry-ui-modal-help">'.View::e($label).' · версия '.(int)$selection['version'].'</p>'.self::list($files);
+    }
+
+    public static function legalPresentation(array $contract,array $party): string
+    {
+        $db=DB::pdo();
+        $files=self::files($db,$contract);
+        $source=PartyLegalReview::contractSource($db,$party,PartyLegalReview::state($db,(int)$party['id']));
+        if ($source) array_unshift($files,$source+['description'=>'Исходная карточка контрагента']);
+        $body=($files?self::list($files):'').self::priorPresentation($contract);
+        return $body?'<section class="registry-ui-form-section"><h4 class="registry-ui-modal-summary">Приложенные файлы</h4>'.$body.'</section>':'';
     }
 
     private static function list(array $files): string

@@ -178,15 +178,6 @@ final class PartyLegalReview
         return $body;
     }
 
-    public static function evidenceLink(array $party): string
-    {
-        $db=DB::pdo();
-        $review=self::state($db,(int)$party['id']);
-        $file=self::contractSource($db,$party,$review);
-        return $file?'<p><a href="/rental/download?id='.View::e($file['id']).'" title="'
-            .View::e($file['filename']).'">Скачать прикреплённые файлы</a></p>':'';
-    }
-
     private static function link(array $file): string
     {
         return '<p><a class="btn btn-secondary" href="/rental/download?id='.View::e($file['id']).'">Исходная карточка · '.View::e($file['filename']).'</a></p>';
