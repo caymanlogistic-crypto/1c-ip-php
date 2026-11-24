@@ -229,14 +229,12 @@ final class WorkflowMaxEvent
         $q=$this->db->query("SELECT * FROM integration_configuration_sources WHERE provider='max'");$source=$q->fetch(PDO::FETCH_ASSOC);
         if(!$source||(int)$source['source_revision']!==$revision)
             throw new RuntimeException('RENTAL_MAX_SOURCE_BINDING_CHANGED');
-        $people=array_fill_keys(['manager','lawyer','accountant','director'],'');
-        foreach($this->db->query("SELECT u.name,rp.kind FROM users u JOIN role_profiles rp ON rp.role_id=u.role WHERE u.active=1 ORDER BY u.id")->fetchAll(PDO::FETCH_ASSOC) as $person){
-            if(array_key_exists($person['kind'],$people))$people[$person['kind']].=($people[$person['kind']]!==''?', ':'').$person['name'];
-        }
+        $people=WorkflowMaxNames::fromDatabase($this->db);
         if($event['target_role']!==null&&($people[$event['target_role']]??'')==='')throw new RuntimeException('RENTAL_MAX_RESPONSIBLE_UNRESOLVED');
         $values=array_fill_keys(TemplateCatalog::MESSAGE_VARS,'');
         $values=array_replace($values,$people,['text'=>$event['text'],'number'=>$event['contract_number'],'party'=>$event['party_name'],
-            'actor'=>$event['actor_name'],'version'=>(string)$event['entity_version'],'reason'=>$event['reason'],
+            'actor'=>WorkflowMaxNames::display($event['actor_id'],$event['actor_name'],$event['actor_role']),
+            'version'=>(string)$event['entity_version'],'reason'=>$event['reason'],
             'documentNumber'=>$event['record_number'],'documentLabel'=>$party?'Контрагент '.$event['party_name']:($event['entity_kind']==='document'?'Документ':'Договор').' №'.$event['record_number'],
             'context'=>$party?'Контрагент '.$event['party_name']:'Договор №'.$event['contract_number'].' · '.$event['party_name'],'recipientNames'=>$event['target_role']===null?'':$people[$event['target_role']]]);
         $render=TemplateCatalog::renderEvent($this->db,'max',$key,$values);

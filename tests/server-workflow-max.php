@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
-use Modules\Integrations\{ServerWorkflowMax,Support};
+use Modules\Integrations\{CurrentContractMaxProof,ServerWorkflowMax,Support,TemplateCatalog,WorkflowMaxNames};
 $event=['project_id'=>Modules\Rental\WorkflowEvents::PROJECT,'epoch'=>'current-server-epoch','event_id'=>1094,'entity_kind'=>'contract','event_kind'=>'legalApprove','action'=>'contract.legal','to_status'=>'accounting'];
 if(Modules\Integrations\CurrentContractMaxProof::select($event)!=='legalApprove')throw new RuntimeException('Current server epoch rejected');
 $denied=false;try{Modules\Integrations\WorkflowMaxEvent::select($event);}catch(RuntimeException){$denied=true;}if(!$denied)throw new RuntimeException('Legacy rollout guard changed');
@@ -36,6 +36,30 @@ $values['contractObjectLines']=Support::json([['name'=>'<2.2>','type'=>'Маши
 $single=Modules\Integrations\TemplateCatalog::preview('max',$entry,$values)['body'];
 if (!str_contains($single,'Объект: <b>&lt;2.2&gt;</b> (Машиноместо &amp; бокс)') || substr_count($single,'Объект: ')!==1)
     throw new RuntimeException('Single object fields must be escaped');
+$people=WorkflowMaxNames::byRole([
+    ['id'=>4,'name'=>'Ирина Юристова','kind'=>'lawyer'],
+    ['id'=>5,'name'=>'Анна Правова','kind'=>'lawyer'],
+    ['id'=>'990001203','name'=>'Core copy test L','kind'=>'lawyer'],
+    ['id'=>'990001204','name'=>'Core copy test B','kind'=>'accountant'],
+]);
+if ($people!==['manager'=>'','lawyer'=>'Ирина Юристова, Анна Правова','accountant'=>'Бухгалтер','director'=>''])
+    throw new RuntimeException('MAX staff projection should keep real employees and fall back to the test-only role');
+$entry=['source_key'=>'resubmit','format'=>$entries['resubmit']['format'],'body_text'=>$entries['resubmit']['body']];
+$values=array_replace(Modules\Integrations\MaxTemplateAdmin::sampleValues($entry),$people);
+$resubmit=TemplateCatalog::preview('max',$entry,$values)['body'];
+if (!str_contains($resubmit,'Ответственный <b>Ирина Юристова, Анна Правова</b>') || str_contains($resubmit,'Core copy'))
+    throw new RuntimeException('Resubmission should show real lawyers only');
+$staff=CurrentContractMaxProof::staffValues([
+    'contract_number'=>'165','entity_kind'=>'contract','action'=>'contract.legal',
+    'actor_id'=>990001203,'actor_name'=>'Core copy test L','actor_role'=>'lawyer',
+    'staff_handoff'=>['task'=>'Проверить расчёт','targets'=>[
+        ['id'=>990001204,'label'=>'Core copy test B','role'=>'accountant'],
+        ['id'=>3,'label'=>'Раиса Шилова','role'=>'manager'],
+    ]],
+]);
+if ($staff['actor']!=='Юрист' || $staff['recipientNames']!=='Бухгалтер, Раиса Шилова'
+    || WorkflowMaxNames::display(3,'Core Copy Industries','manager')!=='Core Copy Industries')
+    throw new RuntimeException('Staff handoff should replace test identities with their role labels');
 $html=Modules\Integrations\MessageTransport::maxPayload($render['body'],'html');
 $url='https://platform-api2.max.ru/messages?chat_id=-123';
 ServerWorkflowMax::assertPath(0,'POST',$url,$html,'-123',$render['body'],'html');
