@@ -116,7 +116,7 @@ final class Controller {
         return $q->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public static function table(array $headers, array $rows, ?array $columnOverride = null, array $details = [], array $columnWidths = []): string {
+    public static function table(array $headers, array $rows, ?array $columnOverride = null, array $details = [], array $columnWidths = [], bool $inferRowLinks = true): string {
         $profile = $headers[0] === 'Кадастровый номер'?'rental-cadastre':'rental-contracts';
         $columns = $headers[0] === 'Кадастровый номер'?[
             'flex',
@@ -173,7 +173,7 @@ final class Controller {
             $attrs = $row['_attrs'] ?? '';
             unset($row['_attrs']);
             $url = '';
-            if (isset($row[0]) && preg_match('~href="(/rental/(?:contract|invoice|edit-party|edit-object|edit-cadastre|document|template|payment|party)\?[^"]+)"~', $row[0], $match))$url = html_entity_decode($match[1]);
+            if ($inferRowLinks && isset($row[0]) && preg_match('~href="(/rental/(?:contract|invoice|edit-party|edit-object|edit-cadastre|document|template|payment|party)\?[^"]+)"~', $row[0], $match))$url = html_entity_decode($match[1]);
             $h.='<tr'
             . ($attrs?' '
             . $attrs:'')
