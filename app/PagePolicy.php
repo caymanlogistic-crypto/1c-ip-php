@@ -328,6 +328,7 @@ final class PagePolicy {
                 'upload',
                 'word-pdf',
                 'word-form',
+                'word-zip',
                 'word-pack'
             ], true)) {
                 // These callbacks enforce Access::contract/document/file from persisted entity state.

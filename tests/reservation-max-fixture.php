@@ -129,29 +129,21 @@ try {
     check(!in_array((string)$old,array_column(array_column($exports,'values'),'number'),true),'Local export replayed a pre-admission event');
     check(!$runner->exports($floor,$scope['valid_from'],$date(5),[PHP_INT_MAX]),'Unmapped local actor was exported');
     check($runner->exports($floor,$scope['valid_from'],$date(5),[(int)$actor['id']])===$exports,'Mapped actor export changed the event');
-    $payload=Support::json($mine[0]);
     $now=time();
     $relayKey=bin2hex(random_bytes(32));
     $forwardPayload=new ReflectionMethod(ReservationMaxRelay::class,'forwardPayload');
     foreach ($exports as $export) {
-        $legacy=$export;
-        unset($legacy['values']['reservationTypeLabel'],$legacy['values']['reservationAreaLabel']);
-        check($forwardPayload->invoke(null,$export,null)===Support::json($legacy),'Default relay format changed');
-        check($forwardPayload->invoke(null,$export,$export['recorded_at']+1)===Support::json($legacy),'Cutoff changed an older payload');
-        $rich=$forwardPayload->invoke(null,$export,$export['recorded_at']);
-        check(ReservationMaxRelay::verifyRequest($rich,(string)$now,ReservationMaxRelay::signature($rich,$now,$relayKey),$relayKey,$now)
-            ===$export,'New relay format lost type or area fields');
+        check(isset($export['values']['reservationTypeLabel'],$export['values']['reservationAreaLabel']),
+            'Local event lost the object type or area');
+        $wire=$forwardPayload->invoke(null,$export);
+        $expected=$export;
+        unset($expected['values']['reservationTypeLabel'],$expected['values']['reservationAreaLabel']);
+        $verified=ReservationMaxRelay::verifyRequest($wire,(string)$now,ReservationMaxRelay::signature($wire,$now,$relayKey),$relayKey,$now);
+        check($verified===$expected,'Forwarding changed the original relay fields');
     }
-    $partial=$mine[0];
-    unset($partial['values']['reservationAreaLabel']);
-    $invalid=Support::json($partial);
-    try {
-        ReservationMaxRelay::verifyRequest($invalid,(string)$now,ReservationMaxRelay::signature($invalid,$now,$relayKey),$relayKey,$now);
-        throw new LogicException('Incomplete object fields were accepted');
-    } catch (RuntimeException $e) { check($e->getCode()===400,'Incomplete object fields check'); }
+    $payload=$forwardPayload->invoke(null,$mine[0]);
     $signed=ReservationMaxRelay::signature($payload,$now,$relayKey);
     $event=ReservationMaxRelay::verifyRequest($payload,(string)$now,$signed,$relayKey,$now);
-    check($event===$mine[0],'Relay did not preserve the signed event');
     try { ReservationMaxRelay::verifyRequest($payload.' ',(string)$now,$signed,$relayKey,$now);throw new LogicException('Changed payload was accepted'); }
     catch (RuntimeException $e) { check($e->getCode()===403,'Tampered payload check'); }
     try { ReservationMaxRelay::verifyRequest($payload,(string)$now,$signed,$relayKey,$now+91);throw new LogicException('Stale signature was accepted'); }

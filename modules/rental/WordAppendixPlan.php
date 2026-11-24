@@ -8,7 +8,7 @@ use PDO;
 use RuntimeException;
 use ZipArchive;
 
-/** Plans for the Word appendix, as images or unchanged PDF companions. */
+/** Verified original plans and dimensions for the Word appendix. */
 final class WordAppendixPlan
 {
     private const DRAWING='http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
@@ -33,7 +33,7 @@ final class WordAppendixPlan
                 throw new RuntimeException('Проверка целостности плана объекта «'.$term['name'].'» не пройдена.',409);
             }
             if ($plan['mime']==='application/pdf' && str_starts_with($bytes,'%PDF-')) {
-                $plans[$id]=['sha256'=>$plan['sha256'],'bytes'=>$bytes,'mime'=>$plan['mime'],'name'=>$term['name']];
+                $plans[$id]=['sha256'=>$plan['sha256'],'bytes'=>$bytes,'mime'=>$plan['mime'],'name'=>$term['name'],'extension'=>'pdf'];
                 continue;
             }
             $image=@getimagesizefromstring($bytes);
@@ -43,7 +43,8 @@ final class WordAppendixPlan
             }
             [$width,$height]=$image;
             $scale=min(9525,5400000/$width,6500000/$height);
-            $plans[$id]=['sha256'=>$plan['sha256'],'bytes'=>$bytes,'mime'=>$mime,
+            $plans[$id]=['sha256'=>$plan['sha256'],'bytes'=>$bytes,'mime'=>$mime,'name'=>$term['name'],
+                'extension'=>$mime==='image/png'?'png':'jpg',
                 'width'=>max(1,(int)($width*$scale)),'height'=>max(1,(int)($height*$scale))];
         }
         return $plans;

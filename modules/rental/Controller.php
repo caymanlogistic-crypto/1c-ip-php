@@ -1114,7 +1114,7 @@ final class Controller {
             return ($input['intent'] ?? 'draft') === 'submit' ? '/rental/approvals' : '/rental/contracts';
         }
         if ($action === 'contract.delete') return '/rental/contracts';
-        if ($action === 'contract.submit') return '/rental/approvals';
+        if (in_array($action, ['contract.submit', 'contract.return', 'contract.forward', 'contract.legal'], true)) return '/rental/approvals';
         if (str_starts_with($action, 'reservation.')) return '/rental/contracts?flag=booking';
         if (str_starts_with($action,'party.')) return '/rental/parties';
         if (str_starts_with($action,'organization.')) return '/rental/organization';
@@ -1123,7 +1123,7 @@ final class Controller {
         return null;
     }
 
-    public static function workflowMaxNotice(?int $freshEventId,string $commandKey,string $action):string {
+    public static function workflowMaxNotice(?int $freshEventId,string $commandKey,string $action,bool $showAccepted=true):string {
         if($freshEventId===null)return '';
         try{
             $actor=Auth::user();
@@ -1147,7 +1147,7 @@ final class Controller {
             }
             return match($delivery['status']??'uncertain'){
                 'disabled','skipped'=>'',
-                'accepted'=>' MAX принял уведомление; прочтение не подтверждено.',
+                'accepted'=>$showAccepted?' MAX принял уведомление; прочтение не подтверждено.':'',
                 'unavailable'=>' Уведомление MAX не отправлено: в этой среде отправка не разрешена.',
                 default=>' Результат уведомления MAX не подтверждён; автоматического повтора нет.',
             };
@@ -1194,10 +1194,16 @@ final class Controller {
                 if ($plan!==null) $in['object_plan']=$plan;
             }
             $freshCommittedEventId=null;
-            $result = Service::command($action, $in, $freshCommittedEventId);
+            unset($in[ContractReviewFiles::DESCRIPTIONS]);
+            $legalUpload=$action===LegalHandoff::UPLOAD;
+            $materials=$legalUpload || in_array($action,ContractReviewFiles::ACTIONS,true)
+                ? ContractReviewFiles::fromRequest($_FILES,$_POST,$legalUpload) : null;
+            $result = Service::command($action, $in, $freshCommittedEventId,$materials);
             if (in_array($action,RentalServices::ACTIONS,true) && !empty($result['service_id'])) $target='/rental/service?id='.$result['service_id'];
             if ($action===PremisesInventory::MOVE) $target='/rental/object-inventory?id='.(int)$result['id'];
-            $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''),$action);
+            $completion = self::completionTarget($action, $in);
+            $completeInApprovals = $completion === '/rental/approvals';
+            $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''),$action,showAccepted: !$completeInApprovals);
             if ($action === 'party.save' && empty($in['id']) && ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'ERP-Fetch') {
                 $party = self::query('SELECT id,name,inn FROM parties WHERE id=?', [
                     $result['id']
@@ -1214,9 +1220,12 @@ final class Controller {
             if (str_starts_with($action, 'reservation.') && !empty($result['id']))$target = '/rental/booking?id='
             . $result['id'];
             if (str_starts_with($action,'party.review.')) $target='/rental/party?id='.(int)$result['id'];
-            $_SESSION['rental_notice'] = ($result['message'] ?? 'Сохранено.').$maxNotice;
+            if (($action===LegalHandoff::REMOVE || $completeInApprovals) && $maxNotice==='') {
+                unset($_SESSION['rental_notice']);
+            } else {
+                $_SESSION['rental_notice'] = ($result['message'] ?? 'Сохранено.').$maxNotice;
+            }
             if(is_string($in['command_key']??null))$_SESSION['rental_top_command']=$in['command_key'];
-            $completion = self::completionTarget($action, $in);
             if ($completion !== null) {
                 $workspace=FinanceController::workspaceTarget($_SERVER['HTTP_X_RENTAL_WORKSPACE_URL'] ?? null);
                 if (parse_url($workspace,PHP_URL_PATH)===$completion) $completion=$workspace;
@@ -1262,7 +1271,7 @@ final class Controller {
             ], true))throw $e;
             $previewChanged = $e->getCode() === 409 && $e->getMessage() === NativePacket::PREVIEW_CHANGED;
             $message = match ($e->getMessage()) {
-                NativePacket::PREVIEW_CHANGED => PacketForm::CHANGED_MESSAGE,
+                NativePacket::PREVIEW_CHANGED => $action==='contract.packet'?AccountantReviewCard::CHANGED_MESSAGE:PacketForm::CHANGED_MESSAGE,
                 'NATIVE_PACKET_LEGAL_FILE_SUPERSEDED', 'NATIVE_PACKET_LEGAL_BASELINE_CHANGED',
                 'NATIVE_PACKET_DOCUMENT_BASE_CHANGED' => 'Документ или условия изменились. Попросите юриста проверить актуальный комплект.',
                 'NATIVE_PACKET_NOT_AT_ACCOUNTANT' => 'Этап согласования изменился. Откройте карточку заново.',

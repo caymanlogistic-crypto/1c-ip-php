@@ -21,13 +21,14 @@ final class ContractObjectEditor
             .'<td><button class="registry-ui-reset" type="button" data-rental-remove-object>Убрать</button></td></tr>';
     }
 
-    public static function render(array $objects,string $options,string $total,?array $period=null,bool $draftPicker=false): string
+    public static function render(array $objects,string $options,string $total,?array $period=null,bool $draftPicker=false,
+        string $countLabel='Помещения в договоре'): string
     {
         $rows='';foreach($objects as $object)$rows.=self::row($object,$period,$draftPicker);
         if($rows==='')$rows='<tr data-rental-empty-terms><td colspan="3">Помещения пока не добавлены.</td></tr>';
         $template=['id'=>'__ID__','name'=>'','type'=>'','area'=>null,'amount'=>null];
         return '<div class="registry-ui-modal-grid">'.($draftPicker?'<input type="hidden" name="billing_exception_present" value="1">':'').'<div id="chosen-objects">'
-            .'<span class="registry-ui-modal-summary">Помещения в договоре · <span data-rental-object-count>'.count($objects).'</span></span>'
+            .'<span class="registry-ui-modal-summary">'.View::e($countLabel).' · <span data-rental-object-count>'.count($objects).'</span></span>'
             .'<div class="table-scroll registry-ui-compact-table-scroll"><table class="table registry-ui-table registry-ui-compact-table"><thead><tr><th>Помещение</th><th>Аренда с НДС, ₽</th><th>Состав</th></tr></thead><tbody data-rental-terms>'.$rows.'</tbody>'
             .'<tfoot><tr><td colspan="3" class="registry-ui-number"><input type="hidden" name="amount" value="'.View::e($total).'"><strong data-rental-contract-total data-rental-total-prefix="ИТОГО: ">ИТОГО: '.View::e(Controller::money($total)).'</strong></td></tr></tfoot></table></div></div>'
             .'<div class="field"><label class="field-label" for="contract-object">Выбрать помещение</label><div class="registry-ui-modal-address-row">'

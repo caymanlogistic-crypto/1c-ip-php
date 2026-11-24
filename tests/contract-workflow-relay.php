@@ -85,7 +85,7 @@ try {
         'catalog_versions'=>['submit'=>4,'resubmit'=>3,'legalApprove'=>4,'lawyerReturn'=>3,
             'accountantReturn'=>3,'package'=>3,'signed'=>3,'cancelled'=>3],
     ];
-    check(array_keys(ContractWorkflowRelay::FIELDS)===ServerWorkflowMax::KINDS,'Relay and server event coverage differ');
+    check(array_keys(ContractWorkflowRelay::FIELDS)===[...ServerWorkflowMax::KINDS,'firstInvoice'],'Relay and server event coverage differ');
     $written[]=$sourceMark;
     file_put_contents($sourceMark,Support::json($shared+['app_root'=>APP_ROOT,'database'=>$sourceName]));
     $targetScope=$shared+[

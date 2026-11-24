@@ -57,10 +57,11 @@ final class PartyLegalReview
         return hash('sha256',Importer::canonicalJson([array_intersect_key($party,array_flip($fields)),$details,$bank->fetch()?:null]));
     }
 
-    public static function assertCurrent(PDO $db,int $id,bool $requireApproval=false): void
+    public static function assertCurrent(PDO $db,int $id,bool $requireApproval=false,bool $allowNewOnlyBlock=false): void
     {
         $party=Service::get($db,'parties',$id);
-        if ($party['blocked']) throw new RuntimeException('Работа с контрагентом заблокирована.',409);
+        if ($party['blocked'] && (!$allowNewOnlyBlock || !LegalHandoff::blocksOnlyNew($party)))
+            throw new RuntimeException('Работа с контрагентом заблокирована.',409);
         $review=self::state($db,$id);
         if (!$review && !$requireApproval) return;
         if (($review['status']??null)!=='accepted' || !hash_equals((string)($review['signature']??''),self::signature($db,$party)))
@@ -77,7 +78,7 @@ final class PartyLegalReview
             throw new RuntimeException('Исходная карточка сейчас недоступна для замены.',409);
     }
 
-    private static function findFile(PDO $db,int $id,?string $fileId=null,?int $version=null): ?array
+    private static function findFile(PDO $db,int $id,?string $fileId=null,?int $version=null,bool $lock=false): ?array
     {
         $sql="SELECT * FROM rental_files WHERE entity_type='party' AND entity_id=? AND kind=?";
         $arguments=[$id,self::FILE];
@@ -88,9 +89,30 @@ final class PartyLegalReview
             $sql.=' AND version=?';
             $arguments[]=$version;
         }
-        $statement=$db->prepare($sql.' ORDER BY upload_order DESC LIMIT 1');
+        $statement=$db->prepare($sql.' ORDER BY upload_order DESC LIMIT 1'.($lock?' FOR UPDATE':''));
         $statement->execute($arguments);
         return $statement->fetch()?:null;
+    }
+
+    public static function contractSource(PDO $db,array $party,array $review): ?array
+    {
+        $id=(int)$party['id'];
+        $lock=$db->inTransaction();
+        return self::findFile($db,$id,null,(int)$party['version'],$lock)
+            ?? (isset($review['file_id']) ? self::findFile($db,$id,$review['file_id'],lock:$lock) : null);
+    }
+
+    public static function assertContractSource(PDO $db,array $party,array $review): void
+    {
+        if (in_array($review['status']??null,['accepted','pending','returned'],true) || isset($review['file_id'])) {
+            $pinned=self::findFile($db,(int)$party['id'],(string)($review['file_id']??''),lock:$db->inTransaction());
+            if (!$pinned || !hash_equals((string)($review['file_sha256']??''),$pinned['sha256'])) {
+                throw new RuntimeException('Исходная карточка недоступна. Проверьте приложенные документы.',409);
+            }
+            Evidence::integrity($pinned);
+        }
+        $attached=self::contractSource($db,$party,$review);
+        if ($attached && $attached['id']!==($pinned['id']??null)) Evidence::integrity($attached);
     }
 
     public static function decision(PDO $db,array $actor,string $action,array $input): array

@@ -191,7 +191,7 @@ final class InvoiceDocument
         return compact('payer', 'payee', 'bank', 'purpose', 'basis', 'gross', 'lines', 'net', 'taxes', 'missing');
     }
 
-    private static function details(array $party): string
+    public static function details(array $party, bool $withPhone=false): string
     {
         $parts = [$party['name']];
         foreach (['inn'=>'ИНН ', 'kpp'=>'КПП '] as $key=>$label) {
@@ -199,6 +199,7 @@ final class InvoiceDocument
         }
         $address = self::text($party['legal_address'] ?? $party['legalAddress'] ?? null) ?: self::text($party['address'] ?? null);
         if ($address !== '') $parts[] = $address;
+        if ($withPhone && !empty($party['phone'])) $parts[] = 'тел.: '.$party['phone'];
         return View::e(implode(', ', $parts));
     }
 
@@ -211,7 +212,7 @@ final class InvoiceDocument
         };
     }
 
-    private static function words(string $gross): string
+    public static function words(string $gross): string
     {
         [$rubles, $kopecks] = explode('.', $gross);
         $formatter = new \NumberFormatter('ru_RU', \NumberFormatter::SPELLOUT);

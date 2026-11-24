@@ -34,8 +34,11 @@ final class ContractRevision
         $query=$db->prepare("SELECT id,kind,filename,sha256,path FROM rental_files WHERE entity_type='contract' AND entity_id=? "
             ."AND version=? AND kind IN ('tenant-amendments','third-party-draft','disagreement-protocol') ORDER BY upload_order DESC");
         $query->execute([$contract['id'],$contract['version']]);
+        $submitted=ContractReviewFiles::selectedIds($contract);
         $files=[];
-        foreach ($query->fetchAll() as $file) $files[$file['kind']]??=$file;
+        foreach ($query->fetchAll() as $file) {
+            if (!in_array($file['id'],$submitted,true)) $files[$file['kind']]??=$file;
+        }
         return $files;
     }
 

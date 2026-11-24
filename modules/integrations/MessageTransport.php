@@ -105,8 +105,7 @@ final class MessageTransport
                 $diagnostic['safe_error_code']='MESSAGE_ACK_BINDING_UNCONFIRMED';
                 return ['status'=>'uncertain','code'=>'MAX_ACCEPTANCE_UNKNOWN']+$diagnostic;
             }
-            if (($this->readCheck instanceof BookingMax || $this->readCheck instanceof ServerWorkflowMax
-                || $this->readCheck instanceof ContractWorkflowReceiver)
+            if (($this->readCheck instanceof BookingMax || $this->readCheck instanceof ServerWorkflowMax)
                 && ($format=Support::decode($raw)['format'] ?? null)) {
                 $markup=$value['message']['body']['markup'] ?? [];
                 $diagnostic['format']=$format;

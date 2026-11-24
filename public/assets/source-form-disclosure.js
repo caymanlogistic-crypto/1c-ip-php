@@ -4,7 +4,7 @@
   function reveal(target){for(let panel=target.closest?.('[data-form-disclosure]');panel;panel=panel.parentElement?.closest('[data-form-disclosure]'))panel.open=true;}
   document.addEventListener('invalid',event=>reveal(event.target),true);
   function connect(control) {
-    const panel=control.closest('form')?.querySelector('#'+CSS.escape(control.getAttribute('aria-controls')));
+    const panel=control.closest('[data-form-disclosure-scope],form')?.querySelector('#'+CSS.escape(control.getAttribute('aria-controls')));
     const summary=panel?.querySelector(':scope > summary');
     const collapsed=summary?.querySelector('[data-disclosure-collapsed]');
     const expanded=summary?.querySelector('[data-disclosure-expanded]');
@@ -12,8 +12,16 @@
     const sync=()=>{
       control.setAttribute('aria-expanded',String(panel.open));
       control.textContent=(panel.open?expanded:collapsed).textContent;
+      if (control.hasAttribute('data-disclosure-neutral-close')) {
+        control.classList.toggle('btn-danger',!panel.open);
+        control.classList.toggle('btn-secondary',panel.open);
+      }
     };
-    control.addEventListener('click',()=>{panel.open=!panel.open;sync();});
+    control.addEventListener('click',()=>{
+      panel.open=!panel.open;
+      sync();
+      if(panel.open && panel.closest('[data-form-disclosure-scope]')) panel.querySelector('textarea')?.focus();
+    });
     panel.addEventListener('toggle',sync);
     panel.dataset.externalSummary='';
     summary.hidden=true;

@@ -73,6 +73,7 @@ final class ApprovalRegistry
         $controls.='</select>'.DirectoryUi::search($query,true);
         $create=in_array($role,['admin','manager'],true) && PagePolicy::level('rental.contracts',Auth::user())>=2?RentalUI::button('Создать договор','/rental/document-creator',true):'';
         $body=Controller::heading('Согласование документов','Назначенные проверки, ожидание подписания и история решений.',$create)
+            .RentalUI::notice()
             .Controller::tabs($tabs,$flag,true,['filter'=>$filter])
             .DirectoryUi::registry('rental-approvals',['Документ','Контрагент','Начало','Окончание','Объекты аренды','Стадия','Комментарий','Аренда с НДС','Ответственный'],$rows,
                 ['short','flex','short','code','flex','text','flex','money','text'],$controls,filterForm:true);

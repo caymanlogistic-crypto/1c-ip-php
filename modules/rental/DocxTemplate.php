@@ -109,27 +109,36 @@ final class DocxTemplate
         return array_keys($fields);
     }
 
-    /** Replace only token characters; surrounding runs retain their own formatting. */
-    private static function fillParagraph(DOMDocument $document,array $texts,string $text,array $values): bool
+    /** Replace matched characters only, preserving the formatting of surrounding runs. */
+    private static function fillParagraph(DOMDocument $document,array $texts,string $text,array $values,array $phrases=[]): bool
     {
         preg_match_all('/\{\{([^{}]+)\}\}/u',$text,$matches,PREG_OFFSET_CAPTURE);
-        if (!$matches[0]) return false;
+        $replacements=[];
+        foreach ($matches[0] as $index=>[$token,$offset]) {
+            $key=$matches[1][$index][0];
+            if (!array_key_exists($key,$values)) throw new RuntimeException('Не заполнено поле Word: '.$key);
+            $replacements[$offset]=[$token,$values[$key]];
+        }
+        foreach ($phrases as $phrase=>$replacement) {
+            $offset=strpos($text,$phrase);
+            if ($offset!==false) $replacements[$offset]=[$phrase,$replacement];
+        }
+        if (!$replacements) return false;
         $ranges=[];$offset=0;
         foreach ($texts as $node) {
             $length=mb_strlen($node->textContent);
             $ranges[]=[$node,$offset,$offset+$length];$offset+=$length;
         }
         // Work right to left so earlier original offsets remain valid even in the same run.
-        foreach (array_reverse(array_keys($matches[0])) as $index) {
-            [$token,$byteOffset]=$matches[0][$index];$key=$matches[1][$index][0];
-            if (!array_key_exists($key,$values)) throw new RuntimeException('Не заполнено поле Word: '.$key);
-            $start=mb_strlen(substr($text,0,$byteOffset));$end=$start+mb_strlen($token);
+        krsort($replacements);
+        foreach ($replacements as $byteOffset=>[$original,$replacement]) {
+            $start=mb_strlen(substr($text,0,$byteOffset));$end=$start+mb_strlen($original);
             $first=true;
             foreach ($ranges as [$node,$from,$to]) {
                 if ($to<=$start || $from>=$end) continue;
                 $prefix=$from<$start?mb_substr($node->textContent,0,$start-$from):'';
                 $suffix=$to>$end?mb_substr($node->textContent,$end-$from):'';
-                $node->textContent=$prefix.($first?str_replace(["\r\n","\r"],"\n",$values[$key]):'').$suffix;
+                $node->textContent=$prefix.($first?str_replace(["\r\n","\r"],"\n",$replacement):'').$suffix;
                 $node->setAttributeNS(self::XML,'xml:space','preserve');$first=false;
             }
         }
@@ -147,7 +156,54 @@ final class DocxTemplate
         return true;
     }
 
-    public static function build(string $source,array $values,string $kind,string $target,?array $requiredFields=null,array $plans=[]): void
+    private static function insertLeaseTerms(DOMDocument $document,DOMElement $slot,array $terms): void
+    {
+        $table=$document->createElementNS(self::W,'w:tbl');
+        $properties=$document->createDocumentFragment();
+        $properties->appendXML('<w:tblPr xmlns:w="'.self::W.'"><w:tblW w:w="5000" w:type="pct"/>'
+            .'<w:tblBorders><w:top w:val="single" w:color="D9D9D9"/><w:left w:val="single" w:color="D9D9D9"/>'
+            .'<w:bottom w:val="single" w:color="D9D9D9"/><w:right w:val="single" w:color="D9D9D9"/>'
+            .'<w:insideH w:val="single" w:color="D9D9D9"/><w:insideV w:val="single" w:color="D9D9D9"/>'
+            .'</w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr>');
+        $table->appendChild($properties);
+        $page=$document->getElementsByTagNameNS(self::W,'pgSz')->item(0);
+        $margins=$document->getElementsByTagNameNS(self::W,'pgMar')->item(0);
+        $width=(int)$page?->getAttributeNS(self::W,'w')-(int)$margins?->getAttributeNS(self::W,'left')
+            -(int)$margins?->getAttributeNS(self::W,'right');
+        $widths=array_map(static fn(int $percent): int => intdiv(($width>0?$width:8640)*$percent,100),[33,9,34,24]);
+        $grid=$table->appendChild($document->createElementNS(self::W,'w:tblGrid'));
+        foreach ($widths as $columnWidth) {
+            $grid->appendChild($document->createElementNS(self::W,'w:gridCol'))->setAttributeNS(self::W,'w:w',(string)$columnWidth);
+        }
+        $rows=[['Объект','м²','Период аренды','Руб./мес. с НДС'],...$terms['rows']];
+        foreach ($rows as $index=>$row) {
+            $tr=$table->appendChild($document->createElementNS(self::W,'w:tr'));
+            $rowProperties=$tr->appendChild($document->createElementNS(self::W,'w:trPr'));
+            $rowProperties->appendChild($document->createElementNS(self::W,'w:cantSplit'));
+            if ($index===0) $rowProperties->appendChild($document->createElementNS(self::W,'w:tblHeader'));
+            foreach ($row as $column=>$text) {
+                $cell=$tr->appendChild($document->createElementNS(self::W,'w:tc'));
+                $cellProperties=$cell->appendChild($document->createElementNS(self::W,'w:tcPr'));
+                $width=$cellProperties->appendChild($document->createElementNS(self::W,'w:tcW'));
+                $width->setAttributeNS(self::W,'w:type','dxa');
+                $width->setAttributeNS(self::W,'w:w',(string)$widths[$column]);
+                $paragraph=$cell->appendChild($document->createElementNS(self::W,'w:p'));
+                $paragraph->appendChild($document->createElementNS(self::W,'w:pPr'))
+                    ->appendChild($document->createElementNS(self::W,'w:jc'))
+                    ->setAttributeNS(self::W,'w:val',$column===1||$column===3?'right':'left');
+                $run=$paragraph->appendChild($document->createElementNS(self::W,'w:r'));
+                if ($index===0) {
+                    $cellProperties->appendChild($document->createElementNS(self::W,'w:shd'))->setAttributeNS(self::W,'w:fill','F2F2F2');
+                    $run->appendChild($document->createElementNS(self::W,'w:rPr'))->appendChild($document->createElementNS(self::W,'w:b'));
+                }
+                $cellProperties->appendChild($document->createElementNS(self::W,'w:vAlign'))->setAttributeNS(self::W,'w:val','center');
+                $run->appendChild($document->createElementNS(self::W,'w:t'))->textContent=$text;
+            }
+        }
+        $slot->parentNode->insertBefore($table,$slot);
+    }
+
+    public static function build(string $source,array $values,string $kind,string $target,?array $requiredFields=null,array $plans=[],array $leaseTerms=[],array $phrases=[]): void
     {
         self::validate($source);
         foreach ($values as $value) {
@@ -193,7 +249,12 @@ final class DocxTemplate
             $modified=false;
             foreach (self::paragraphs($document) as [$texts,$text,$paragraph]) {
                 if ($planSlot!==null && $paragraph->isSameNode($planSlot)) continue;
-                $modified=self::fillParagraph($document,$texts,$text,$values)||$modified;
+                if ($leaseTerms && $name==='word/document.xml' && trim($text)==='{{terms}}' && $paragraph->parentNode->localName==='body') {
+                    self::insertLeaseTerms($document,$paragraph,$leaseTerms);
+                    $modified=self::fillParagraph($document,$texts,$text,['terms'=>$leaseTerms['notes']])||$modified;
+                    continue;
+                }
+                $modified=self::fillParagraph($document,$texts,$text,$values,$name==='word/document.xml'?$phrases:[])||$modified;
             }
             if ($modified) $changed[$name]=$document->saveXML();
         }

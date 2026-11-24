@@ -91,6 +91,7 @@ final class Service {
 
     /** Same coarse grant for command execution and its later typed workflow notification. */
     public static function commandGrant(string $action,array $actor): string {
+        if (in_array($action,LegalHandoff::ACTIONS,true)) return 'rental.approve.legal';
         if (in_array($action,OnecRequest::ACTIONS,true)) return $action===OnecRequest::SUBMIT?'rental.write':'finance.write';
         if (in_array($action,[UpdRegister::SAVE,SavedReceipt408::ACTION,OccupiedBilling::SAVE,InvoiceContractAssignment::SAVE],true)) return 'finance.write';
         if ($action === StaffHandoff::PACKET) return match($actor['role']) {
@@ -108,7 +109,7 @@ final class Service {
         };
     }
 
-    public static function command(string $action, array $in, ?int &$freshCommittedEventId=null): array {
+    public static function command(string $action, array $in, ?int &$freshCommittedEventId=null, ?ContractReviewFiles $materials=null): array {
         $freshCommittedEventId=null;
         if ($action === TermEndCorrection::ACTION) TermEndCorrection::requireOperator();
         if ($action === ArchivedRentCorrection::ACTION) ArchivedRentCorrection::requireOperator();
@@ -128,6 +129,11 @@ final class Service {
             if ($returnDate>date('Y-m-d'))throw new RuntimeException('Дата фактического возврата не может быть в будущем.', 422);
         }
         $u = Auth::user() ?? throw new RuntimeException('Требуется вход.');
+        if ($materials) {
+            self::roles([$action===LegalHandoff::UPLOAD?'lawyer':'manager']);
+            if (!in_array($action,[...ContractReviewFiles::ACTIONS,LegalHandoff::UPLOAD],true) || DB::pdo()->inTransaction())
+                throw new RuntimeException('Материалы можно загрузить при сохранении проекта договора.',409);
+        }
         $key = (string)($in['command_key'] ?? '');
         if (!preg_match('/^[a-zA-Z0-9-]{16,100}$/D', $key))throw new RuntimeException('Отсутствует идентификатор команды.');
         $epoch=(string)DB::pdo()->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn();
@@ -136,11 +142,13 @@ final class Service {
             $action,
             $in
         ];
+        if ($materials) $fingerprintParts[]=$materials->fingerprint();
         // Preserve legacy retries until the first explicit baseline restore creates a new era.
         if (DB::pdo()->query("SELECT 1 FROM rental_facts WHERE namespace='zero_point_runtime' AND source_key='active'")->fetchColumn()) $fingerprintParts[]=$epoch;
         $fp = hash('sha256', Importer::json($fingerprintParts));
         $pendingEventId=null;
-        $result=DB::transaction(function(PDO $p)use($u, $key, $fp, $action, $in, $epoch, &$pendingEventId) {
+        $createdFiles=[];
+        $run=function(PDO $p)use($u, $key, $fp, $action, $in, $epoch, $materials, &$pendingEventId, &$createdFiles) {
             $p->query('SELECT id FROM rental_number_guard WHERE id=1 FOR UPDATE')->fetchColumn();
             if ((string)$p->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn()!==$epoch)
                 throw new RuntimeException('Данные восстановлены. Откройте форму заново.',409);
@@ -155,7 +163,7 @@ final class Service {
             $eventContext = WorkflowEvents::before($p, $action, $in);
             $objectContext = ObjectActivity::before($p,$action,$in);
             $validatedPacket = NativePacket::validateBeforeB($p, $u, $action, $in);
-            $r = self::execute($p, $u, $action, $in);
+            $r = self::execute($p, $u, $action, $in, materials:$materials,createdFiles:$createdFiles);
             $p->prepare('INSERT INTO rental_commands(command_key,action,fingerprint,result_json) VALUES(?,?,?,?)')->execute([
                 $key,
                 $action,
@@ -166,7 +174,14 @@ final class Service {
             $pendingEventId=WorkflowEvents::record($p, $u, $action, $in, $r, $key, $eventContext);
             if ($objectContext!==null) $pendingEventId=ObjectActivity::record($p,$u,$in,$r,$key,$objectContext);
             return $r;
-        });
+        };
+        try {
+            $result=DB::transaction($run);
+        } catch (\Throwable $failure) {
+            $materials?->removeUncommitted(DB::pdo());
+            Documents::removeUncommitted(DB::pdo(),$createdFiles);
+            throw $failure;
+        }
         // Only the transaction owner can publish a completed commit. Nested fixtures/callers
         // retain their outer transaction and must never trigger network effects here.
         if(!DB::pdo()->inTransaction())$freshCommittedEventId=$pendingEventId;
@@ -273,7 +288,9 @@ final class Service {
         foreach ($terms as $term)$p->prepare("INSERT INTO contract_terms(contract_id,object_id,start_date,end_date,amount,source_json) VALUES(?,?,?,?,?,'{}')")->execute($term);
     }
 
-    private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null): array {
+    private static function execute(PDO $p, array $u, string $action, array $in, ?string $eventAction = null, ?ContractReviewFiles $materials=null,array &$createdFiles=[]): array {
+        if ($action!==LegalHandoff::BLOCK && in_array($action,LegalHandoff::ACTIONS,true))
+            return LegalHandoff::execute($p,$u,$action,$in,$materials);
         if (in_array($action,OnecRequest::ACTIONS,true)) return OnecRequest::execute($p,$u,$action,$in);
         if (isset(SecurityDeposit::TITLES[$action])) return SecurityDeposit::execute($p,$u,$action,$in);
         if (in_array($action,FinalReview::ACTIONS,true)) return FinalReview::execute($p,$u,$action,$in);
@@ -305,6 +322,7 @@ final class Service {
                 'manager'
             ]);
             $old = $action === 'contract.edit'?self::get($p, 'contracts', $id):null;
+            if ($materials && $old) Access::contract($id,2);
             $continuation=($old && $old['status']==='active') ? [] : ExpiryContinuation::context($p,$old,$in,'contract');
             if ($continuation && !$old && $continuation['link'])
                 return ['id'=>$continuation['link']['id'],'message'=>'Связанный договор уже подготовлен.'];
@@ -318,13 +336,13 @@ final class Service {
                     'active'
                 ], true))throw new RuntimeException('Условия на согласовании менять нельзя.');
                 if ($old['status']==='returned' && $old['return_to']==='lawyer')throw new RuntimeException('Исправление назначено юристу. Дождитесь передачи замечаний менеджеру.',409);
-                if ($old['status'] === 'active' && array_diff(array_keys($in), [
+                if ($old['status'] === 'active' && ($materials || array_diff(array_keys($in), [
                     'id',
                     'version',
                     'number',
                     'command_key',
                     'action'
-                ]))throw new RuntimeException('Условия действующего договора меняются дополнительным соглашением.');
+                ])))throw new RuntimeException('Условия действующего договора меняются дополнительным соглашением.');
             }
             $number = trim((string)($in['number'] ?? ''));
             if ($old) {
@@ -451,7 +469,8 @@ final class Service {
                     \App\BillingPartTerms::finish($p, $partEdit);
                 }
                 $date = !empty($in['document_date'])?self::date($in['document_date']):($old['document_date'] ?? null);
-                $template = count(array_unique($types))>1?'mixed':(in_array($types[0] ?? '',$parkingTypes,true)?'parking':'office');
+                $template = array_intersect($types,$parkingTypes)
+                    ? (array_diff($types,$parkingTypes)?'mixed':'parking') : 'office';
                 $p->prepare('UPDATE contracts SET document_date=?,template_type=? WHERE id=?')->execute([
                     $date,
                     $template,
@@ -462,6 +481,9 @@ final class Service {
                 if (($in['intent'] ?? '') === 'submit')$p->prepare("UPDATE contracts SET status='legal',return_to=NULL,reason=NULL WHERE id=?")->execute([
                     $id
                 ]);
+            }
+            if ($materials || isset(json_decode($old['source_json'] ?? '{}',true)['review_materials'])) {
+                ContractReviewFiles::save($p,$id,$materials);
             }
             ExpiryContinuation::bind($p,$continuation,$id,'contract');
             self::event($p, $u, $eventAction ?? $action, 'Сохранён договор №'
@@ -475,7 +497,7 @@ final class Service {
             $c = self::get($p, 'contracts', $id);
             if(ContractDraft::deleted($c))throw new RuntimeException('Договор не найден.',404);
             self::version($c, $in);
-            if (in_array($action,InitialInvoice::ACTIONS,true)) return InitialInvoice::execute($p,$u,$action,$c,$in);
+            if (in_array($action,InitialInvoice::ACTIONS,true)) return InitialInvoice::execute($p,$u,$action,$c,$in,$createdFiles);
             if ($action===LeasePaymentTerms::SAVE) return LeasePaymentTerms::execute($p,$u,$c,$in);
             if ($action===ContractRevision::ACTION) return ContractRevision::submit($p,$u,$c,$in);
             if($action==='contract.delete'){self::roles(['manager']);return ContractDraft::delete($p,$c,$u,(string)$in['command_key']);}
@@ -502,15 +524,24 @@ final class Service {
                 ];
             }
             switch ($action) {
+                case LegalHandoff::BLOCK:
+                    Access::contract($id,2);
+                    $reason=trim((string)($in['reason']??''));
+                    LegalHandoff::block($p,$u,$c,$reason);
+                    ContractReviewFiles::rememberSubmission($p,$c,$u,(string)$in['command_key']);
+                    $return='manager';
+                    $next='returned';
+                    break;
                 case 'contract.submit':self::roles([
                     'manager'
                 ]);
+                if ($materials) Access::contract($id,2);
                 if (!in_array($status, [
                     'draft',
                     'returned'
                 ], true) || ($status === 'returned' && $c['return_to'] === 'lawyer'))throw new RuntimeException('Договор не готов к отправке юристу.');
                 if (($draft = ContractDraft::input($c)) !== null) {
-                    return self::execute($p, $u, 'contract.edit', array_merge($draft, ['id'=>$id,'version'=>$c['version'],'number'=>$c['number'],'command_key'=>$in['command_key'],'intent'=>'submit']), 'contract.submit');
+                    return self::execute($p, $u, 'contract.edit', array_merge($draft, ['id'=>$id,'version'=>$c['version'],'number'=>$c['number'],'command_key'=>$in['command_key'],'intent'=>'submit']), 'contract.submit',$materials);
                 }
                 $q = $p->prepare('SELECT object_id FROM contract_objects WHERE '.\App\ContractOccupancy::contractPredicate('contract_objects').' AND contract_id=?');
                 $q->execute([
@@ -525,13 +556,19 @@ final class Service {
                     'lawyer'
                 ]);
                 if (!LegalReview::assigned($c))throw new RuntimeException('Договор не у юриста.');
-                PartyLegalReview::assertCurrent($p,(int)$c['party_id']);
-                if (empty($in['counterparty_confirmed']) || empty($in['financial_confirmed']))throw new RuntimeException('Подтвердите контрагента и финансовые условия.');
-                $legalFile = Evidence::latest($p, 'contract', $id, 'lawyer-file', (int)$c['version']);
-                if (empty($in['document_confirmed']))throw new RuntimeException('Подтвердите проверку актуального файла договора.');
-                if (($in['legal_file_id'] ?? '') !== $legalFile['id'])throw new RuntimeException('Файл договора изменился. Откройте проверку повторно и проверьте актуальный файл.',409);
-                $fileId = $legalFile['id'];
+                if (RegistryState::managed($c)) {
+                    $legalFile=LegalHandoff::seal($p,$u,$c,$in);
+                } else {
+                    PartyLegalReview::assertCurrent($p,(int)$c['party_id'],allowNewOnlyBlock:true);
+                    $legalFile=Evidence::latest($p,'contract',$id,'lawyer-file',(int)$c['version']);
+                    if (empty($in['counterparty_confirmed']) || empty($in['financial_confirmed'])
+                        || empty($in['document_confirmed']) || ($in['legal_file_id']??null)!==$legalFile['id']) {
+                        throw new RuntimeException('Подтвердите контрагента, условия и актуальный файл.',409);
+                    }
+                }
+                $fileId=$legalFile['id'];
                 $signature = Evidence::approvalSignature($p, $id, $fileId);
+                ContractReviewFiles::rememberSubmission($p,$c,$u,(string)$in['command_key']);
                 $p->prepare("INSERT INTO rental_approvals(entity_type,entity_id,role,baseline_hash,file_id,actor_id) VALUES('contract',?,'lawyer',?,?,?) ON DUPLICATE KEY UPDATE baseline_hash=VALUES(baseline_hash),file_id=VALUES(file_id),actor_id=VALUES(actor_id),confirmed_at=CURRENT_TIMESTAMP")->execute([
                     $id,
                     $signature,
@@ -552,6 +589,7 @@ final class Service {
                 ], true))throw new RuntimeException('Нет этапа для возврата.');
                 $reason = trim($in['reason'] ?? '');
                 if (!$reason)throw new RuntimeException('Укажите причину.');
+                ContractReviewFiles::rememberSubmission($p,$c,$u,(string)$in['command_key']);
                 $return = $status === 'accounting'?'lawyer':'manager';
                 $next = 'returned';
                 break;
@@ -568,7 +606,7 @@ final class Service {
                     'accountant'
                 ]);
                 if (!in_array($status,['accounting','approved'],true))throw new RuntimeException('Договор не у бухгалтера.');
-                PartyLegalReview::assertCurrent($p,(int)$c['party_id']);
+                LegalHandoff::assertCounterparty($p,$c);
                 if (empty($in['packet_confirmed']))
                     throw new RuntimeException('Откройте и проверьте актуальный пакет договора.',409);
                 foreach ([
@@ -696,6 +734,7 @@ final class Service {
                 $next === 'closed' ? 0 : 1,
                 $id
             ]);
+            if ($action==='contract.submit') ContractReviewFiles::save($p,$id,$materials);
             if ($next==='active' && $status!=='active')CustomerBookings::cancelOthers($p,$id);
             self::event($p, $u, $action, 'Договор №'
             . $c['number']
@@ -799,7 +838,8 @@ final class Service {
             $blocked=$action==='party.block';
             if((bool)$x['blocked']===$blocked)return ['message'=>'Состояние уже установлено.'];
             $projects=$blocked?self::cancelBlockedProjects($p,$u,$id,$reason):[];
-            $update=$p->prepare('UPDATE parties SET blocked=?,block_reason=?,version=version+1 WHERE id=? AND version=?');
+            $update=$p->prepare("UPDATE parties SET blocked=?,block_reason=?,version=version+1,
+                source_json=JSON_REMOVE(source_json,'$.legal_block_new_only') WHERE id=? AND version=?");
             $update->execute([
                 (int)$blocked,
                 $reason,

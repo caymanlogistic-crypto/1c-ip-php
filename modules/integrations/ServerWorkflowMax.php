@@ -28,8 +28,11 @@ final class ServerWorkflowMax
     public static function validate(mixed $m): void
     {
         if(!is_array($m)||($m['scope']??null)!=='contract-workflow'||!is_array($m['catalog_versions']??null)
-            ||array_diff(array_keys($m['catalog_versions']),self::KINDS))throw new RuntimeException('WORKFLOW_MAX_ADMISSION_INVALID');
+            ||array_diff(array_keys($m['catalog_versions']),[...self::KINDS,'firstInvoice']))throw new RuntimeException('WORKFLOW_MAX_ADMISSION_INVALID');
         foreach(self::KINDS as $key)if(!is_int($m['catalog_versions'][$key]??null)||$m['catalog_versions'][$key]<1)throw new RuntimeException('WORKFLOW_MAX_ADMISSION_INVALID');
+        if (array_key_exists('firstInvoice',$m['catalog_versions']) &&
+            (!is_int($m['catalog_versions']['firstInvoice']) || $m['catalog_versions']['firstInvoice']<1))
+            throw new RuntimeException('WORKFLOW_MAX_ADMISSION_INVALID');
         if (array_key_exists('handover_question', $m)) {
             $question = $m['handover_question'];
             if (!is_array($question) || count($question)!==2
@@ -188,7 +191,7 @@ final class ServerWorkflowMax
         $proof=(new CurrentContractMaxProof($this->db))->plan($eventId,$scope['group_id'],$scope['revision'],$version,$this->staff);
         $planned=['event_id'=>$eventId,'command_key'=>$commandKey,'actor_id'=>$event['actor_id'],'text'=>$proof['catalog']['body'],
             'proof_sha256'=>$proof['sha256'],'request_key'=>$proof['request_key']];
-        if (($this->staff || in_array($event['event_kind'],self::KINDS,true)) && $proof['catalog']['format']==='html') $planned['format']='html';
+        if (($this->staff || in_array($event['event_kind'],[...self::KINDS,'firstInvoice'],true)) && $proof['catalog']['format']==='html') $planned['format']='html';
         return $planned;
     }
 

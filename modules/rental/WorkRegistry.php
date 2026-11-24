@@ -45,12 +45,11 @@ final class WorkRegistry {
         $contracts=$bookingOnly?[]:Controller::query("SELECT c.*,COALESCE(p.name,'—') party_name FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.status='draft' AND ".ContractDraft::visibleSql()." ORDER BY c.id DESC");
         $documents=$bookingOnly?[]:Controller::query("SELECT d.*,c.number base_number,c.document_date base_document_date,p.name party_name FROM rental_documents d JOIN contracts c ON c.id=d.contract_id JOIN parties p ON p.id=c.party_id WHERE d.status='draft' AND ".WorkspaceReset::visibleSql('d')." AND JSON_UNQUOTE(JSON_EXTRACT(d.source_json,'$.entryMode'))='current' ORDER BY d.id DESC");
         $open=[]; $history=[];
-        $range=$bookingOnly || $flag==='history'?'1=1':"r.status='active' AND r.until_date>=CURRENT_DATE AND r.contract_id IS NULL";
         $items=Controller::query("SELECT r.*,o.name object_name,o.type object_type,o.source_json object_source,c.number cadastre_number,
             c.source_json cadastre_source,u.name author,p.name party_name FROM reservations r
             JOIN rental_objects o ON o.id=r.object_id JOIN cadastre c ON c.id=o.cadastre_id
             LEFT JOIN users u ON u.id=r.author_id LEFT JOIN parties p ON p.id=r.party_id
-            WHERE r.document_id IS NULL AND $range AND ".WorkspaceReset::visibleSql('r')." ORDER BY r.id DESC");
+            WHERE r.document_id IS NULL AND ".WorkspaceReset::visibleSql('r')." ORDER BY r.id DESC");
         foreach ($items as $r) {
             if (!DirectoryScope::realObject(['source_json'=>$r['object_source']],
                 ['number'=>$r['cadastre_number'],'source_json'=>$r['cadastre_source']])) continue;
@@ -60,7 +59,7 @@ final class WorkRegistry {
         $bookings=$flag==='history'?$history:$open;
         $h=Controller::tabs($bookingOnly ? ['booking'=>['Резервирование',count($open)],'history'=>['История',count($history)]]
             : ['all'=>['Все',count($contracts)+count($documents)+count($open)],'draft'=>['Черновики',count($contracts)+count($documents)],
-               'booking'=>['Резервирование',count($open)],'history'=>['История резервирования',$flag==='history'?count($history):null]],$flag,true);
+               'booking'=>['Резервирование',count($open)],'history'=>['История резервирования',count($history)]],$flag,true);
         $rows = [
         ];
         $manager = People::label('manager');
