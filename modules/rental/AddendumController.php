@@ -21,7 +21,7 @@ final class AddendumController {
         $c = $id?Access::contract($id):null;
         $rows = [
         ];
-        foreach (Controller::query('SELECT d.*,c.number base_number FROM rental_documents d JOIN contracts c ON c.id=d.contract_id WHERE (?=0 OR d.contract_id=?) ORDER BY d.id DESC', [
+        foreach (Controller::query('SELECT d.*,c.number base_number FROM rental_documents d JOIN contracts c ON c.id=d.contract_id WHERE (?=0 OR d.contract_id=?) AND '.WorkspaceReset::visibleSql('d').' ORDER BY d.id DESC', [
             $id,
             $id
         ]) as $d) {
