@@ -97,7 +97,7 @@
       "when": "При появлении нового вычисленного сигнала для текущего пользователя.",
       "tone": "computed",
       "title": "Новая задача или уведомление",
-      "message": "{record}. {why} Раздел: {section}."
+      "message": "{record}. {why}"
     },
     {
       "id": "operation-failed",
@@ -105,7 +105,7 @@
       "when": "При появлении новой ошибки в «Операциях и отправках».",
       "tone": "danger",
       "title": "Операция не завершена",
-      "message": "{record}. {why} Раздел: {section}."
+      "message": "{record}. {why}"
     },
     {
       "id": "record-saved",

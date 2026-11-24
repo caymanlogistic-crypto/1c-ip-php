@@ -22,6 +22,11 @@ foreach ($defaults['entries'] as $source) {
     $catalog[$source['id']] = $entry;
 }
 
+foreach (['task-received','operation-failed'] as $key) {
+    checkTopAdmin(!str_contains($catalog[$key]['body_text'], '{section}'), 'Default upper popup exposes routing key: '.$key);
+}
+$catalog['task-received']['body_text'].=' Раздел: {section}.';
+
 $event = ['event_id' => 1100, 'entity_kind' => 'contract', 'record_number' => '173',
     'actor_name' => 'Анна', 'party_name' => 'ООО «Пример»', 'entity_version' => 3,
     'event_kind' => 'submit', 'reason' => 'Проверить файл', 'text' => 'Передано на проверку'];

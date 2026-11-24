@@ -41,6 +41,11 @@
     } catch { return original; }
   }
 
+  // Legacy catalog versions still include the internal section key in their display text.
+  function withoutSectionKey(text) {
+    return text.replace(/(^|\s+)Раздел:[^\S\r\n]*(?:\{section\}|[a-z][a-z0-9]*(?:-[a-z0-9]+)*)(?:\.(?=\s|$)|(?=[^\S\r\n]*(?:\r?\n|$)))/giu, '').trim();
+  }
+
   function notificationHost() {
     const dialogs = Array.from(document.querySelectorAll?.('dialog[open]') || []);
     return dialogs.at(-1) || document.body;
@@ -202,15 +207,17 @@
       if (!body || (scope && !scopeIsOpen(scope))) return;
       const original = {tone, title: String(title ?? labels[tone].title), message: body};
       const resolved = resolveText(original, eventKey, variables);
+      const visible = {tone, title: withoutSectionKey(resolved.title) || labels[tone].title, message: withoutSectionKey(resolved.message)};
+      if (!visible.message) return;
       const current = scope && scopedNotices.get(scope);
-      if (current?.matches(resolved)) return;
+      if (current?.matches(visible)) return;
       current?.close();
-      const notice = present(resolved, scope);
+      const notice = present(visible, scope);
       if (scope) scopedNotices.set(scope, notice);
     },
     clear(scope, message) {
       const notice = scopedNotices.get(scope);
-      if (!notice || (message !== undefined && notice.entry.message !== message)) return;
+      if (!notice || (message !== undefined && notice.entry.message !== withoutSectionKey(String(message)))) return;
       notice.close();
     }
   });
