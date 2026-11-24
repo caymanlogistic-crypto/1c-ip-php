@@ -26,7 +26,9 @@ table { width: 100%; border-collapse: collapse; }
 .heading { border-bottom: 1.3pt solid #303030; margin: 10pt 0 5pt; }
 .heading td { padding: 0 3pt 6pt; vertical-align: middle; }
 h1 { margin: 0; font-size: 14.5pt; line-height: 1.32; }
-.draft-label { width: 37%; white-space: nowrap; text-align: right; font-weight: bold; font-size: 8pt; }
+.draft-label { text-align: right; font-weight: bold; font-size: 8pt; }
+.invoice-number { white-space: nowrap; }
+.invoice-number span { display: inline-block; width: 33pt; height: .85em; border-bottom: .65pt solid #303030; }
 .details { margin-bottom: 1pt; }
 .details td { padding: 1.5pt 2pt 5pt; vertical-align: top; }
 .details td:first-child { width: 71pt; }
@@ -68,7 +70,8 @@ tr, .summary, .signature { page-break-inside: avoid; }
 </table>
 
 <table class="heading"><tr>
-  <td><h1>Счет на оплату от <?= View::e($titleDate) ?></h1></td>
+  <td><h1>Счет на оплату <span class="invoice-number">№ <span></span></span> от <?= View::e($titleDate) ?></h1></td>
+</tr><tr>
   <td class="draft-label">Предварительный счёт · не для оплаты</td>
 </tr></table>
 <table class="details">

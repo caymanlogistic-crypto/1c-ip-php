@@ -17,9 +17,9 @@ final class RentalUI
         return '<button type="button" class="btn '.($danger?'btn-danger':($primary?'btn-primary':'btn-secondary')).'" data-rental-open="'.View::e($url).'">'.View::e($label).'</button>';
     }
 
-    public static function alert(string $title,string $sub='',string $tone='info'): string
+    public static function alert(string $title,string $sub='',string $tone='info',bool $filled=false): string
     {
-        return '<div class="form-alert alert-'.$tone.'" role="'.($tone==='error'?'alert':'status').'"><span class="alert-mark" aria-hidden="true">'.($tone==='error'?'×':($tone==='warning'?'!':'i')).'</span><div class="alert-body"><div class="alert-body-title">'.View::e($title).'</div>'.($sub?'<div class="alert-body-sub">'.View::e($sub).'</div>':'').'</div></div>';
+        return '<div class="form-alert alert-'.$tone.($filled?' form-alert--filled':'').'" role="'.($tone==='error'?'alert':'status').'"><span class="alert-mark" aria-hidden="true">'.($tone==='error'?'×':($tone==='warning'?'!':'i')).'</span><div class="alert-body"><div class="alert-body-title">'.View::e($title).'</div>'.($sub?'<div class="alert-body-sub">'.View::e($sub).'</div>':'').'</div></div>';
     }
 
     public static function notice(): string
@@ -28,6 +28,20 @@ final class RentalUI
         $message=(string)$_SESSION['rental_notice'];
         unset($_SESSION['rental_notice']);
         return self::alert($message);
+    }
+
+    public static function reviewTermsTable(array $terms,?string $total): string
+    {
+        $rows=[];
+        foreach ($terms as $term) {
+            $rows[]=[View::e($term['name']),View::e($term['type']??''),View::e($term['area']===null
+                ?'—':DirectoryUi::area((string)$term['area']).' м²'),Controller::money($term['amount'])];
+        }
+        if (count($rows)!==1 && $total!==null) {
+            $rows[]=['<strong>Итого по договору</strong>','—','—','<strong>'.Controller::money($total).'</strong>'];
+        }
+        return $rows?'<div class="registry-ui-review-terms">'
+            .Controller::table(['Объект','Тип','Площадь','Аренда за месяц с НДС'],$rows,['text','text','short','money']).'</div>':'';
     }
 
     public static function reviewSection(string $title,string $body,string $state='',bool $done=false,string $statusUrl=''): string

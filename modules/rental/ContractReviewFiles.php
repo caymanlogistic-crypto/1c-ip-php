@@ -241,6 +241,13 @@ final class ContractReviewFiles
         return '<p class="registry-ui-modal-help">'.View::e($label).' · версия '.(int)$selection['version'].'</p>'.self::list($files);
     }
 
+    public static function submittedPresentation(array $contract): string
+    {
+        if (empty(self::selection($contract)['submitted'])) return '';
+        $files=self::files(DB::pdo(),$contract);
+        return $files?self::list($files,inline:true):'';
+    }
+
     public static function legalPresentation(array $contract,array $party): string
     {
         $db=DB::pdo();

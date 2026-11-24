@@ -180,25 +180,13 @@ final class AccountantReviewCard
     {
         $db=DB::pdo();
         $id=(int)$contract['id'];
-        $rows=[];
-        foreach (BillableTerms::forContract($db,$id) as $term) {
-            $rows[]=[View::e($term['name']),View::e($term['type']??''),View::e($term['area']===null
-                ?'—':DirectoryUi::area((string)$term['area']).' м²'),Controller::money($term['amount'])];
-        }
         $facts=[
             ['Дата договора',Documents::dateText($contract['document_date'])],
             ['Период аренды',Documents::dateText($contract['start_date']).' — '.Documents::dateText($contract['end_date'])],
         ];
         $vat=$context['organization']['vat']??null;
         if ($vat!==null) $facts[]=['НДС',(string)(float)$vat.' %'];
-        $body=RentalUI::pairs($facts);
-        if (count($rows)!==1 && $contract['amount']!==null) {
-            $rows[]=['<strong>Итого по договору</strong>','—','—','<strong>'.Controller::money($contract['amount']).'</strong>'];
-        }
-        if ($rows) {
-            $body.='<div class="registry-ui-review-terms">'
-                .Controller::table(['Объект','Тип','Площадь','Аренда за месяц с НДС'],$rows,['text','text','short','money']).'</div>';
-        }
+        $body=RentalUI::pairs($facts).RentalUI::reviewTermsTable(BillableTerms::forContract($db,$id),$contract['amount']);
         $initial=$context['initial_terms']??InitialInvoice::approvalTerms($db,$id);
         if ($initial) {
             $body.=RentalUI::pairs([

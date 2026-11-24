@@ -115,36 +115,24 @@ final class Indicators {
             $raw = json_decode($c['source_json'], true);
             $managed = empty($raw['imported']);
             $status = $c['status'];
-            if ($managed && in_array($status, [
+            if (RegistryState::managed($c) && in_array($status, [
                 'legal',
                 'accounting',
                 'returned',
                 'approved',
                 'sent'
             ], true)) {
-                $target = match ($status) {
-                    'legal' => 'lawyer', 'accounting', 'approved' => 'accountant', 'returned' => $c['return_to'] ?? 'manager', default => 'manager'
-                };
+                $target = RegistryState::owner($c);
                 $sla=$legalInfo('contract',$c);
                 $severity=$status==='returned'?'red':($sla['severity']??'yellow');
                 $message=$status==='returned'?'Исправить замечания: '.$c['reason']:($status==='sent'?'Получить подписи или оплату':'Согласовать и подготовить пакет');
                 if(($sla['state']??null)==='UNKNOWN')$message.=' · Срок проверки не подтверждён';
                 if(($sla['working_seconds']??0)>=21600)$message.=' · Истекли 6 рабочих часов юридической проверки';
                 $add('contract',$id,$target,$severity,'approvals',$message,$id,['version'=>(int)$c['version'],'legal_sla'=>$sla]);
-                foreach (array_unique(array_merge([
-                    'manager',
-                    'director'
-                ], in_array($status, [
-                    'accounting',
-                    'approved',
-                    'returned'
-                ], true)?[
-                    'lawyer',
-                    'accountant'
-                ]:[
-                ])) as $role)if ($role !== $target)$add('contract', $id, $role, 'blue', 'approvals', 'На этапе «'
-                . Controller::status($status)
-                . '»', $id);
+                foreach (['manager','lawyer','accountant','director'] as $role) {
+                    if ($role !== $target) $add('contract', $id, $role, 'blue', 'approvals', 'На этапе «'
+                        . RegistryState::stage($c).'»', );
+                }
             }
             if ($status === 'active') {
                 $q = DB::pdo()->prepare("SELECT COUNT(*) FROM rental_documents d WHERE d.contract_id=? AND d.kind='renewal' AND d.applied=0 AND d.status<>'cancelled' AND d.end_date>? AND (d.status IN ('sent','signed') OR EXISTS(SELECT 1 FROM reservations r WHERE r.document_id=d.id AND r.status='active'))");
