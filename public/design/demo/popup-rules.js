@@ -59,11 +59,30 @@
     event.target.closest('dialog').close();
     accountantReview.close();
   });
-  document.querySelector('[data-accountant-return-form]').addEventListener('submit',event=>{
+  const reviewDecision=document.getElementById('review-decision-example');
+  const reasonForm=reviewDecision.querySelector('form');
+  const redActions={
+    block:['Новые договоры с этим контрагентом будут заблокированы. Текущий договор вернётся менеджеру.','Причина блокировки','Заблокировать и вернуть'],
+    documents:['Договор вернётся менеджеру с указанным списком.','Какие документы нужны','Отправить запрос'],
+    terms:['Договор вернётся менеджеру с указанными замечаниями.','Какие условия нужно исправить','Вернуть на доработку'],
+    accounting:['Договор вернётся юристу с указанной причиной.','Причина возврата','Вернуть']
+  };
+  let reviewDecisionParent=null;
+  document.querySelectorAll('[data-demo-review-decision]').forEach(button=>button.addEventListener('click',()=>{
+    const [effect,label,submit]=redActions[button.dataset.demoReviewDecision];
+    reviewDecisionParent=button.closest('dialog');
+    reviewDecision.querySelector('.modal-title').textContent=button.textContent;
+    reviewDecision.querySelector('[data-review-decision-effect]').textContent=effect;
+    reviewDecision.querySelector('[data-review-decision-reason]').textContent=label;
+    reviewDecision.querySelector('[type=submit]').textContent=submit;
+    reasonForm.reset();
+    reviewDecision.showModal();
+  }));
+  reviewDecision.querySelectorAll('[data-close-review-decision]').forEach(button=>button.addEventListener('click',()=>reviewDecision.close()));
+  reasonForm.addEventListener('submit',event=>{
     event.preventDefault();
-    event.target.reset();
-    event.target.closest('dialog').close();
-    accountantReview.close();
+    reviewDecision.close();
+    reviewDecisionParent?.close();
   });
   const reviewParty=document.getElementById('review-party-example');
   document.querySelectorAll('[data-open-review-party]').forEach(button=>button.addEventListener('click',()=>reviewParty.showModal()));

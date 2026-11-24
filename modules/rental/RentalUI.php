@@ -72,7 +72,7 @@ final class RentalUI
         $titleId='rental-modal-title-'.bin2hex(random_bytes(6));
         $h='<dialog data-rental-dialog aria-labelledby="'.$titleId.'" data-rental-return="/rental/'.View::e($active).'"'
             .(!$fetch?' data-rental-autopen':'').($design!==''?\App\InterfaceDesign::attributes($design):'').' class="modal registry-ui-modal '
-            .($confirmation?'registry-ui-modal--confirmation':($wide?'registry-ui-modal--probe':'registry-ui-modal--reading')).($canvas?' registry-ui-modal--form-canvas':'').($tableOnly?' registry-ui-modal--table':'')
+            .($confirmation?'registry-ui-modal--confirmation registry-ui-modal--compact-confirmation':($wide?'registry-ui-modal--probe':'registry-ui-modal--reading')).($canvas?' registry-ui-modal--form-canvas':'').($tableOnly?' registry-ui-modal--table':'')
             .($tall?' registry-ui-modal--tall':'')
             .' demo-dialog"><div class="registry-ui-modal-form"><div class="modal-head"><h2 class="modal-title" id="'.$titleId.'">'
             .View::e($title)

@@ -60,6 +60,7 @@ input,select,textarea,button{font-family:var(--font)}
 /* Content-sized variants retain the same modal body/header/footer contracts. */
 .registry-ui-modal.registry-ui-modal--reading,.registry-ui-modal.registry-ui-modal--finance{width:min(720px,calc(100vw - 32px))}
 .registry-ui-modal.registry-ui-modal--confirmation{width:min(520px,calc(100vw - 32px))}
+.registry-ui-modal.registry-ui-modal--compact-confirmation{min-width:0}
 @media(max-width:700px){.registry-ui-modal.registry-ui-modal--reading,.registry-ui-modal.registry-ui-modal--finance,.registry-ui-modal.registry-ui-modal--confirmation{width:calc(100vw - 16px)}}
 
 .registry-ui-data .registry-ui-attention{color:var(--p-warning)}
