@@ -26,7 +26,7 @@ final class LegalHandoffCard
             .self::party($contract,$party,$details,$review['party'])
             .self::terms($contract,$review['terms'])
             .self::securityMultiple($contract,$multiple)
-            .self::documents($contract,$files,$ready).self::history($id,true).'</div>';
+            .self::documents($contract,$files,$ready).'</div>';
         $formId='legal-handoff';
         $canTransfer=$ready && $files && $multiple!==null;
         $body.='<form id="'.$formId.'" method="post" action="/rental/action">'
@@ -143,21 +143,15 @@ final class LegalHandoffCard
         return self::section('Договор',$body,$files?'Комплект готов':($ready?'Подготовка комплекта':'Ожидает двух решений'),(bool)$files);
     }
 
-    public static function accountantDocuments(int $id,array $files,bool $handoff=true): string
+    public static function accountantDocuments(array $files): string
     {
         $body=$files?self::fileList($files):'<p class="registry-ui-modal-help">Текущий комплект не подтверждён.</p>';
-        return self::section('Документы от юриста',$body.self::history($id,!$handoff),$files?'Текущий комплект':'',(bool)$files);
+        return self::section('Документы от юриста',$body,$files?'Текущий комплект':'',(bool)$files);
     }
 
     private static function section(string $title,string $body,string $state,bool $done): string
     {
         return RentalUI::reviewSection($title,$body,$state,$done);
-    }
-
-    private static function disclosure(string $label,string $body): string
-    {
-        return '<details class="registry-ui-form-disclosure"><summary class="btn btn-secondary">'.View::e($label)
-            .'</summary><div class="registry-ui-form-section">'.$body.'</div></details>';
     }
 
     private static function fields(array $contract,string $action): string
@@ -187,23 +181,5 @@ final class LegalHandoffCard
             $list.='</li>';
         }
         return $list.'</ul>';
-    }
-
-    private static function history(int $id,bool $includeLatest): string
-    {
-        $sets=LegalHandoff::history(DB::pdo(),$id);
-        if (!$includeLatest) array_shift($sets);
-        $body='';
-        foreach ($sets as $set) {
-            $body.='<section class="registry-ui-form-section"><h4 class="registry-ui-modal-summary">'
-                .View::e($set['actor'].' · '.(new \DateTimeImmutable($set['sent_at']))->format('d.m.Y H:i'))
-                .'</h4>'.self::fileList($set['files']).'</section>';
-        }
-        foreach (Controller::query("SELECT created_at,description FROM rental_events WHERE contract_id=? AND action='contract.return'
-            AND actor_role='accountant' ORDER BY id DESC",[$id]) as $event) {
-            $note=explode(' · ',$event['description'],2)[1]??$event['description'];
-            $body.=RentalUI::alert('Замечание бухгалтера · '.(new \DateTimeImmutable($event['created_at']))->format('d.m.Y H:i'),$note);
-        }
-        return $body?self::disclosure('История передачи бухгалтеру',$body):'';
     }
 }

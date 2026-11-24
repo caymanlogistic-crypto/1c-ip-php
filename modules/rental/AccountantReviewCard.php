@@ -74,7 +74,7 @@ final class AccountantReviewCard
         if ($failure!=='') $notice.=RentalUI::alert('Проверка пакета недоступна',$failure,'warning');
         $body=$notice.'<div class="registry-ui-form-sections registry-ui-form-sections--compact">'
             .self::party($id,$party,$actor).self::terms($contract,$context)
-            .LegalHandoffCard::accountantDocuments($id,$files,$handoff!==null)
+            .LegalHandoffCard::accountantDocuments($files)
             .self::invoice($contract,$view['invoices']??null,$context['organization']['vat']??null,$needsConfirmation)
             .'</div>';
         $footer='';

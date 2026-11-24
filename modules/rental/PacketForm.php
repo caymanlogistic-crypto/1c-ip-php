@@ -112,7 +112,7 @@ final class PacketForm
             }
             $body .= '</div>';
         }
-        if (isset($context['legal_handoff'])) $body.=LegalHandoffCard::accountantDocuments($id,$context['legal_handoff']);
+        if (isset($context['legal_handoff'])) $body.=LegalHandoffCard::accountantDocuments($context['legal_handoff']);
         elseif(isset($context['word_pack']))$body.=WordPack::links($context['word_pack']);
         return $body.$confirmation['fields'];
     }

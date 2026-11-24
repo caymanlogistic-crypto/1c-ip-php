@@ -9,16 +9,7 @@ use RuntimeException;
 final class ContractApprovalPreview
 {
     public const PARTY_URL='/rental/approval-party-details';
-    private const EVENTS=[
-        'submit'=>'Передан юристу',
-        'resubmit'=>'Повторно передан юристу',
-        'legalApprove'=>'Передан в бухгалтерию',
-        'lawyerReturn'=>'Возвращён менеджеру',
-        'accountantReturn'=>'Бухгалтерия: отказ в согласовании',
-        'package'=>'Пакет подтверждён бухгалтерией',
-        'handed'=>'Документы переданы клиенту',
-        'cancelled'=>'Договор аннулирован',
-    ];
+    private const TRANSITIONS=['submit','resubmit','legalApprove','lawyerReturn','accountantReturn','package','handed','cancelled'];
 
     public static function available(array $contract,string $role): bool
     {
@@ -42,7 +33,7 @@ final class ContractApprovalPreview
         $id=(int)$contract['id'];
         $actor=Auth::user();
         $party=Service::get(DB::pdo(),'parties',(int)$contract['party_id']);
-        $events=self::events($id);
+        $event=$contract['status']==='legal'?self::latestEvent($id):[];
         $partyBody=RentalUI::pairs([
             ['Наименование',$party['name']],
             ['ИНН / КПП',($party['inn']?:'—').' / '.($party['kpp']?:'—')],
@@ -51,12 +42,11 @@ final class ContractApprovalPreview
             $partyBody.=RentalUI::button('Полные данные',self::PARTY_URL.'?contract_id='.$id);
         }
 
-        [$files,$prior]=self::documents($contract);
-        $body=self::stage($contract,$events[0]??[])
+        $files=self::documents($contract);
+        $body=self::stage($contract,$event)
             .RentalUI::reviewSection('Контрагент',$partyBody)
             .RentalUI::reviewSection('Условия',self::terms($contract))
-            .RentalUI::reviewSection('Документы',$files?:'<p class="registry-ui-modal-help">Документы ещё не переданы.</p>')
-            .self::history($events,$prior);
+            .RentalUI::reviewSection('Документы',$files?:'<p class="registry-ui-modal-help">Документы ещё не переданы.</p>');
         return RentalUI::modal('Договор №'.$contract['number'],$body,active:'approvals',
             leadingActions:self::cancelAction($contract,$actor),extractForms:false);
     }
@@ -115,13 +105,13 @@ final class ContractApprovalPreview
         return $body.RentalUI::reviewTermsTable($terms,$contract['amount']);
     }
 
-    private static function documents(array $contract): array
+    private static function documents(array $contract): string
     {
         $id=(int)$contract['id'];
         $db=DB::pdo();
-        $history=LegalHandoff::history($db,$id);
         $materials=ContractReviewFiles::submittedPresentation($contract);
-        if (!in_array($contract['status'],['accounting','approved','sent','returned'],true)) return [$materials,$history];
+        if (!in_array($contract['status'],['accounting','approved','sent','returned'],true)) return $materials;
+        $history=LegalHandoff::history($db,$id);
 
         $query=$db->prepare("SELECT f.*,a.confirmed_at FROM rental_approvals a JOIN rental_files f ON f.id=a.file_id
             AND f.entity_type='contract' AND f.entity_id=a.entity_id
@@ -130,10 +120,9 @@ final class ContractApprovalPreview
         $primary=$query->fetch();
         $current=null;
         if ($primary) {
-            foreach ($history as $index=>$bundle) {
+            foreach ($history as $bundle) {
                 if (($bundle['files'][0]['id']??null)!==$primary['id']) continue;
                 $current=$bundle;
-                unset($history[$index]);
                 break;
             }
             if (!$current) {
@@ -141,11 +130,11 @@ final class ContractApprovalPreview
                 $current=['files'=>$pack['files']??[$primary],'sent_at'=>$primary['confirmed_at']];
             }
         }
-        if (!$current && $contract['status']==='returned') $current=array_shift($history);
-        if (!$current) return [$materials,$history];
+        if (!$current && $contract['status']==='returned') $current=$history[0]??null;
+        if (!$current) return $materials;
 
         $label=$contract['status']==='returned'?'Последний переданный комплект':'Комплект юриста';
-        return [self::fileList($current,$label),$history];
+        return self::fileList($current,$label);
     }
 
     private static function fileList(array $bundle,string $label): string
@@ -160,39 +149,17 @@ final class ContractApprovalPreview
         return $html.'</ul>';
     }
 
-    private static function events(int $id): array
+    private static function latestEvent(int $id): array
     {
         $db=DB::pdo();
-        $marks=implode(',',array_fill(0,count(self::EVENTS),'?'));
+        $marks=implode(',',array_fill(0,count(self::TRANSITIONS),'?'));
         $query=$db->prepare("SELECT id,created_at,source_json FROM rental_events WHERE id>? AND contract_id=? AND
             JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.entity_kind'))='contract' AND
             JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.event_kind')) IN ($marks) ORDER BY id DESC");
-        $query->execute([ZeroPoint::eventFloor($db),$id,...array_keys(self::EVENTS)]);
-        return array_values(array_filter(array_map(WorkflowEvents::decode(...),$query->fetchAll())));
-    }
-
-    private static function history(array $events,array $prior): string
-    {
-        if (!$events && !$prior) return '';
-        $body='';
-        if ($events) {
-            $body='<ol class="registry-ui-modal-list">';
-            foreach ($events as $event) {
-                $date=(new \DateTimeImmutable($event['created_at']))->format('d.m.Y H:i');
-                $reason=in_array($event['event_kind'],['lawyerReturn','accountantReturn','cancelled'],true)?$event['reason']:'';
-                $body.='<li><strong>'.View::e(self::EVENTS[$event['event_kind']]).'</strong>'
-                    .'<div class="doc-meta">'.View::e($date.' · '.$event['actor_name']).'</div>'
-                    .($reason!==''?'<div>'.View::e($reason).'</div>':'').'</li>';
-            }
-            $body.='</ol>';
+        $query->execute([ZeroPoint::eventFloor($db),$id,...self::TRANSITIONS]);
+        while ($row=$query->fetch()) {
+            if ($event=WorkflowEvents::decode($row)) return $event;
         }
-        foreach ($prior as $bundle) $body.=self::fileList($bundle,'Предыдущий комплект');
-        return self::disclosure('История согласования',$body);
-    }
-
-    private static function disclosure(string $label,string $body): string
-    {
-        return '<details class="registry-ui-form-disclosure"><summary class="btn btn-secondary">'.View::e($label)
-            .'</summary><div class="registry-ui-form-section">'.$body.'</div></details>';
+        return [];
     }
 }
