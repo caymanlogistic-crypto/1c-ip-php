@@ -116,7 +116,7 @@ final class Controller {
         return $q->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public static function table(array $headers, array $rows, ?array $columnOverride = null, array $details = [], array $columnWidths = []): string {
+    public static function table(array $headers, array $rows, ?array $columnOverride = null, array $details = [], array $columnWidths = [], bool $inferRowLinks = true): string {
         $profile = $headers[0] === 'Кадастровый номер'?'rental-cadastre':'rental-contracts';
         $columns = $headers[0] === 'Кадастровый номер'?[
             'flex',
@@ -173,7 +173,7 @@ final class Controller {
             $attrs = $row['_attrs'] ?? '';
             unset($row['_attrs']);
             $url = '';
-            if (isset($row[0]) && preg_match('~href="(/rental/(?:contract|invoice|edit-party|edit-object|edit-cadastre|document|template|payment|party)\?[^"]+)"~', $row[0], $match))$url = html_entity_decode($match[1]);
+            if ($inferRowLinks && isset($row[0]) && preg_match('~href="(/rental/(?:contract|invoice|edit-party|edit-object|edit-cadastre|document|template|payment|party)\?[^"]+)"~', $row[0], $match))$url = html_entity_decode($match[1]);
             $h.='<tr'
             . ($attrs?' '
             . $attrs:'')
@@ -1109,12 +1109,18 @@ final class Controller {
         ], $idle);
     }
 
-    public static function completionTarget(string $action, array $input): ?string {
+    public static function completionTarget(string $action,array $input,array $result=[]): ?string {
+        if ($action==='contract.packet' && ($result['status']??null)==='active') {
+            $actor=Auth::user();
+            return $actor && \App\PagePolicy::level('rental.contracts-active',$actor)>=1
+                ?'/rental/contracts-active':'/rental/approvals';
+        }
         if (in_array($action, ['contract.create', 'contract.edit', 'document.create', 'document.edit'], true)) {
             return ($input['intent'] ?? 'draft') === 'submit' ? '/rental/approvals' : '/rental/contracts';
         }
         if ($action === 'contract.delete') return '/rental/contracts';
-        if (in_array($action, ['contract.submit', 'contract.return', 'contract.forward', 'contract.legal'], true)) return '/rental/approvals';
+        if (in_array($action, ['contract.submit','contract.return','contract.forward','contract.legal',LegalHandoff::BLOCK,
+            'document.return','document.forward'],true)) return '/rental/approvals';
         if (str_starts_with($action, 'reservation.')) return '/rental/contracts?flag=booking';
         if (str_starts_with($action,'party.')) return '/rental/parties';
         if (str_starts_with($action,'organization.')) return '/rental/organization';
@@ -1174,6 +1180,7 @@ final class Controller {
         $in = $_POST;
         unset($in['_csrf']);
         $action = (string)($in['action'] ?? '');
+        if (str_starts_with($action,'template.')) throw new RuntimeException('Откройте раздел «Шаблоны документов».',404);
         $target = match (true) {
             in_array($action,OnecRequest::ACTIONS,true) => OnecRequest::route((int)($in['id']??0)),
             in_array($action,InitialInvoice::ACTIONS,true) => InitialInvoiceCard::route((int)($in['id']??0)),
@@ -1201,7 +1208,7 @@ final class Controller {
             $result = Service::command($action, $in, $freshCommittedEventId,$materials);
             if (in_array($action,RentalServices::ACTIONS,true) && !empty($result['service_id'])) $target='/rental/service?id='.$result['service_id'];
             if ($action===PremisesInventory::MOVE) $target='/rental/object-inventory?id='.(int)$result['id'];
-            $completion = self::completionTarget($action, $in);
+            $completion = self::completionTarget($action,$in,$result);
             $completeInApprovals = $completion === '/rental/approvals';
             $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''),$action,showAccepted: !$completeInApprovals);
             if ($action === 'party.save' && empty($in['id']) && ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'ERP-Fetch') {
@@ -1220,7 +1227,7 @@ final class Controller {
             if (str_starts_with($action, 'reservation.') && !empty($result['id']))$target = '/rental/booking?id='
             . $result['id'];
             if (str_starts_with($action,'party.review.')) $target='/rental/party?id='.(int)$result['id'];
-            if (($action===LegalHandoff::REMOVE || $completeInApprovals) && $maxNotice==='') {
+            if (($action===LegalHandoff::REMOVE || $action===LegalHandoff::SECURITY_MULTIPLE || $completeInApprovals) && $maxNotice==='') {
                 unset($_SESSION['rental_notice']);
             } else {
                 $_SESSION['rental_notice'] = ($result['message'] ?? 'Сохранено.').$maxNotice;

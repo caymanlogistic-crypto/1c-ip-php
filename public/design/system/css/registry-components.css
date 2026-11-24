@@ -165,7 +165,7 @@
 .registry-ui-data .registry-ui-due--overdue,.registry-ui-data .registry-ui-due--overdue .registry-ui-secondary {color:var(--p-error)}
 .registry-ui-data .registry-ui-due--overdue > .registry-ui-primary {font-weight:700;color:inherit}
 .registry-ui-data .registry-ui-due--complete,.registry-ui-data .registry-ui-due--complete :is(.registry-ui-primary,.registry-ui-secondary) {color:var(--p-success)}
-.registry-ui-data .registry-ui-error {color:var(--p-error)}
+.registry-ui-data .registry-ui-error,.registry-ui-modal-list .registry-ui-error {color:var(--p-error)}
 .registry-ui-data .registry-ui-success {color:var(--p-success)}
 .registry-ui-data .registry-ui-status {font:500 12px/16.8px var(--font)}
 .registry-ui-data .registry-ui-status[data-status="planned_route"] {color:var(--tone-9c27b0)}
@@ -753,6 +753,8 @@
 .registry-ui-review-section .btn[download]{text-decoration:none}
 .registry-ui-review-section .registry-ui-form-section-heading{justify-content:space-between}
 .registry-ui-review-section .modal-title{margin:0;min-width:0;overflow-wrap:anywhere}
+.registry-ui-review-table .registry-ui-data{min-width:0}
+.registry-ui-review-table .registry-ui-data :is(th,td){white-space:normal;overflow-wrap:anywhere;text-overflow:clip}
 .registry-ui-review-terms{width:100%;min-width:0;--review-object-width:30%;--review-type-width:25%;--review-area-width:18%;--review-rent-width:27%}
 .registry-ui-review-terms .registry-ui-data[data-column-profile]{width:100%;min-width:0;table-layout:fixed}
 .registry-ui-review-terms .registry-ui-data[data-column-profile] col:nth-child(1){width:var(--review-object-width)}

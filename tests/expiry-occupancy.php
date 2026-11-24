@@ -4,7 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\DB;
-use Modules\Rental\{Availability,ExpiryContinuation,Importer,Occupancy,Service};
+use Modules\Rental\{Availability,DirectoryScope,ExpiryContinuation,Importer,Occupancy,Service};
 
 $db=DB::pdo();
 $schema=(string)$db->query('SELECT DATABASE()')->fetchColumn();
@@ -30,9 +30,10 @@ try {
     $party=(int)$db->query('SELECT MAX(id)+1 FROM parties')->fetchColumn();
     $object=(int)$db->query('SELECT MAX(id)+1 FROM rental_objects')->fetchColumn();
     $contract=(int)$db->query('SELECT MAX(id)+1 FROM contracts')->fetchColumn();
-    $cadastre=$db->query('SELECT id FROM cadastre WHERE rentable=1 ORDER BY id LIMIT 1')->fetchColumn();
+    $parents=$db->query('SELECT id,number,source_json FROM cadastre WHERE rentable=1 ORDER BY id')->fetchAll();
+    $cadastre=array_values(array_filter($parents,DirectoryScope::realCadastre(...)))[0]['id'];
     $db->prepare("INSERT INTO parties(id,name,source_json) VALUES(?,'Тест истечения','{}')")->execute([$party]);
-    $db->prepare("INSERT INTO rental_objects(id,name,type,cadastre_id,source_json) VALUES(?,'Тест истечения','Офис',?,'{}')")
+    $db->prepare("INSERT INTO rental_objects(id,name,type,cadastre_id,active,source_json) VALUES(?,'Тест истечения','Офис',?,1,'{}')")
         ->execute([$object,$cadastre]);
     $put=$db->prepare("INSERT INTO contracts(id,number,party_id,start_date,end_date,amount,status,signed,source_json)
         VALUES(?,?,?,?,?,?,'active',1,'{}')");
@@ -60,6 +61,23 @@ try {
     expiryCheck((int)Occupancy::leasesOn($yesterday,$object)[$object]['id']===$contract,'old lease on last day');
     expiryCheck((int)Occupancy::leasesOn($current,$object)[$object]['id']===$next,'successor begins on first day');
     expiryCheck(!$available()['available'],'no day of vacancy after the confirmed handover');
+
+    $rateChange=$now->modify('+10 days')->format('Y-m-d');
+    $beforeRateChange=$now->modify('+9 days')->format('Y-m-d');
+    $db->prepare('UPDATE contract_terms SET superseded_on=? WHERE contract_id=? AND object_id=?')->execute([$beforeRateChange,$next,$object]);
+    $term->execute([$next,$object,$rateChange,$later,$rateChange,'56000.00']);
+    foreach ([[$current,$current],[$beforeRateChange,$rateChange],[$rateChange,$rateChange]] as [$from,$through]) {
+        $item=array_column(Availability::items($from,$through),null,'id')[$object];
+        expiryCheck(!$item['available'] && $item['disabled'],'rate revision must not free the object');
+        expiryCheck((int)Occupancy::leasesOn($from,$object)[$object]['id']===$next,'daily contract matches availability');
+        try {
+            Service::available($db,[$object],$from,$through);
+            throw new RuntimeException('overlapping rental was not blocked');
+        } catch (RuntimeException $e) {
+            expiryCheck($e->getMessage()==='Объект занят договором на выбранный период.','write guard must block overlapping rental');
+        }
+        Service::available($db,[$object],$from,$through,$next,null,false,null,false,$contract);
+    }
     echo "PASS expired active lease lock, exact old and new daily occupancy; fixtures rolled back\n";
 } finally {
     $db->rollBack();

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Modules\Rental;
 
-use App\{Auth, BillableTerms, BillingPartTerms, PagePolicy};
+use App\{Auth, BillableTerms, BillingPartTerms, DB, PagePolicy};
 use DateTimeImmutable;
 use PDO;
 use RuntimeException;
@@ -43,8 +43,9 @@ final class InitialInvoice
             if ($error->getCode() === 403) return false;
             throw $error;
         }
-        return $action === self::TERMS || empty($actor['grants_configured'])
-            || $actor['role'] === 'admin' || PagePolicy::level('rental.invoice-list',$actor) >= 2;
+        if ($action===self::TERMS) return self::legalSecurityMultiple(DB::pdo(),$contract)===null;
+        return empty($actor['grants_configured']) || $actor['role'] === 'admin'
+            || PagePolicy::level('rental.invoice-list',$actor) >= 2;
     }
 
     public static function assertIssueParty(PDO $db,array $contract): void
@@ -94,6 +95,44 @@ final class InitialInvoice
         return self::read($db,$id,'terms');
     }
 
+    public static function legalSecurityMultiple(PDO $db,array $contract): ?int
+    {
+        $id=(int)$contract['id'];
+        $fact=self::read($db,$id,'legal-security-multiple');
+        if ($fact===null) return null;
+        $terms=InitialBilling::orderedTerms(BillableTerms::forContract($db,$id));
+        return ($fact['basis']??null)===self::basis($contract,$terms) ? $fact['multiple'] : null;
+    }
+
+    public static function issuedSecurityMultiple(PDO $db,int $id): ?int
+    {
+        return self::receipt($db,$id)['condition']['multiple']
+            ?? (self::issuedFor($db,$id) ? (self::approvalTerms($db,$id)['multiple']??null) : null);
+    }
+
+    public static function confirmLegalSecurityMultiple(PDO $db,array $actor,array $contract,array $input): void
+    {
+        $id=(int)$contract['id'];
+        $multiple=filter_var($input['multiple']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>0]]);
+        if ($multiple===false) throw new RuntimeException('Укажите целую кратность обеспечения от нуля.',422);
+        self::assertSecurityAmount($contract,$multiple);
+        $issuedMultiple=self::issuedSecurityMultiple($db,$id);
+        if ($issuedMultiple!==null && $issuedMultiple!==$multiple) {
+            throw new RuntimeException('Укажите кратность из зарегистрированных первых счетов.',409);
+        }
+        $terms=InitialBilling::orderedTerms(BillableTerms::forContract($db,$id));
+        $fact=['basis'=>self::basis($contract,$terms),'multiple'=>$multiple,'actor_id'=>(int)$actor['id'],
+            'command_key'=>$input['command_key']];
+        self::remember($db,$id,'legal-security-multiple',$fact);
+        if (!self::available($contract) || self::receipt($db,$id) || self::issuedFor($db,$id)) return;
+        $forms=LeasePaymentTerms::allowedForms($db,$contract);
+        if (count($forms)!==1) return;
+        $form=array_key_first($forms);
+        $prior=self::approvalTerms($db,$id);
+        if (($prior['basis']??null)===$fact['basis'] && ($prior['form']??null)===$form && ($prior['multiple']??null)===$multiple) return;
+        self::remember($db,$id,'terms',$fact+['form'=>$form,'reason'=>'Кратность обеспечения согласована юристом.']);
+    }
+
     public static function separateIds(PDO $db, int $id): array
     {
         return self::receipt($db,$id)['invoice_ids'] ?? [];
@@ -110,6 +149,17 @@ final class InitialInvoice
         $header = array_intersect_key($contract,array_flip(['id','number','party_id','document_date','start_date','end_date','amount','template_type']));
         $economic = array_flip(['target_key','start_date','end_date','amount','effective_date','superseded_on','physical_occupancy','evidence_sha256']);
         return self::hash([$header,array_map(static fn(array $term): array => array_intersect_key($term,$economic),$terms)]);
+    }
+
+    public static function securityAmount(string $gross,int $multiple): string
+    {
+        return bcmul($gross,(string)$multiple,2);
+    }
+
+    private static function assertSecurityAmount(array $contract,int $multiple): void
+    {
+        if (bccomp(self::securityAmount($contract['amount']??'0',$multiple),'999999999999999999.99',2)>0)
+            throw new RuntimeException('Сумма обеспечения превышает допустимую сумму счёта.',422);
     }
 
     private static function hash(array $value): string
@@ -184,7 +234,9 @@ final class InitialInvoice
         $condition = self::read($db,$id,'terms');
         $forms = LeasePaymentTerms::allowedForms($db,$contract);
         if (!$condition || ($condition['basis'] ?? null) !== $basis || !isset($forms[$condition['form']])) {
-            $plan['questions'][] = 'Юристу нужно подтвердить применимость порядка первого начисления и кратность обеспечения по текущим условиям договора.';
+            $plan['questions'][] = self::legalSecurityMultiple($db,$contract)!==null
+                ? 'Кратность обеспечения согласована. Уточните форму и порядок первого начисления.'
+                : 'Юристу нужно подтвердить кратность обеспечения по текущим условиям договора.';
             return $plan;
         }
         $partState = BillingPartTerms::state($db,'contract',$id);
@@ -227,7 +279,7 @@ final class InitialInvoice
             $plan['rows'][] = $row+self::plannedDeadline($db,$id,$basis,$form,$row['initial'] ? 'rent' : 'next',$signature,$transfer,$issued);
         }
         if ($condition['multiple'] > 0) {
-            $security = bcmul($gross,(string)$condition['multiple'],2);
+            $security = self::securityAmount($gross,$condition['multiple']);
             $plan['rows'][] = ['kind'=>'Обеспечительный платёж','period'=>'Обеспечение','from'=>$start,'to'=>$end,
                 'amount'=>$security,'initial'=>1]+self::plannedDeadline($db,$id,$basis,$form,'security',$signature,$transfer);
         }
@@ -378,8 +430,7 @@ final class InitialInvoice
             $multiple = filter_var($input['multiple'] ?? null,FILTER_VALIDATE_INT,['options'=>['min_range'=>0]]);
             if (!isset(LeasePaymentTerms::allowedForms($db,$contract)[$form]) || $multiple === false)
                 throw new RuntimeException('Укажите подходящую форму договора и согласованную кратность обеспечения.',422);
-            if (bccomp(bcmul($contract['amount'] ?? '0',(string)$multiple,2),'999999999999999999.99',2)>0)
-                throw new RuntimeException('Сумма обеспечения превышает допустимую сумму счёта.',422);
+            self::assertSecurityAmount($contract,$multiple);
             $kind = 'terms';
             $fact += ['form'=>$form,'multiple'=>$multiple];
             $message = 'Условия первого начисления подтверждены.';

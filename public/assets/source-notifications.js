@@ -18,6 +18,7 @@
   }
   let stack = null, stackHost = null, hostObserver = null;
   let templateResolver = null;
+  const scopedNotices = new Map();
 
   function resolveText(original, eventKey, variables) {
     if (!templateResolver) return original;
@@ -40,12 +41,23 @@
     } catch { return original; }
   }
 
+  // Legacy catalog versions still include the internal section key in their display text.
+  function withoutSectionKey(text) {
+    return text.replace(/(^|\s+)Раздел:[^\S\r\n]*(?:\{section\}|[a-z][a-z0-9]*(?:-[a-z0-9]+)*)(?:\.(?=\s|$)|(?=[^\S\r\n]*(?:\r?\n|$)))/giu, '').trim();
+  }
+
   function notificationHost() {
     const dialogs = Array.from(document.querySelectorAll?.('dialog[open]') || []);
     return dialogs.at(-1) || document.body;
   }
+  function scopeIsOpen(scope) {
+    return scope.isConnected && (scope.closest('dialog')?.open ?? true);
+  }
   function placeStack() {
     if (!stack) return;
+    for (const [scope, notice] of scopedNotices) {
+      if (!scopeIsOpen(scope)) notice.close();
+    }
     const host = notificationHost();
     if (stack.parentNode === host) return;
     const focus = document.activeElement && stack.contains?.(document.activeElement) ? document.activeElement : null;
@@ -74,7 +86,7 @@
     return stack;
   }
 
-  function present(entry) {
+  function present(entry, scope) {
     const toast = document.createElement('div');
     toast.className = `toast toast--system is-${entry.tone}`;
     toast.setAttribute('role', entry.tone === 'danger' ? 'alert' : 'status');
@@ -139,16 +151,22 @@
       if (!paused.delete(reason)) return;
       if (!paused.size && !closed) startTimer();
     }
-    function dismiss(manual) {
-      if (closed || removing) return;
+    function remove() {
+      closed = true;
+      toast.remove();
+      if (scope) scopedNotices.delete(scope);
+    }
+    function dismiss(manual, restore = manual) {
+      if (closed || (removing && !manual)) return;
       if (!manual && hasFocus()) { pause('focus'); return; }
-      const restoreFocus = manual && hasFocus();
+      const restoreFocus = restore && hasFocus();
       const siblings = Array.from(stack.children);
       const index = siblings.indexOf(toast);
       const neighbor = siblings[index + 1] || siblings[index - 1];
       window.clearTimeout(timer); timer = null;
       if (manual || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        closed = true; toast.remove();
+        window.clearTimeout(exitTimer);
+        remove();
         if (restoreFocus) {
           const target = neighbor?.querySelector('.toast-close');
           if (target?.isConnected) target.focus();
@@ -160,7 +178,7 @@
       toast.classList.add('is-removing');
       exitTimer = window.setTimeout(() => {
         if (hasFocus()) { pause('focus'); return; }
-        closed = true; toast.remove();
+        remove();
       }, 180);
     }
     toast.addEventListener('pointerenter', () => pause('hover'));
@@ -171,6 +189,11 @@
     });
     close.addEventListener('click', () => dismiss(true));
     startTimer();
+    return {
+      entry,
+      matches: next => !closed && !removing && entry.tone === next.tone && entry.title === next.title && entry.message === next.message,
+      close: () => dismiss(true, false)
+    };
   }
 
   window.PlanexNotifications = Object.freeze({
@@ -178,12 +201,24 @@
       if (callback !== null && typeof callback !== 'function') throw new TypeError('A notification text resolver must be a function or null');
       templateResolver = callback;
     },
-    show({tone = 'success', title, message, eventKey, variables} = {}) {
+    show({tone = 'success', title, message, eventKey, variables, scope} = {}) {
       if (!Object.hasOwn(labels, tone)) throw new TypeError('Unknown notification tone');
       const body = String(message ?? '').trim();
-      if (!body) return;
+      if (!body || (scope && !scopeIsOpen(scope))) return;
       const original = {tone, title: String(title ?? labels[tone].title), message: body};
-      present(resolveText(original, eventKey, variables));
+      const resolved = resolveText(original, eventKey, variables);
+      const visible = {tone, title: withoutSectionKey(resolved.title) || labels[tone].title, message: withoutSectionKey(resolved.message)};
+      if (!visible.message) return;
+      const current = scope && scopedNotices.get(scope);
+      if (current?.matches(visible)) return;
+      current?.close();
+      const notice = present(visible, scope);
+      if (scope) scopedNotices.set(scope, notice);
+    },
+    clear(scope, message) {
+      const notice = scopedNotices.get(scope);
+      if (!notice || (message !== undefined && notice.entry.message !== withoutSectionKey(String(message)))) return;
+      notice.close();
     }
   });
 })();

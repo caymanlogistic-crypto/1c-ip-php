@@ -10,7 +10,9 @@ final class Identity {
         $error='';if($_SERVER['REQUEST_METHOD']==='POST'){Http::checkCsrf();$ip=$_SERVER['REMOTE_ADDR']??'';$key='login_'.hash('sha256',$ip);$file=APP_ROOT.'/runtime/'.$key.'.json';$hits=is_file($file)?json_decode(file_get_contents($file),true):[];$hits=array_filter($hits??[],fn($t)=>$t>time()-900);if(count($hits)>=10)throw new \RuntimeException('Слишком много попыток входа. Повторите через 15 минут.',429);
             if(Auth::login(trim((string)($_POST['username']??'')),(string)($_POST['password']??''))){@unlink($file);Http::redirect(Auth::landing());}$hits[]=time();file_put_contents($file,json_encode($hits),LOCK_EX);$error='<div class="form-alert alert-error" role="alert"><span class="alert-mark" aria-hidden="true">×</span><div class="alert-body"><div class="alert-body-title">Неверный логин или пароль.</div></div></div>';
         }
-        return View::login($error,ServerLoginPresets::view());
+        $presets=LocalTestLogin::presets();
+        if ($presets) header('Cache-Control: no-store, private');
+        return View::login($error,$presets,$presets?[]:ServerLoginPresets::view());
     }
     public static function logout():never {Http::checkCsrf();if($_SERVER['REQUEST_METHOD']!=='POST')throw new \RuntimeException('Метод не поддерживается',405);$_SESSION=[];session_regenerate_id(true);Http::redirect('/login');}
     public static function profile():string {

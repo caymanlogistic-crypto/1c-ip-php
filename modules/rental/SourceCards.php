@@ -15,7 +15,8 @@ final class SourceCards {
 
     private static function contract(int $id): array {
         Access::contract($id);
-        return Controller::query('SELECT c.*,COALESCE(p.name,\'—\') party_name FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.id=?', [
+        return Controller::query('SELECT c.*,COALESCE(p.name,\'—\') party_name,p.inn party_inn,p.contact party_contact,
+            p.email party_email,p.phone party_phone FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.id=?', [
             $id
         ])[0] ?? throw new RuntimeException('Договор не найден.', 404);
     }
@@ -36,6 +37,7 @@ final class SourceCards {
         if ($role==='accountant' && AccountantReviewCard::available($c)) return AccountantReviewCard::render($c);
         if(in_array($role,['admin','manager'],true) && Auth::can('rental.write') && \App\PagePolicy::level('rental.contracts',Auth::user())>=2 && empty(json_decode($c['source_json'],true)['imported']) && in_array($c['status'],['draft','returned'],true) && $c['return_to']!=='lawyer')return ContractForm::render();
         if (ContractApprovalPreview::available($c,$role)) return ContractApprovalPreview::render($c);
+        if ($c['status']==='active') return ActiveLeaseCard::render($c);
         $managed = empty(json_decode($c['source_json'], true)['imported']);
         $rows = Controller::query("SELECT o.*,p.id plan_id FROM rental_objects o JOIN contract_objects co ON co.object_id=o.id "
             ."LEFT JOIN rental_facts p ON p.namespace='directory_object_plan' AND p.source_key=CAST(o.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AND p.operative=1 "
@@ -95,12 +97,7 @@ final class SourceCards {
         $delivery=Delivery::presentation(\App\DB::pdo(),'contract',$id);
         if ($delivery && $delivery['message']!=='') $body.=RentalUI::alert('Документы и доставка',$delivery['message'],$delivery['error']?'error':'info');
         $actions = '';
-        if($c['status']==='active'&&in_array($role,['admin','lawyer'],true)&&Auth::can('rental.approve.legal')
-            &&\App\PagePolicy::level('rental.approvals',Auth::user())>=2&&TemplateAssets::contractKind(\App\DB::pdo(),$c)==='office')$actions.=RentalUI::button('Word: смена номера помещения','/rental/word-form?id='.$id.'&version='.$c['version'].'&mode=room-change');
-        if (isset($_SESSION['rental_notice'])) {
-            $body.=RentalUI::alert($_SESSION['rental_notice']);
-            unset($_SESSION['rental_notice']);
-        }
+        $body.=RentalUI::notice();
         if ($c['status'] === 'returned')$body.=RentalUI::alert(Controller::status($c['status']), $c['reason'] ?? '', 'error');
         $actState = null;
         $reviewStates=[];
@@ -119,7 +116,6 @@ final class SourceCards {
         }
         $body.=RentalUI::pairs($pairs);
         $body.=OccupiedBillingCard::summary($c,$rows);
-        if (OccupiedBilling::canEdit($c)) $body.='<p>'.RentalUI::button('Исключение по объекту','/rental/occupied-billing?id='.$id).'</p>';
         $body.=CustomerBookings::contractOrigin($c).PremisesActsCard::summary($c);
         $body.=SecurityDepositCard::section($c);
         $body.=InitialInvoiceCard::entry($c).InitialInvoiceCard::attachments($c);
@@ -127,14 +123,14 @@ final class SourceCards {
         $body.=ExpiryNoticeCard::entry($c);
         $body.='<div class="demo-row">'.RentalUI::button('Клининг и допуслуги','/rental/services?contract_id='.$id).'</div>';
         $body.=HandoverQuestionCard::section($c).ContractReviewFiles::presentation($c);
-        $add = function(string $label, string $action, bool $primary = false)use(&$actions, $id) {
+        $add = function(string $label, string $action, bool $primary = false, bool $danger = false)use(&$actions, $id) {
             $user=Auth::user();
             $grant=match($user['role']) {'lawyer'=>'rental.approve.legal','accountant'=>'finance.write','director'=>'rental.approve.executive',default=>'rental.write'};
             if (!Auth::can($grant) || \App\PagePolicy::level(\App\PagePolicy::commandPage($action),$user)<2) return;
             $actions.=RentalUI::button($label, '/rental/action-form?id='
             . $id
             . '&action='
-            . urlencode($action), $primary);
+            . urlencode($action), $primary, $danger);
         };
         if (in_array($role, [
             'admin',
@@ -150,15 +146,7 @@ final class SourceCards {
                 . $id);
                 $add('Отправить на согласование', 'contract.submit', true);
             }
-            if ($managed && in_array($c['status'], [
-                'sent',
-                'active'
-            ], true) && !$c['signed'])$add('Загрузить подписанный договор', 'contract.sign', true);
-            if ($c['status'] === 'active') {
-                $actions.=RentalUI::button($managed?'Продление и резервирование':'Создать допсоглашение', '/rental/addendum-form?contract_id='
-                . $id, true);
-                $add('Завершение договора', 'contract.reconcile');
-            }
+            if ($managed && $c['status']==='sent' && !$c['signed'])$add('Загрузить подписанный договор', 'contract.sign', true);
             if ($c['status'] === 'reconciling' && !$actState['confirmed'] && empty($actState['not_applicable']))$add('Акт возврата', 'contract.return-act', true);
             if ($managed && in_array($c['status'], [
                 'returned',
@@ -173,10 +161,10 @@ final class SourceCards {
             'lawyer'
         ], true)) {
             if (LegalReview::assigned($c)) {
-                if ($c['status'] === 'legal')$add('Вернуть на доработку', 'contract.return');
+                if ($c['status'] === 'legal')$add('Вернуть на доработку','contract.return',danger:$role==='lawyer');
                 $add('Проверить и согласовать', 'contract.legal', true);
             }
-            if ($c['status'] === 'returned' && $c['return_to'] === 'lawyer')$add('Передать замечания менеджеру', 'contract.forward');
+            if ($c['status'] === 'returned' && $c['return_to'] === 'lawyer')$add('Передать замечания менеджеру','contract.forward',danger:$role==='lawyer');
             if (in_array($c['status'], [
                 'reconciling',
                 'ended'
@@ -187,7 +175,7 @@ final class SourceCards {
             'accountant'
         ], true)) {
             if ($c['status'] === 'accounting') {
-                $add('Вернуть на доработку', 'contract.return');
+                $add('Вернуть на доработку','contract.return',danger:$role==='accountant');
                 $add('Согласовано', 'contract.packet', true);
             }
             if ($c['status'] === 'approved')$add('Пакет и отправка', 'contract.send', true);
@@ -288,22 +276,20 @@ final class SourceCards {
             if (!LegalReview::assigned($c)) throw new RuntimeException('Договор не у юриста.',409);
             return LegalHandoffCard::render($c);
         }
+        if (isset($_GET['legal_decision'])) return ApprovalDecision::lawyer($c,$action,(string)$_GET['legal_decision']);
+        if (in_array($action,['contract.return','contract.forward'],true)) return ApprovalDecision::returnForRevision($c,$action);
         if ($action===ContractRevision::ACTION) return ContractRevision::form($c);
         if ($action==='contract.send' && $c['status']==='approved' && PacketForm::requiresConfirmation('contract',$id)) $action='contract.packet';
-        if (Auth::user()['role']==='accountant' && AccountantReviewCard::available($c)
-            && ($action==='contract.packet' || ($action==='contract.return' && $c['status']==='accounting'))) {
-            return $action==='contract.return'
-                ?AccountantReviewCard::decision($id,'return'):AccountantReviewCard::render($c,$previousPacket,$action);
+        if (Auth::user()['role']==='accountant' && AccountantReviewCard::available($c) && $action==='contract.packet') {
+            return AccountantReviewCard::render($c,$previousPacket,$action);
         }
         $allowed = [
             'contract.submit' => 'Отправить на согласование',
             'contract.legal' => 'Проверка юристом',
             'contract.packet' => 'Проверка пакета бухгалтером',
-            'contract.return' => 'Вернуть на доработку',
-            'contract.forward' => 'Передать замечания менеджеру',
             'contract.sign' => 'Загрузить подписанный договор',
             'contract.return-act' => 'Акт возврата помещения',
-            'contract.reconcile' => 'Завершение договора',
+            'contract.reconcile' => ActiveLeaseCard::TERMINATE_LABEL,
             'contract.cancel' => 'Аннулировать проект',
             'contract.delete' => 'Удалить черновик',
             'contract.send' => 'Пакет и отправка',
@@ -355,13 +341,17 @@ final class SourceCards {
         $formId = 'rental-action-'
         . bin2hex(random_bytes(6));
         if (in_array($action, [
-            'contract.return',
-            'contract.forward',
             'contract.cancel',
             'contract.reconcile'
         ], true))$fields.=Controller::input('reason', 'Причина', '', 'text', true);
-        if ($action === 'contract.reconcile')$fields.=Controller::input('finish_date', 'Дата прекращения договора', $c['end_date'], 'date', true)
-            .PremisesActsCard::hidden('closing_scope','1').FinalSettlementCard::timelineFields();
+        if ($action==='contract.reconcile') {
+            Service::roles(['manager']);
+            Auth::requirePermission('rental.write');
+            Access::contract($id,2);
+            if ($c['status']!=='active') throw new RuntimeException('Договор не действует.',409);
+            $fields.=Controller::input('finish_date','Дата прекращения договора',$c['end_date'],'date',true)
+                .PremisesActsCard::hidden('closing_scope','1').FinalSettlementCard::timelineFields();
+        }
         if (in_array($action, [
             'contract.legal',
             'contract.packet'
@@ -419,10 +409,10 @@ final class SourceCards {
         . $fields
         . '</form>'
         . $extra;
-        $foot = '<button class="btn '.($action==='contract.delete'?'btn-danger':'btn-primary').'" type="submit" form="'
+        $foot = '<button class="btn '.(in_array($action,['contract.delete','contract.reconcile'],true)?'btn-danger':'btn-primary').'" type="submit" form="'
         . $formId
         . '"'.($action==='contract.legal' && !$legalFile?' disabled':'').'>'
         . ($action==='contract.legal'?'Согласовать и передать бухгалтеру':($action==='contract.delete'?'Удалить черновик':'Подтвердить')).'</button>';
-        return RentalUI::modal($title, $body, $foot);
+        return RentalUI::modal($title,$body,$foot,$action==='contract.reconcile'?'contracts-active':'contracts');
     }
 }

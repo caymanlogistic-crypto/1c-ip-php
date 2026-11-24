@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace App;
 
-use Modules\Rental\MonthlyRentReconciliationPage;
+use Modules\Rental\{MonthlyRentReconciliationPage,RecentContractPackages};
 
 final class Menu {
     public static function attentionLabels(string $page=''):array {
@@ -37,6 +37,10 @@ final class Menu {
         if (in_array('objects',$allowed,true)) $objects??=new \Modules\Rental\ObjectReadModel(date('Y-m-d'));
         $tasks=\Modules\Rental\Indicators::tasks(null,null,$configured?$allowed:null,$objects);
         $raw=\Modules\Rental\Indicators::counts($u,$configured?$allowed:null,$tasks,$objects);
+        if (in_array('contracts-active',$allowed,true)) {
+            $packages=$objects?->contractPackages??RecentContractPackages::byContract(DB::pdo(),date('Y-m-d'));
+            $raw['contracts-active'][2]=count($packages);
+        }
         if(in_array('invoice-list',$allowed,true))$raw['invoice-list']=\Modules\Rental\InvoiceFacts::menuCounts(DB::pdo());
         if(in_array('invoices',$allowed,true))$raw['invoices']=\Modules\Rental\InvoiceFacts::menuCounts(DB::pdo(),true);
         $pages=[];$folders=[];

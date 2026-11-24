@@ -7,6 +7,8 @@ use RuntimeException;
 /** Editor state with priced rental positions. Saving does not reserve objects or create billing terms. */
 final class ContractDraft
 {
+    public const OBJECT_TYPE_ERROR='В одном договоре можно указать объекты только одного типа.';
+
     public static function deleted(array $contract): bool
     {
         return isset(json_decode($contract['source_json'],true)['draft_deleted']) || WorkspaceReset::hidden($contract);
@@ -67,6 +69,13 @@ final class ContractDraft
         return $rows;
     }
 
+    public static function assertObjectTypes(array $types): void
+    {
+        $normalized=array_map(static fn(string $type): string =>
+            in_array($type,TemplateAssets::PARKING_TYPES,true)?TemplateAssets::PARKING_TYPES[0]:$type,$types);
+        if (count(array_unique($normalized))>1) throw new RuntimeException(self::OBJECT_TYPE_ERROR,422);
+    }
+
     private static function rentAmount(PDO $pdo,int $id,array $objects,array $draft): string
     {
         $sum='0.00';
@@ -107,7 +116,9 @@ final class ContractDraft
         $draft['objects']=array_values(array_unique(array_map('intval',(array)($draft['objects'] ?? []))));
         if (count($draft['objects'])>256 || strlen(Importer::json($draft))>262144) throw new RuntimeException('Слишком большой черновик.',422);
         if (!is_array($draft['term_amount'] ?? [])) throw new RuntimeException('Проверьте месячные ставки.',422);
-        $amount=self::rentAmount($pdo,(int)($old['id'] ?? 0),self::objects($pdo,$draft),$draft);
+        $objects=self::objects($pdo,$draft);
+        self::assertObjectTypes(array_column($objects,'type'));
+        $amount=self::rentAmount($pdo,(int)($old['id'] ?? 0),$objects,$draft);
         $party=empty($draft['party_id'])?null:(int)$draft['party_id'];
         if ($party!==null) Service::get($pdo,'parties',$party);
         $source=$old?json_decode($old['source_json'],true):[];

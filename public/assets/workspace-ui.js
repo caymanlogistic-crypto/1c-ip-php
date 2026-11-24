@@ -65,8 +65,8 @@
     return url;
   };
   const parse=text=>new DOMParser().parseFromString(text,'text/html');
-  const notify=message=>window.PlanexNotifications?.show({
-    tone:'danger',message
+  const notify=(message,scope)=>window.PlanexNotifications?.show({
+    tone:'danger',message,scope
   });
   let lastFocus=null,activeRental=null;
   const rentalStack=[],availabilityRequests=new WeakMap();
@@ -99,6 +99,16 @@
     });
     if(autopen&&fallback)location.assign(localURL(fallback));
   }
+  function showRentalNotices(dialog){
+    if(!window.PlanexNotifications)return;
+    for(const notice of dialog.querySelectorAll('[data-rental-transient-notice]')){
+      const text=notice.querySelector('.alert-body-title').textContent;
+      const detail=notice.querySelector('.alert-body-sub')?.textContent;
+      window.PlanexNotifications.show({tone:notice.dataset.rentalTransientNotice,
+        title:detail?text:undefined,message:detail||text,scope:notice});
+      notice.hidden=true;
+    }
+  }
   function mountRental(dialog,opener,preserveParent=false){
     if(activeRental){
       if(preserveParent){
@@ -126,6 +136,7 @@
       closeRental(dialog);
     });
     dialog.showModal();
+    showRentalNotices(dialog);
     window.PlanexInterfaceDesign?.mount(dialog);
     window.RentalPickers?.enhance(dialog);
     window.RentalPartyUI?.enhance(dialog);
@@ -173,6 +184,7 @@
     const value=form.dataset.rentalAvailabilityUrl;
     if(!value)return;
     availabilityRequests.get(form)?.abort();
+    if(form.hasAttribute('data-form-error-notification')&&!form.elements.namedItem('start_date')?.value)return;
     const abort=new AbortController();
     availabilityRequests.set(form,abort);
     try{
@@ -207,10 +219,17 @@
       }
     }
     catch(error){
-      if(error.name!=='AbortError')formError(form.closest('dialog'),error.message);
+      if(error.name!=='AbortError')formError(form.closest('dialog'),error.message,form);
     }
   }
-  function formError(dialog,message){
+  function notifiesFormErrors(form){
+    return form.hasAttribute('data-form-error-notification')||!!form.querySelector('[data-form-error-notification]');
+  }
+  function formError(dialog,message,form){
+    if(notifiesFormErrors(form)){
+      window.PlanexNotifications?.show({tone:'danger',message,scope:form});
+      return;
+    }
     let host=dialog.querySelector('[data-rental-form-error]');
     if(!host){
       host=document.createElement('div');
@@ -250,8 +269,15 @@
   }
   async function submitRental(form,dialog,submitter){
     if(form.dataset.submitting)return;
+    if(form.hasAttribute('data-rental-indexation-url') && form.dataset.indexationReady!=='true'){
+      const message=form.querySelector('[data-rental-indexation-status]')?.textContent;
+      formError(dialog,message||'Проверьте расчёт индексации.',form);
+      return;
+    }
     const data=new FormData(form,submitter);
     const creatingParty=data.get('action')==='party.save'&&data.get('id')==='0';
+    const notifyErrors=notifiesFormErrors(form);
+    if(notifyErrors)window.PlanexNotifications?.clear(form);
     let response,partySaved=false;
     form.dataset.submitting='true';
     const autoUpload=form.querySelector('[data-rental-upload-on-select]');
@@ -315,7 +341,11 @@
         mountRental(replacement,lastFocus);
         return;
       }
-      if(!response.ok)throw new Error(doc.querySelector('[role="alert"]')?.textContent.trim()||'Не удалось сохранить. Проверьте доступ и повторите попытку.');
+      if(!response.ok){
+        const alert=doc.querySelector('[role="alert"]');
+        const text=notifyErrors ? alert?.querySelector('.alert-body-title') || alert : alert;
+        throw new Error(text?.textContent.trim()||'Не удалось сохранить. Проверьте доступ и повторите попытку.');
+      }
       if(replacement){
         if(refresh) await window.RentalRegistry.load(refresh,{completion:true,preserve:true,savedInvoice});
         // A committed command replaces its obsolete navigation context.
@@ -349,8 +379,8 @@
       else if(creatingParty&&(!response||response.ok||response.status>=500)){
         message='Не получено подтверждение сохранения контрагента. Повторите сохранение в этой же форме с теми же данными.';
       }
-      formError(dialog,message);
-      if(creatingParty)dialog.querySelector('[data-rental-form-error]')?.scrollIntoView({block:'nearest'});
+      formError(dialog,message,form);
+      if(creatingParty&&!notifyErrors)dialog.querySelector('[data-rental-form-error]')?.scrollIntoView({block:'nearest'});
     }
     finally{
       delete form.dataset.submitting;
@@ -358,7 +388,8 @@
     }
   }
   function total(form){
-    let cents=0n;
+    const [fixedRub,fixedKopecks]=(form.querySelector('[data-rental-fixed-extra-total]')?.value||'0.00').split('.');
+    let cents=BigInt(fixedRub)*100n+BigInt(fixedKopecks);
     for(const input of form.querySelectorAll('input[name^="term_amount["]')){
       const value=input.value.trim().replace(',','.');
       if(/^term_amount\[part_[a-f0-9]{64}\]$/.test(input.name)){
@@ -395,13 +426,17 @@
   function addObject(form){
     const picker=form.querySelector('[data-rental-object-picker]'),option=picker?.selectedOptions[0],template=form.querySelector('template[data-rental-term-template]'),body=form.querySelector('[data-rental-terms]');
     if(!option||!template||!body||!/^\d+$/.test(option.value))return;
+    if(window.RentalPickers?.allowsObjectType(form,option.dataset.type)===false){
+      notify(form.dataset.rentalObjectTypeError,form);
+      return;
+    }
     if(option.disabled){
-      notify('Помещение недоступно для выбранного периода.');
+      notify('Помещение недоступно для выбранного периода.',form);
       return;
     }
     const id=option.value;
     if([...body.querySelectorAll('[name="objects[]"]')].some(input=>input.value===id)){
-      notify('Объект уже добавлен.');
+      notify('Объект уже добавлен.',form);
       return;
     }
     const fragment=template.content.cloneNode(true);
@@ -420,6 +455,7 @@
     }
     body.append(fragment);
     total(form);
+    if(form.hasAttribute('data-rental-single-object-type'))window.RentalPickers?.refresh(picker);
   }
   document.addEventListener('click',event=>{
     const folder=event.target.closest('[data-folder]');
@@ -470,7 +506,11 @@
       event.preventDefault();
       const form=remove.closest('form');
       remove.closest('tr')?.remove();
-      if(form)total(form);
+      if(form){
+        total(form);
+        const picker=form.hasAttribute('data-rental-single-object-type')&&form.querySelector('[data-rental-object-picker]');
+        if(picker)window.RentalPickers?.refresh(picker);
+      }
     }
   });
   document.addEventListener('dblclick',event=>{
@@ -501,7 +541,7 @@
   });
   document.addEventListener('change',event=>{
     if(event.target.matches('[name=\"start_date\"],[name=\"end_date\"]')){
-      const form=event.target.closest('form[data-rental-availability-url]');
+      const form=event.target.closest('form[data-rental-addendum-form],form[data-rental-availability-url]');
       if(form){
         if(form.hasAttribute('data-rental-addendum-form')){
           const start=event.target.name==='start_date',key=start?'rentalPeriodStart':'rentalPeriodEnd',prefix=start?'term_start[':'term_end[',previous=form.dataset[key]||'';
@@ -509,11 +549,75 @@
           form.dataset[key]=event.target.value;
           window.UIDatePicker?.sync(form);
         }
-        refreshAvailability(form);
+        if(form.hasAttribute('data-rental-availability-url'))refreshAvailability(form);
       }
     }
+    if(event.target.matches('[name="effective_date"]')){
+      const form=event.target.closest('[data-rental-indexation-url]');
+      if(form)refreshIndexation(form);
+    }
   });
+  const indexationRequests=new WeakMap();
+  async function refreshIndexation(form){
+    indexationRequests.get(form)?.abort();
+    const controller=new AbortController();
+    indexationRequests.set(form,controller);
+    const status=form.querySelector('[data-rental-indexation-status]');
+    const percent=form.elements.index_percent;
+    const effective=form.elements.effective_date.value;
+    form.dataset.indexationReady='false';
+    status.classList.remove('is-error');
+    if(!percent.validity.valid||!effective){
+      status.textContent='Укажите дату вступления ДС в силу и процент индексации.';
+      return;
+    }
+    status.textContent='Пересчитываем ставки…';
+    try{
+      const url=localURL(form.dataset.rentalIndexationUrl);
+      url.searchParams.set('effective_date',effective);
+      url.searchParams.set('index_percent',percent.value);
+      const response=await fetch(url,{signal:controller.signal});
+      const quote=await response.json();
+      if(!response.ok)throw new Error(quote.message||'Не удалось получить ставки.');
+      if(controller.signal.aborted||!form.isConnected)return;
+      for(const row of form.querySelectorAll('[data-rental-term-id]')){
+        const rate=quote.rates[row.dataset.rentalTermId];
+        row.querySelector('[data-rental-indexation-base]').textContent=rate.display_base;
+        row.querySelector('[data-unit-price]').value=rate.amount;
+      }
+      total(form);
+      status.textContent='Исходные ставки на '+quote.basis_label+'.';
+      form.dataset.indexationReady='true';
+    }catch(error){
+      if(controller.signal.aborted||!form.isConnected)return;
+      for(const row of form.querySelectorAll('[data-rental-term-id]')){
+        row.querySelector('[data-rental-indexation-base]').textContent='—';
+        row.querySelector('[data-unit-price]').value='';
+      }
+      total(form);
+      status.textContent=error.message;
+      status.classList.add('is-error');
+    }
+  }
   document.addEventListener('input',event=>{
+    if(event.target.matches('#legal-security-multiple input[name="multiple"]')){
+      const field=event.target;
+      const dialog=field.closest('dialog');
+      const agreed=dialog.querySelector('#legal-handoff').elements.security_multiple.value;
+      const matches=agreed!==''&&field.value===agreed;
+      field.form.querySelector('button[type="submit"]').disabled=matches||!field.validity.valid||!/^(?:0|[1-9][0-9]*)$/.test(field.value);
+      const transfer=dialog.querySelector('[data-legal-transfer-ready]');
+      if(transfer)transfer.disabled=!matches;
+    }
+    if(event.target.name==='number' && event.target.form?.hasAttribute('data-rental-addendum-base')){
+      const number=event.target.value.trim().replace(/^(?:ДС(?=\s|№|\d)\s*)?№?\s*/iu,'');
+      const title=event.target.closest('dialog')?.querySelector('.modal-head > .modal-title');
+      if(title)title.textContent=(number?'ДС №'+number:'Допсоглашение')+' '+event.target.form.dataset.rentalAddendumBase;
+    }
+    if(event.target.name==='index_percent'){
+      const form=event.target.closest('[data-rental-indexation-url]');
+      if(form)refreshIndexation(form);
+    }
     if(event.target.matches('input[name^="term_amount["]')){
       const form=event.target.closest('form');
       if(form)total(form);

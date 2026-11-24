@@ -247,7 +247,10 @@ final class NativePacket
         $runtime = self::row($p, 'SELECT epoch,revision,source_pair_sha256 FROM rental_runtime_context WHERE id=1');
         $view = ['record_kind' => $kind, 'record_id' => $id, 'actor' => $user, 'context' => $context,
             'invoices' => self::plannedInvoices($p, $kind, $context), 'workflow' => $runtime];
-        if ($kind === 'contract') $view['initial_invoice_policy'] = InitialInvoice::POLICY;
+        if ($kind === 'contract') {
+            $view['initial_invoice_policy'] = InitialInvoice::POLICY;
+            $view['accountant_confirmation_summary'] = AccountantPacketSummary::read($p, $context['record']);
+        }
         return ['expected_packet_hash' => self::hash($view), 'record' => ['kind' => $kind, 'id' => $id, 'version' => (int)$context['record']['version']], 'view' => $view];
     }
 
@@ -295,7 +298,8 @@ final class NativePacket
             throw new RuntimeException('NATIVE_PACKET_COMMAND_RECEIPT_CHANGED');
         }
         $context = self::context($p, $kind, $id, true);
-        if ($context['record']['status'] !== 'approved' || (int)$context['record']['version'] !== $validated['record']['version'] + 1) throw new RuntimeException('NATIVE_PACKET_POST_B_VERSION_CHANGED');
+        $expectedStatus = $kind === 'contract' ? 'active' : 'approved';
+        if ($context['record']['status'] !== $expectedStatus || (int)$context['record']['version'] !== $validated['record']['version'] + 1) throw new RuntimeException('NATIVE_PACKET_POST_B_VERSION_CHANGED');
         $before = $validated['view']['context'];
         $after = $context;
         // Only the addendum command still books invoices during B.

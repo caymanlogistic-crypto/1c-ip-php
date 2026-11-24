@@ -80,8 +80,33 @@ final class WorkflowNotices
     {
         $variables=self::variables($event)+['section'=>$task['page'],'why'=>$task['text'],'text'=>$task['text']];
         // Task severity is authoritative; a text template cannot recolor a business cause.
-        return self::notice('task:'.$event['event_id'].':'.$task['key'],(int)$event['event_id'],$task['severity'],'task-received',$variables,
+        $notice=self::notice('task:'.$event['event_id'].':'.$task['key'],(int)$event['event_id'],$task['severity'],'task-received',$variables,
             [(int)$event['entity_version'],$task['legal_sla']['state']??null],$catalog);
+        if ($task['page']==='contracts-active' && $event['entity_kind']==='document' && $event['event_kind']==='signed') {
+            return self::approvalLayout($notice,$event,'Допсоглашение подписано и ожидает применения');
+        }
+        if ($task['page']!=='approvals') return $notice;
+
+        $message=match ($event['event_kind']) {
+            'submit'=>'Согласовать и подготовить пакет',
+            'resubmit'=>'Проверьте внесённые исправления и согласуйте документ.',
+            'legalApprove'=>'Проверьте и подтвердите комплект.',
+            'lawyerReturn'=>'Доработайте документ по замечанию юриста.',
+            'accountantReturn'=>'Доработайте документ по замечанию бухгалтерии.',
+            'package'=>'Бухгалтерия согласовала пакет. Ожидается отправка клиенту.',
+            'handed'=>'Документы переданы клиенту. Получите подписи или оплату.',
+            default=>null,
+        };
+        if ($message===null) return $notice;
+        if ($event['entity_kind']==='document' && $task['severity']==='red' && in_array($event['event_kind'],['package','handed'],true)) {
+            $reason=trim($task['reason']??'');
+            $message='Проверьте отправку допсоглашения.'.($reason===''?'':' '.$reason);
+        }
+
+        $sla=$task['legal_sla']??[];
+        if (($sla['state']??null)==='UNKNOWN') $message=rtrim($message,'.').'. Срок проверки не подтверждён.';
+        if (($sla['working_seconds']??0)>=21600) $message=rtrim($message,'.').'. Истекли 6 рабочих часов юридической проверки.';
+        return self::approvalLayout($notice,$event,$message);
     }
 
     public static function sender(array $event,array $catalog): ?array
@@ -90,9 +115,43 @@ final class WorkflowNotices
             'submit','resubmit'=>$event['entity_kind']==='document'?'agreement-submitted':'document-submitted',
             'legalApprove'=>'document-approved','lawyerReturn','accountantReturn'=>'document-returned',
             'package'=>'packet-confirmed',default=>null};
-        return $key===null?null:self::notice('sender:'.$event['event_id'],(int)$event['event_id'],'green',$key,
+        if ($key===null) return null;
+        $notice=self::notice('sender:'.$event['event_id'],(int)$event['event_id'],'green',$key,
             self::variables($event)+['section'=>'Согласования','why'=>$event['reason'],'text'=>in_array($event['event_kind'],['submit','resubmit'],true)?$event['party_name']:$event['text']],
             [(int)$event['entity_version']],$catalog);
+        $message=match ($event['event_kind']) {
+            'submit'=>'Направлено юристу на проверку.',
+            'resubmit'=>'Повторно направлено юристу на проверку.',
+            'legalApprove'=>'Согласовано юристом и передано бухгалтеру.',
+            'lawyerReturn'=>'Возвращено менеджеру на доработку.',
+            'accountantReturn'=>'Возвращено юристу на доработку.',
+            'package'=>'Пакет подтверждён бухгалтерией.',
+        };
+        return self::approvalLayout($notice,$event,$message);
+    }
+
+    private static function approvalLayout(array $notice,array $event,string $message): array
+    {
+        $kind=$event['entity_kind']==='document'?'ДС':'Договор';
+        $number=self::displayNumber($event['record_number'],$kind);
+        $record=$kind.($number===''?'':' №'.$number);
+        if ($kind==='ДС') {
+            $contract=self::displayNumber($event['contract_number']??'','Договор');
+            if ($contract!=='') $record.=' к договору №'.$contract;
+        }
+        $party=trim(preg_replace('/\s+/u',' ',$event['party_name']));
+        $reason=in_array($event['event_kind'],['lawyerReturn','accountantReturn'],true)?trim($event['reason']??''):'';
+
+        // Older tabs have already stored fingerprints that contain the former catalog-rendered text.
+        $notice['dedupe_text']=$notice['text'];
+        $notice['title']=$record.($party===''?'':'. '.$party);
+        $notice['text']=$message.($reason===''?'':' '.$reason);
+        return $notice;
+    }
+
+    private static function displayNumber(string $number,string $prefix): string
+    {
+        return preg_replace('/^(?:'.preg_quote($prefix,'/').'(?=\s|№|\d|$)\s*)?№?\s*/ui','',trim($number));
     }
 
     private static function variables(array $event): array

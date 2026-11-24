@@ -9,18 +9,36 @@ use RuntimeException;
 /** Per-relation physical meaning. Never use this filter for rent or document composition. */
 final class Occupancy
 {
+    public const REQUESTED_PERIOD = ' CROSS JOIN (SELECT CAST(? AS DATE) starts_on, CAST(? AS DATE) ends_on) requested_period';
+    public const RETURN_CHECK_DATE = 'LEAST(CURRENT_DATE,requested_period.ends_on)';
+
     public static function proofColumns(string $alias): string
     {
         return InvoiceScope::enabled()?','.ContractOccupancy::selectColumns($alias):'';
     }
 
-    public static function boundary(string $field,string $relation='co',string $contract='c'): string
+    public static function boundary(string $field,string $relation='co',string $contract='c',?string $asOf=null): string
     {
         if (!in_array($field,['start_date','end_date'],true)) throw new RuntimeException('Invalid term boundary.');
         ContractOccupancy::physicalPredicate($relation);
         ContractOccupancy::physicalPredicate($contract);
         return 'COALESCE((SELECT occupancy_boundary.'.$field.' FROM contract_terms occupancy_boundary WHERE occupancy_boundary.contract_id='
-            .$relation.'.contract_id AND occupancy_boundary.object_id='.$relation.'.object_id ORDER BY occupancy_boundary.effective_date DESC,occupancy_boundary.id DESC LIMIT 1),'.$contract.'.'.$field.')';
+            .$relation.'.contract_id AND occupancy_boundary.object_id='.$relation.'.object_id'
+            .($asOf===null?'':' AND (occupancy_boundary.effective_date IS NULL OR occupancy_boundary.effective_date<='.$asOf.')')
+            .' ORDER BY occupancy_boundary.effective_date DESC,occupancy_boundary.id DESC LIMIT 1),'.$contract.'.'.$field.')';
+    }
+
+    /** A rate or conditions revision affects physical occupancy only during its effective period. */
+    public static function overlapsRequestedPeriod(): string
+    {
+        $terms=' FROM contract_terms occupancy_term WHERE occupancy_term.contract_id=co.contract_id AND occupancy_term.object_id=co.object_id';
+        return '(EXISTS (SELECT 1'.$terms.' AND
+            GREATEST(requested_period.starts_on,COALESCE(occupancy_term.start_date,c.start_date),
+                COALESCE(occupancy_term.effective_date,occupancy_term.start_date,c.start_date))
+            <= LEAST(requested_period.ends_on,COALESCE(occupancy_term.end_date,c.end_date),
+                COALESCE(occupancy_term.superseded_on,\'9999-12-31\')))
+            OR (NOT EXISTS (SELECT 1'.$terms.')
+                AND c.start_date<=requested_period.ends_on AND c.end_date>=requested_period.starts_on))';
     }
 
     public static function relations(PDO $db,int $contract): array
@@ -48,13 +66,15 @@ final class Occupancy
     {
         $rows=Controller::query('SELECT co.object_id,c.id,c.number,c.document_date,c.status,c.return_confirmed,p.name tenant,t.source_json term_source,
             COALESCE(t.start_date,c.start_date) term_start,COALESCE(t.end_date,c.end_date) end_date
-            FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN parties p ON p.id=c.party_id
-            LEFT JOIN contract_terms t ON t.id=(SELECT MAX(t2.id) FROM contract_terms t2 WHERE t2.contract_id=c.id AND t2.object_id=co.object_id
-                AND (t2.effective_date IS NULL OR t2.effective_date<=?))
+            FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN parties p ON p.id=c.party_id'
+            .self::REQUESTED_PERIOD.'
+            LEFT JOIN contract_terms t ON t.id=(SELECT t2.id FROM contract_terms t2 WHERE t2.contract_id=c.id AND t2.object_id=co.object_id
+                AND (t2.effective_date IS NULL OR t2.effective_date<=requested_period.starts_on)
+                ORDER BY t2.effective_date DESC,t2.id DESC LIMIT 1)
             WHERE '.ContractOccupancy::contractPredicate('co').' AND '.self::beforeOwnerRelease()." AND (? IS NULL OR co.object_id=?)
-            AND (c.status='reconciling' OR (c.status='active' AND COALESCE(t.start_date,c.start_date)<=? AND COALESCE(t.end_date,c.end_date)>=?)
-                OR ".self::expiredWithoutReturn('COALESCE(t.end_date,c.end_date)','?','?').')
-            ORDER BY c.id DESC',[$date,$date,$object,$object,$date,$date,$date,$date]);
+            AND (c.status='reconciling' OR (c.status='active' AND ".self::overlapsRequestedPeriod().')
+                OR '.self::expiredWithoutReturn('COALESCE(t.end_date,c.end_date)','requested_period.starts_on','requested_period.starts_on').')
+            ORDER BY c.id DESC',[$date,$date,$date,$object,$object]);
         $leases=[];
         foreach($rows as $row) {
             $id=$row['object_id'];

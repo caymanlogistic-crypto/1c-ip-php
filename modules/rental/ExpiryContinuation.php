@@ -75,6 +75,25 @@ final class ExpiryContinuation
         return ['contract_id'=>$id,'end'=>$end,'offer'=>$notice['offer'],'link'=>$link];
     }
 
+    /** Read the fixed offer behind a persisted continuation without requiring edit access to the old contract. */
+    public static function linkedOffer(PDO $db,array $record,string $kind): array
+    {
+        $origin=self::origin($record);
+        $prior=$origin['contract_id'] ?? null;
+        $end=$origin['end'] ?? null;
+        if (!is_int($prior) || $prior<1 || !is_string($end)) return [];
+        try {
+            Service::date($end);
+        } catch (RuntimeException) {
+            return [];
+        }
+        $link=self::link($db,$prior,$end);
+        if (($link['id'] ?? null)!==(int)$record['id'] || ($link['kind'] ?? '')!==$kind) return [];
+        $notice=ExpiryNotice::read($db,$prior,$end);
+        if (($notice['state'] ?? '')!=='replied' || ($notice['response']['decision'] ?? '')!==$kind) return [];
+        return $notice['offer'] ?? [];
+    }
+
     public static function rows(array $context,string $kind): array
     {
         $offer=$context['offer'];

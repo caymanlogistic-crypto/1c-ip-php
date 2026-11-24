@@ -7,7 +7,7 @@ set_exception_handler(static function(Throwable $error): void {
 });
 
 use App\{Auth, DB};
-use Modules\Rental\{ContractReviewFiles, DirectoryDetails, Documents, FileOrder, Importer, InitialInvoice, LegalHandoff, LegalReview, NativePacket, PartyLegalReview, Service, SourceCards, WorkflowEvents};
+use Modules\Rental\{ContractReviewFiles, DirectoryDetails, Documents, FileOrder, Importer, InitialInvoice, InitialInvoiceCard, LeasePaymentTerms, LegalHandoff, LegalReview, NativePacket, PartyLegalReview, Service, SourceCards, WorkflowEvents};
 
 // Run only against a verified, separately restored local worktree copy.
 $db=DB::pdo();
@@ -39,7 +39,9 @@ function denied(callable $fn,string $message,?int $code=null): void {
 function record(int $id): array { return Service::get(DB::pdo(),'contracts',$id); }
 function approveInput(int $id): array {
     $c=record($id);
-    return ['id'=>$id,'version'=>$c['version'],'packet_fingerprint'=>LegalHandoff::fingerprint(LegalHandoff::files(DB::pdo(),$c))];
+    $db=DB::pdo();
+    return ['id'=>$id,'version'=>$c['version'],'security_multiple'=>InitialInvoice::legalSecurityMultiple($db,$c),
+        'packet_fingerprint'=>LegalHandoff::fingerprint(LegalHandoff::files($db,$c))];
 }
 function stageFiles(PDO $db,array $contract,int $amount,array &$paths): void {
     $data=$db->prepare("SELECT fact_json FROM rental_facts WHERE namespace='legal_handoff_draft' AND source_key=?");
@@ -59,17 +61,24 @@ function stageFiles(PDO $db,array $contract,int $amount,array &$paths): void {
     $db->prepare("UPDATE rental_facts SET fact_json=? WHERE namespace='legal_handoff_draft' AND source_key=?")
         ->execute([Importer::json($draft),$contract['id']]);
 }
-function fixture(string $inn='7701234560'): int {
+function fixture(string $inn='7701234560',?string $documentDate=null,string $type='Офис',int $count=1): int {
     $db=DB::pdo();actor('manager');
     $pid=(int)$db->query('SELECT MAX(id)+1 FROM parties')->fetchColumn();
     $oid=(int)$db->query('SELECT MAX(id)+1 FROM rental_objects')->fetchColumn();
     $cid=(int)$db->query('SELECT MAX(id)+1 FROM cadastre')->fetchColumn();
     $db->prepare("INSERT INTO parties(id,name,inn,address,source_json) VALUES(?,'Тест согласования договоров',?,'Тестовый адрес','{}')")->execute([$pid,$inn]);
     PartyLegalReview::requireOnNewParty($db,$pid);
-    $db->prepare("INSERT INTO cadastre(id,number,area,type,source_json) VALUES(?,'77:01:000000:999999',20,'Офис','{}')")->execute([$cid]);
-    $db->prepare("INSERT INTO rental_objects(id,name,type,area,cadastre_id,source_json) VALUES(?,'Тестовое помещение юриста','Офис',20,?,'{}')")->execute([$oid,$cid]);
+    $amounts=[];
+    for ($i=0;$i<$count;$i++) {
+        $db->prepare("INSERT INTO cadastre(id,number,area,type,source_json) VALUES(?,?,20,?,'{}')")
+            ->execute([$cid+$i,'77:01:000000:'.($cid+$i),$type]);
+        $db->prepare("INSERT INTO rental_objects(id,name,type,area,cadastre_id,source_json) VALUES(?,'Тестовое помещение юриста',?,20,?,'{}')")
+            ->execute([$oid+$i,$type,$cid+$i]);
+        $amounts[$oid+$i]='10000.00';
+    }
     $r=command('contract.create',['party_id'=>$pid,'start_date'=>'2026-12-01','end_date'=>'2027-11-30',
-        'amount'=>'10000.00','objects'=>[$oid],'term_amount'=>[$oid=>'10000.00'],'intent'=>'submit']);
+        'amount'=>bcmul('10000.00',(string)$count,2),'objects'=>array_keys($amounts),'term_amount'=>$amounts,'intent'=>'submit']
+        +($documentDate?['document_date'=>$documentDate]:[]));
     return (int)$r['id'];
 }
 $files=[];$db->beginTransaction();
@@ -91,22 +100,47 @@ try {
     PartyLegalReview::requireOnNewParty($db,(int)$party['id']);
     command(LegalHandoff::PARTY,$partyInput);
     check(PartyLegalReview::state($db,(int)$party['id'])===['status'=>'draft'],'No independent counterparty case was submitted');
-    command(LegalHandoff::TERMS,['id'=>$id,'version'=>$c['version']]);
-    denied(fn()=>command('contract.legal',approveInput($id)),'Загрузите итоговый файл',422);
+    $conditions=['id'=>$id,'version'=>$c['version']];
+    command(LegalHandoff::TERMS,$conditions+['lease_form'=>'D17','multiple'=>'1','reason'=>'Устаревшая форма']);
+    check(InitialInvoice::approvalTerms($db,$id)===null && InitialInvoice::legalSecurityMultiple($db,$c)===null,
+        'The former combined payload only confirms the general terms');
     stageFiles($db,$c,2,$files);
+    denied(fn()=>command('contract.legal',approveInput($id)+['multiple'=>'1']),'Согласуйте кратность обеспечения',409);
+    $_GET=['id'=>$id];
+    check(str_contains(SourceCards::show(),'form="legal-handoff" disabled'), 'Transfer button awaits separate approval');
+    command(LegalHandoff::SECURITY_MULTIPLE,$conditions+['multiple'=>'1']);
+    check(LegalHandoff::ready($db,$c) && InitialInvoice::legalSecurityMultiple($db,$c)===1
+        && str_contains(SourceCards::show(),'form="legal-handoff" data-legal-transfer-ready'),
+        'Separate approval preserves prior checks and enables transfer');
     $input=approveInput($id);
+    command(LegalHandoff::SECURITY_MULTIPLE,$conditions+['multiple'=>'2']);
+    denied(fn()=>command('contract.legal',$input),'Кратность обеспечения изменилась',409);
+    command(LegalHandoff::SECURITY_MULTIPLE,$conditions+['multiple'=>'1']);
     actor('manager');denied(fn()=>command('contract.legal',$input),'Недостаточно прав',403);
     actor('accountant');denied(fn()=>command('contract.legal',$input),'Недостаточно прав',403);
     actor('lawyer');stageFiles($db,$c,1,$files);
     denied(fn()=>command('contract.legal',$input),'Комплект изменился',409);
     $input=approveInput($id);$input['command_key']=bin2hex(random_bytes(16));
     $r=Service::command('contract.legal',$input);check($r['status']==='accounting','Legal handoff');
-    check(LegalHandoff::history($db,$id)[0]['party_source']===null,'No source file presented as evidence');
+    $handoff=LegalHandoff::history($db,$id)[0];
+    check($handoff['party_source']===null && $handoff['security_multiple']===1,'The legal bundle records the approved multiplier');
+    $firstHandoffEvent=WorkflowEvents::latest($db,'contract',$id);
+    check($firstHandoffEvent['event_kind']==='legalApprove' && !array_key_exists('security_multiple_change',$firstHandoffEvent),
+        'The first transfer has no previous multiplier');
+    $billingInput=['id'=>$id,'version'=>record($id)['version'],'multiple'=>'0'];
+    denied(fn()=>command(LegalHandoff::SECURITY_MULTIPLE,$billingInput),'Договор не у юриста',409);
+    denied(fn()=>command(InitialInvoice::TERMS,$billingInput+['lease_form'=>'D17','reason'=>'Поздняя правка','confirmed'=>'1']),
+        'Действие недоступно',403);
     InitialInvoice::assertIssueParty($db,record($id));
     actor('accountant');
     $preview=NativePacket::preview($db,'contract',$id,Auth::user());
     $_GET=['id'=>$id];
     $card=SourceCards::show();
+    $billingContract=record($id);
+    $question=InitialInvoice::preview($db,$billingContract,InitialInvoiceCard::defaultIssueDate($billingContract))['questions'][0]??'';
+    check(str_contains($card,'Первый расчёт') && str_contains($card,'Требует уточнения')
+        && $question!=='' && str_contains($card,$question),
+        'An unavailable first calculation shows the actual plan question');
     $currentFile=LegalHandoff::history($db,$id)[0]['files'][0]['filename'];
     check(str_contains($card,$currentFile) && str_contains($card,'decision=confirm&amp;packet='.$preview['expected_packet_hash']),
         'Accountant opens confirmation for the package currently displayed');
@@ -135,8 +169,10 @@ try {
     actor('manager');denied(fn()=>command('contract.edit',['id'=>$id,'version'=>$c['version'],'number'=>$c['number']]),'Исправление назначено юристу',409);
     actor('lawyer');
     $_GET=['id'=>$id];check(str_contains(SourceCards::show(),'Уточнить текст оплаты'),'Returned card action');
-    check(LegalHandoff::ready($db,$c),'The two confirmed checks survive an accounting return with unchanged data');
+    check(LegalHandoff::ready($db,$c) && InitialInvoice::legalSecurityMultiple($db,$c)===1,
+        'The checks survive an accounting return with unchanged data');
     check(!LegalHandoff::files($db,$c),'Return requires current-version files');
+    denied(fn()=>command('contract.legal',approveInput($id)),'Загрузите итоговый файл',422);
     stageFiles($db,$c,2,$files);
     $stale=approveInput($id);$stale['version']--;
     denied(fn()=>command('contract.legal',$stale),'Запись изменена другим сотрудником',409);
@@ -144,7 +180,41 @@ try {
     $history=LegalHandoff::history($db,$id);
     check(count($history)===2 && count($history[0]['files'])===2 && count($history[1]['files'])===1,
         'Current and prior accounting handoffs are separate');
-    check(WorkflowEvents::latest($db,'contract',$id)['target_role']==='accountant','Accountant notification target');
+    $unchanged=WorkflowEvents::latest($db,'contract',$id);
+    check($unchanged['target_role']==='accountant' && !array_key_exists('security_multiple_change',$unchanged),
+        'A repeated transfer with the same multiplier has no change');
+    foreach ([
+        [2,['previous'=>1,'current'=>2,'amount'=>'20000.00']],
+        [0,['previous'=>2,'current'=>0,'amount'=>'0.00']],
+        [1,null],
+    ] as [$multiple,$expectedChange]) {
+        if ($expectedChange===null) {
+            $previous=LegalHandoff::history($db,$id,1)[0];
+            $db->prepare("UPDATE rental_facts SET fact_json=JSON_REMOVE(fact_json,'$.security_multiple')
+                WHERE namespace='legal_handoff_sent' AND source_key=?")->execute([$id.':'.$previous['version']]);
+        }
+        actor('accountant');
+        command('contract.return',['id'=>$id,'version'=>record($id)['version'],'reason'=>'Проверить обеспечение']);
+        $returnedEvent=WorkflowEvents::latest($db,'contract',$id);
+        check($returnedEvent['event_kind']==='accountantReturn' && !array_key_exists('security_multiple_change',$returnedEvent),
+            'The accountant return does not carry the multiplier change');
+        actor('lawyer');
+        $returned=record($id);
+        command(LegalHandoff::SECURITY_MULTIPLE,['id'=>$id,'version'=>$returned['version'],'multiple'=>(string)$multiple]);
+        check(WorkflowEvents::latest($db,'contract',$id)===$returnedEvent,
+            'Approving the multiplier alone does not create a committed workflow notice');
+        stageFiles($db,$returned,1,$files);
+        $handoffInput=approveInput($id)+['command_key'=>bin2hex(random_bytes(16))];
+        $handoffResult=Service::command('contract.legal',$handoffInput);
+        $event=WorkflowEvents::latest($db,'contract',$id);
+        check($event['event_kind']==='legalApprove' && ($expectedChange===null
+            ? !array_key_exists('security_multiple_change',$event)
+            : Importer::canonicalJson($event['security_multiple_change']??[])===Importer::canonicalJson($expectedChange)),
+            'A transfer compares the immediate previous bundle and preserves the exact new amount');
+        check(Service::command('contract.legal',$handoffInput)===$handoffResult
+            && WorkflowEvents::latest($db,'contract',$id)===$event,
+            'Replaying a handoff does not publish a second multiplier change');
+    }
     actor('accountant');command('contract.return',['id'=>$id,'version'=>record($id)['version'],'reason'=>'Нужна правка менеджера']);
     actor('lawyer');command('contract.forward',['id'=>$id,'version'=>record($id)['version'],'reason'=>'Уточнить срок']);
     denied(fn()=>command('contract.legal',approveInput($id)),'Договор не у юриста');
@@ -209,7 +279,61 @@ try {
         ->execute([$legacy['id'],Importer::json(['version'=>(int)$legacy['version'],
             'party'=>LegalHandoff::partyBasis($db,$legacy,legacy:true),'files'=>[]])]);
     InitialInvoice::assertIssueParty($db,$legacy);
-    echo "PASS: optional source, current and legacy proofs, handoff, return, roles, file integrity, no invoices\n";
+
+    $billingId=fixture('7701234563',date('Y-m-d'));
+    $billing=record($billingId);
+    actor('lawyer');
+    $_GET=['id'=>$billingId];
+    $legalCard=SourceCards::show();
+    check(str_contains($legalCard,'id="legal-security-multiple"')
+        && str_contains($legalCard,'name="multiple" min="0" step="1" value="1"')
+        && !str_contains($legalCard,'name="lease_form"'),
+        'The legal review exposes only the proposed multiplier');
+    $firstTerms=['id'=>$billingId,'version'=>$billing['version'],'multiple'=>'0','command_key'=>bin2hex(random_bytes(16))];
+    actor('manager');
+    denied(fn()=>Service::command(LegalHandoff::SECURITY_MULTIPLE,$firstTerms),'Недостаточно прав',403);
+    actor('lawyer');
+    denied(fn()=>command(LegalHandoff::SECURITY_MULTIPLE,array_replace($firstTerms,['version'=>0])),
+        'Запись изменена другим сотрудником',409);
+    denied(fn()=>command(LegalHandoff::SECURITY_MULTIPLE,array_replace($firstTerms,['multiple'=>'0.5'])),
+        'Укажите целую кратность',422);
+    $saved=Service::command(LegalHandoff::SECURITY_MULTIPLE,$firstTerms);
+    $eventCount=(int)$db->query("SELECT COUNT(*) FROM rental_events WHERE contract_id=$billingId")->fetchColumn();
+    check(Service::command(LegalHandoff::SECURITY_MULTIPLE,$firstTerms)===$saved
+        && (int)$db->query("SELECT COUNT(*) FROM rental_events WHERE contract_id=$billingId")->fetchColumn()===$eventCount,
+        'The multiplier confirmation uses the existing idempotent command');
+    check(!LegalHandoff::checks($db,$billing)['terms'], 'Multiplier confirmation never approves the general terms');
+    $zero=InitialInvoice::preview($db,$billing,date('Y-m-d'));
+    check(array_column($zero['rows'],'kind')===['Первый период'] && $zero['rows'][0]['amount']==='10000.00',
+        'An explicitly confirmed zero omits security while keeping rent');
+    $changed=$billing;
+    $changed['end_date']='2027-12-01';
+    check(InitialInvoice::legalSecurityMultiple($db,$changed)===null
+        && InitialInvoice::preview($db,$changed,date('Y-m-d'))['rows']===[], 'Changed terms require a renewed confirmation');
+    $firstTerms['multiple']='1';
+    $firstTerms['command_key']=bin2hex(random_bytes(16));
+    Service::command(LegalHandoff::SECURITY_MULTIPLE,$firstTerms);
+    $security=InitialInvoice::securityFirst(InitialInvoice::preview($db,$billing,date('Y-m-d'))['rows'])[0];
+    check($security['kind']==='Обеспечительный платёж' && $security['amount']==='10000.00' && $security['due']===null,
+        'Known security amount remains in the plan before the due date is established');
+    check(InitialInvoice::issuedFor($db,$billingId)===[], 'Confirming the calculation does not issue first invoices');
+    $parkingId=fixture('7701234564',date('Y-m-d'),'Машиноместо',2);
+    $parking=record($parkingId);
+    actor('lawyer');
+    $parkingInput=['id'=>$parkingId,'version'=>$parking['version']];
+    command(LegalHandoff::PARTY,$parkingInput+['party_basis'=>LegalHandoff::partyBasis($db,$parking)]);
+    command(LegalHandoff::SECURITY_MULTIPLE,$parkingInput+['multiple'=>'0','lease_form'=>'D09']);
+    command(LegalHandoff::TERMS,$parkingInput);
+    check(LeasePaymentTerms::allowedForms($db,$parking)===[] && InitialInvoice::approvalTerms($db,$parkingId)===null,
+        'Two parking spaces have no applicable initial payment form');
+    $plan=InitialInvoice::preview($db,$parking,date('Y-m-d'));
+    check($plan['rows']===[] && str_contains($plan['questions'][0],'Кратность обеспечения согласована'),
+        'An approved multiplier alone cannot create a calculation without an applicable form');
+    stageFiles($db,$parking,1,$files);
+    $r=command('contract.legal',approveInput($parkingId));
+    check($r['status']==='accounting' && LegalHandoff::history($db,$parkingId)[0]['security_multiple']===0,
+        'An explicit zero enables legal handoff for two parking spaces');
+    echo "PASS: legal handoff, separate multiplier, stale terms, permissions, idempotency, documents, multiple parking spaces\n";
 } finally {
     $db->rollBack();
     foreach ($files as $path) if (is_file($path)) unlink($path);

@@ -15,6 +15,11 @@ try{
  $start=date('Y-m-d');$end=date('Y-m-d',strtotime('+1 month'));
  $rooms=array_values(array_filter(Availability::items($start,$end),fn($r)=>$r['available']));expectBooking((bool)$rooms,'No free fixture room');$oid=$rooms[0]['id'];
  $firstInput=['object_id'=>$oid,'start_date'=>$start,'until_date'=>$end,'client_name'=>'Локальный клиент А','comment'=>'Первый запрос','command_key'=>commandKey()];
+ foreach (['object_id'=>[0,'Выберите помещение'], 'client_name'=>[" \u{00A0}",'Укажите предварительное имя клиента'],
+     'start_date'=>[null,'Укажите корректную дату'], 'until_date'=>['2026-02-30','Укажите корректную дату'],
+     'comment'=>[" \u{00A0}",'Укажите комментарий']] as $field=>[$invalid,$message]) {
+     denyBooking(fn()=>Service::command('reservation.create',array_replace($firstInput,[$field=>$invalid,'command_key'=>commandKey()])),$message);
+ }
  $a=Service::command('reservation.create',$firstInput);$b=Service::command('reservation.create',array_replace($firstInput,['client_name'=>'Локальный клиент Б','comment'=>'Второй запрос','command_key'=>commandKey()]));
  expectBooking($a['id']!==$b['id'],'Bookings were not independent');expectBooking(Service::command('reservation.create',$firstInput)===$a,'Replay duplicated booking');
  $deadline=new DateTimeImmutable($end);

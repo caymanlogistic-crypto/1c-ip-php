@@ -74,9 +74,9 @@ try {
 
     $legalApprove=static function(array $record)use($act,$stage,$id,$db): string {
         $act('lawyer');
-        foreach ([LegalHandoff::PARTY,LegalHandoff::TERMS] as $action) {
+        foreach ([LegalHandoff::PARTY,LegalHandoff::TERMS,LegalHandoff::SECURITY_MULTIPLE] as $action) {
             Service::command($action,['id'=>$id,'version'=>$record['version'],'command_key'=>bin2hex(random_bytes(16)),
-                'party_basis'=>LegalHandoff::partyBasis($db,$record)]);
+                'party_basis'=>LegalHandoff::partyBasis($db,$record),'multiple'=>'1']);
         }
         $fileId=$stage('lawyer-file',$record);
         $query=$db->prepare('SELECT id,filename,sha256 FROM rental_files WHERE id=?');
@@ -84,7 +84,7 @@ try {
         $db->prepare("UPDATE rental_facts SET fact_json=JSON_SET(fact_json,'$.files',CAST(? AS JSON))
             WHERE namespace='legal_handoff_draft' AND source_key=?")->execute([Importer::json($files),$id]);
         Service::command('contract.legal',['id'=>$id,'version'=>$record['version'],
-            'command_key'=>bin2hex(random_bytes(16)),'packet_fingerprint'=>LegalHandoff::fingerprint($files)]);
+            'command_key'=>bin2hex(random_bytes(16)),'security_multiple'=>1,'packet_fingerprint'=>LegalHandoff::fingerprint($files)]);
         return $fileId;
     };
     $secondFile=$legalApprove($current);
@@ -107,7 +107,7 @@ try {
     $confirmChecks=['counterparty_confirmed'=>1,'financial_confirmed'=>1,'document_confirmed'=>1];
     $result=Service::command('contract.packet',['id'=>$id,'version'=>$preview['record']['version'],
         'command_key'=>bin2hex(random_bytes(16)),'packet_confirmed'=>1,'expected_packet_hash'=>$preview['expected_packet_hash']]+$confirmChecks);
-    verify($result['status']==='approved','Revision C could not be approved.');
+    verify($result['status']==='active','Revision C could not be approved and activated.');
     $proofAfter=NativePacket::current($db,'contract',$id,Auth::user(),'prepare');
     verify($proofAfter['state']==='confirmed','Revision C approval proof is unavailable.');
     $invoiceQuery->execute([$id]);
