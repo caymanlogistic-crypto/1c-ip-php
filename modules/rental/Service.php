@@ -400,11 +400,7 @@ final class Service {
                 if (!$ids && bccomp($partTotal, '0', 2) <= 0)throw new RuntimeException('Выберите объекты.');
                 $types=[];
                 foreach ($ids as $oid)$types[]=self::get($p,'rental_objects',(int)$oid)['type'];
-                $parkingTypes=TemplateAssets::PARKING_TYPES;
-                if (array_intersect($types,$parkingTypes) && array_diff($types,$parkingTypes)
-                    && (!$old || TemplateAssets::objectKind($p,(int)$old['id'])!=='mixed')) {
-                    throw new RuntimeException('Оформите помещения и машино-места отдельными договорами.',422);
-                }
+                ContractDraft::assertObjectTypes($types);
                 $partEdit = $partRows !== null && $old
                     ? \App\BillingPartTerms::beginEdit($p, 'contract', $id, (int)$old['version']) : null;
                 $priorRelations=$old?Occupancy::relations($p,$id):[];
@@ -471,8 +467,7 @@ final class Service {
                     \App\BillingPartTerms::finish($p, $partEdit);
                 }
                 $date = !empty($in['document_date'])?self::date($in['document_date']):($old['document_date'] ?? null);
-                $template = array_intersect($types,$parkingTypes)
-                    ? (array_diff($types,$parkingTypes)?'mixed':'parking') : 'office';
+                $template = array_intersect($types,TemplateAssets::PARKING_TYPES)?'parking':'office';
                 $p->prepare('UPDATE contracts SET document_date=?,template_type=? WHERE id=?')->execute([
                     $date,
                     $template,
@@ -545,6 +540,9 @@ final class Service {
                 if (($draft = ContractDraft::input($c)) !== null) {
                     return self::execute($p, $u, 'contract.edit', array_merge($draft, ['id'=>$id,'version'=>$c['version'],'number'=>$c['number'],'command_key'=>$in['command_key'],'intent'=>'submit']), 'contract.submit',$materials);
                 }
+                $typeQuery=$p->prepare('SELECT o.type FROM contract_objects co JOIN rental_objects o ON o.id=co.object_id WHERE co.contract_id=?');
+                $typeQuery->execute([$id]);
+                ContractDraft::assertObjectTypes($typeQuery->fetchAll(PDO::FETCH_COLUMN));
                 $q = $p->prepare('SELECT object_id FROM contract_objects WHERE '.\App\ContractOccupancy::contractPredicate('contract_objects').' AND contract_id=?');
                 $q->execute([
                     $id

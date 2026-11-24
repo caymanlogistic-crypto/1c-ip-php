@@ -415,6 +415,10 @@
   function addObject(form){
     const picker=form.querySelector('[data-rental-object-picker]'),option=picker?.selectedOptions[0],template=form.querySelector('template[data-rental-term-template]'),body=form.querySelector('[data-rental-terms]');
     if(!option||!template||!body||!/^\d+$/.test(option.value))return;
+    if(window.RentalPickers?.allowsObjectType(form,option.dataset.type)===false){
+      notify(form.dataset.rentalObjectTypeError);
+      return;
+    }
     if(option.disabled){
       notify('Помещение недоступно для выбранного периода.');
       return;
@@ -440,6 +444,7 @@
     }
     body.append(fragment);
     total(form);
+    if(form.hasAttribute('data-rental-single-object-type'))window.RentalPickers?.refresh(picker);
   }
   document.addEventListener('click',event=>{
     const folder=event.target.closest('[data-folder]');
@@ -490,7 +495,11 @@
       event.preventDefault();
       const form=remove.closest('form');
       remove.closest('tr')?.remove();
-      if(form)total(form);
+      if(form){
+        total(form);
+        const picker=form.hasAttribute('data-rental-single-object-type')&&form.querySelector('[data-rental-object-picker]');
+        if(picker)window.RentalPickers?.refresh(picker);
+      }
     }
   });
   document.addEventListener('dblclick',event=>{

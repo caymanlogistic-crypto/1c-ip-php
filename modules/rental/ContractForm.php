@@ -155,7 +155,9 @@ final class ContractForm {
         if ($continuation) $hidden.=ExpiryContinuation::fields($continuation);
         $body = '<form id="'
         . $fid
-        . '" class="registry-ui-modal-grid" novalidate data-source-validation data-rental-contract-form'.($design!==''?' data-design-fields':'').' data-rental-availability-url="'
+        . '" class="registry-ui-modal-grid" novalidate data-source-validation data-rental-contract-form data-rental-single-object-type="'
+        . View::e(implode('|',TemplateAssets::PARKING_TYPES))
+        . '" data-rental-object-type-error="'.View::e(ContractDraft::OBJECT_TYPE_ERROR).'"'.($design!==''?' data-design-fields':'').' data-rental-availability-url="'
         . View::e($availability)
         . '" method="post" action="/rental/action" enctype="multipart/form-data">'
         . $hidden

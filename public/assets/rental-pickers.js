@@ -3,6 +3,12 @@
 (() => {
  const root=window,get=value=>typeof value==='function'?value():value;
  let pickerId=0;
+ function allowsObjectType(form,type){
+  const parking=form?.dataset.rentalSingleObjectType?.split('|');
+  if(!parking)return true;
+  const chosen=form.querySelector('[data-rental-terms] [data-rental-term-type]')?.textContent.trim();
+  return !chosen || chosen===type || (parking.includes(chosen) && parking.includes(type));
+ }
  function mountRoomPicker(select,options={}){
   if(!select?.ownerDocument||select.tagName!=='SELECT')throw new TypeError('A native room select is required');
   if(select._rentalRoomPicker)return select._rentalRoomPicker;
@@ -17,6 +23,7 @@
   const search=doc.createElement('input');search.type='search';search.className='cs-search-input';search.placeholder=options.searchPlaceholder||'Найти помещение';if(options.allowCustomName)search.maxLength=255;search.setAttribute('aria-label',options.searchLabel||'Поиск помещения');search.setAttribute('aria-controls',id+'-list');searchWrap.append(search);
   const list=doc.createElement('div');list.className='cs-options';list.id=id+'-list';list.setAttribute('role','listbox');list.setAttribute('aria-label',options.listLabel||'Помещения и доступность');
   panel.append(searchWrap,list);host.append(trigger,panel);select.after(host);
+  const accepts=options.accepts||(()=>true);
   const wasHidden=select.hidden;select.hidden=true;let items=[],visible=[],active=-1,opened=false,destroyed=false;
   function contents(node,item){node.replaceChildren();if(!item){node.textContent=options.placeholder||'Выберите помещение';return;}node.append(doc.createTextNode(item.name+(item.description?' · ':'')));const detail=doc.createElement(item.available?'strong':'span');if(item.available)detail.className='registry-ui-success';detail.textContent=item.description;node.append(detail);}
   function close(focus=false){opened=false;if(panel.matches(':popover-open'))panel.hidePopover();panel.hidden=true;panel.classList.remove('is-open');trigger.classList.remove('is-open');trigger.setAttribute('aria-expanded','false');search.removeAttribute('aria-activedescendant');trigger.removeAttribute('aria-activedescendant');if(focus&&!destroyed)trigger.focus();}
@@ -44,7 +51,7 @@
     ? [{id:'',name:options.placeholder,label:options.placeholder},...items] : items;
    visible=choices.filter(item=>{
     const text=normalized([item.label,item.name,item.description,item.type,item.area].join(' '));
-    return tokens.every(token=>text.includes(token));
+    return accepts(item) && tokens.every(token=>text.includes(token));
    });
    if (options.allowCustomName && query && !items.some(item=>normalized(item.name)===normalized(query))) {
     visible.push({id:query,name:'Использовать название «'+query+'»',custom:true});
@@ -84,7 +91,36 @@
  }
  function reposition(event){if(opened&&!panel.contains(event.target))position();}
  function open(){if(destroyed||select.disabled)return;refresh();opened=true;panel.hidden=false;panel.classList.add('is-open');trigger.classList.add('is-open');trigger.setAttribute('aria-expanded','true');search.value='';renderList();if(panel.showPopover)panel.showPopover();position();search.focus();}
-  function refresh(){if(destroyed)return;const state=get(options.state);if(!state)throw new TypeError('Room picker state is missing');items=options.items(state);const selected=select.value;select.replaceChildren();const empty=doc.createElement('option');empty.value='';empty.textContent=options.placeholder||'Выберите помещение';select.append(empty);for(const item of items){const option=doc.createElement('option');option.value=String(item.id);option.textContent=item.label;option.disabled=!!item.disabled;option.dataset.name=item.name;option.dataset.description=item.description;option.dataset.search=item.label;option.dataset.available=String(!!item.available);option.dataset.type=item.type||'';option.dataset.area=item.area||'';if(item.prefixes)option.dataset.prefixes=item.prefixes;select.append(option);}select.value=items.some(i=>String(i.id)===selected)?selected:'';contents(value,items.find(i=>String(i.id)===select.value));trigger.disabled=select.disabled;trigger.setAttribute('aria-required',String(select.required));if(opened)renderList();}
+  function refresh(){
+   if(destroyed)return;
+   const state=get(options.state);
+   if(!state)throw new TypeError('Room picker state is missing');
+   items=options.items(state);
+   const selected=items.find(item=>String(item.id)===select.value && accepts(item));
+   const empty=doc.createElement('option');
+   empty.value='';
+   empty.textContent=options.placeholder||'Выберите помещение';
+   select.replaceChildren(empty);
+   for(const item of items){
+    const option=doc.createElement('option');
+    option.value=String(item.id);
+    option.textContent=item.label;
+    option.disabled=!!item.disabled;
+    option.dataset.name=item.name;
+    option.dataset.description=item.description;
+    option.dataset.search=item.label;
+    option.dataset.available=String(!!item.available);
+    option.dataset.type=item.type||'';
+    option.dataset.area=item.area||'';
+    if(item.prefixes)option.dataset.prefixes=item.prefixes;
+    select.append(option);
+   }
+   select.value=selected?String(selected.id):'';
+   contents(value,selected);
+   trigger.disabled=select.disabled;
+   trigger.setAttribute('aria-required',String(select.required));
+   if(opened)renderList();
+  }
   function keydown(e){if(e.key==='Escape'&&opened){e.preventDefault();e.stopPropagation();close(true);return;}if(e.key==='Tab'){close();return;}if(['ArrowDown','ArrowUp','Home','End','Enter'].includes(e.key)||e.key===' '&&e.target===trigger){e.preventDefault();if(!opened){open();return;}if(e.key==='Enter'||e.key===' '){if(visible[active])choose(visible[active]);}else setActive(e.key==='Home'?0:e.key==='End'?visible.length-1:active+(e.key==='ArrowUp'?-1:1));}}
   function outside(e){if(!host.contains(e.target))close();}
   function invalid(e){e.preventDefault();trigger.setAttribute('aria-invalid','true');trigger.focus();}
@@ -111,7 +147,9 @@
     listLabel:room?'Помещения и доступность':'Записи справочника',
     emptyText:room?'Помещения не найдены':'Записи не найдены'
    };
-   const api=mountRoomPicker(select,{state:()=>({}),items:()=>items(select),...labels});
+   const form=select.closest('form');
+   const accepts=select.hasAttribute('data-rental-object-picker') ? item=>allowsObjectType(form,item.type) : undefined;
+   const api=mountRoomPicker(select,{state:()=>({}),items:()=>items(select),accepts,...labels});
    mounted.set(select,api);
   }
   creator(scope);
@@ -145,5 +183,5 @@
  document.addEventListener('rental:picker-refresh',event=>{const scope=event.target;for(const [select,api]of mounted)if(scope===select||scope.contains?.(select))api.refresh();});
  document.addEventListener('change',event=>{if(event.target.form?.hasAttribute('data-rental-document-creator'))creator(event.target.closest('form'));});
  new MutationObserver(()=>{for(const [select,api]of mounted)if(!select.isConnected){api.destroy();mounted.delete(select);}enhance();}).observe(document.documentElement,{childList:true,subtree:true});
- root.RentalPickers=Object.freeze({enhance,destroy,refresh(scope=document){scope.dispatchEvent(new Event('rental:picker-refresh',{bubbles:true}));}});enhance();
+ root.RentalPickers=Object.freeze({enhance,destroy,allowsObjectType,refresh(scope=document){scope.dispatchEvent(new Event('rental:picker-refresh',{bubbles:true}));}});enhance();
 })();
