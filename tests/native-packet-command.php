@@ -3,7 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\{Auth, DB};
-use Modules\Rental\{Evidence, Importer, NativePacket, Service};
+use Modules\Rental\{AccountantPacketSummary, Evidence, Importer, NativePacket, Service, WorkflowEvents};
 
 // Usage: php tests/native-packet-command.php <accounting-contract-id>
 set_exception_handler(static function (Throwable $error): void {
@@ -78,6 +78,7 @@ try {
     $action = 'contract.packet';
     $input = packetInput($db, $id);
     $before = effects($db, $id);
+    $summary = NativePacket::preview($db, 'contract', $id, Auth::user())['view']['accountant_confirmation_summary'];
     $accountantSession = $_SESSION;
     $manager = $db->query("SELECT id,auth_version FROM users WHERE role='manager' AND active=1 ORDER BY id LIMIT 1")->fetch();
     check((bool)$manager, 'Manager fixture required.');
@@ -106,6 +107,22 @@ try {
     $db->exec('ROLLBACK TO SAVEPOINT expired_packet');
     check(effects($db, $id) === $before, 'Rejected approval changed durable records.');
 
+    if ($before[1] === 0 && $before[3] === 0) {
+        $db->exec('SAVEPOINT legacy_packet');
+        $db->prepare("UPDATE contracts SET status='approved' WHERE id=?")->execute([$id]);
+        $legacyInput = packetInput($db, $id);
+        $db->prepare("INSERT INTO rental_delivery_intents(id,request_key,provider,operation,entity_type,entity_id,entity_version,baseline_hash,actor_id,payload_json,status)
+            VALUES(?,?,'email','contract-packet','contract',?,?,?,?,'{}','unknown')")
+            ->execute([bin2hex(random_bytes(16)), 'test-intent-'.$legacyInput['command_key'], $id, $contract['version'],
+                str_repeat('0',64), $actor['id']]);
+        rejected(fn()=>Service::command($action, $legacyInput), 'Продолжите работу с существующим пакетом', 409);
+        check(effects($db, $id) === [$before[0], $before[1], $before[2], 1], 'Uncertain legacy delivery changed.');
+        $db->exec('ROLLBACK TO SAVEPOINT legacy_packet');
+        $db->prepare("UPDATE contracts SET status='approved' WHERE id=?")->execute([$id]);
+        check(Service::command($action, packetInput($db, $id))['status'] === 'active', 'First reviewed legacy package did not activate.');
+        $db->exec('ROLLBACK TO SAVEPOINT legacy_packet');
+    }
+
     $result = Service::command($action, $input);
     $after = effects($db, $id);
     $active = Service::get($db, 'contracts', $id);
@@ -122,6 +139,12 @@ try {
         'Stored receipt did not retain the epoch.');
     check(NativePacket::current($db, 'contract', $id, Auth::user(), 'prepare')['state'] === 'confirmed',
         'Saved packet proof is unreadable.');
+    $eventQuery = $db->prepare("SELECT id,created_at,source_json FROM rental_events WHERE contract_id=? AND action='contract.packet' ORDER BY id DESC LIMIT 1");
+    $eventQuery->execute([$id]);
+    $event = WorkflowEvents::decode($eventQuery->fetch());
+    check(Importer::canonicalJson($event['accountant_packet_confirmation'] ?? null)
+        === Importer::canonicalJson($summary+['external_operations'=>AccountantPacketSummary::EXTERNAL_DISABLED]),
+        'The event did not record the confirmed summary.');
     check(Service::command($action, $input) === $result && effects($db, $id) === $after,
         'Retry wrote effects or returned a different receipt.');
     $db->prepare("UPDATE contracts SET status='approved' WHERE id=?")->execute([$id]);
