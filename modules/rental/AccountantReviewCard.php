@@ -242,21 +242,18 @@ final class AccountantReviewCard
                 $rows[]=[View::e(self::invoiceLabel($line)),View::e($period),
                     View::e($line['due']?Documents::dateText($line['due']):'Требует подтверждения'),Controller::money($line['amount'])];
             }
-            if (!$rows) {
-                if (($plan['condition']['multiple']??null)!==0)
-                    $rows[]=['Обеспечительный платёж','—','—','—'];
-                $rows[]=['Аренда за первый период','—','—','—'];
-                $body='<p class="registry-ui-modal-help">Нужны подтверждённые условия первого начисления.</p>';
-            }
+            foreach (array_unique($plan['questions']) as $question)
+                $body.='<p class="registry-ui-modal-help">'.View::e($question).'</p>';
+            if (!$rows && $body==='') $body='<p class="registry-ui-modal-help">Нет данных для предварительного расчёта.</p>';
         }
-        $body.='<div class="registry-ui-review-terms">'
+        if ($rows) $body.='<div class="registry-ui-review-terms">'
             .Controller::table(['Начисление / счёт','Период','Срок оплаты','Сумма с НДС'],$rows,['text','text','short','money']).'</div>';
         if ($issued) {
             $body.='<div class="demo-row">'.RentalUI::button('Открыть первые счета',InitialInvoiceCard::route($id)).'</div>';
         }
         $state=$issued?'Зарегистрирован':'Не выставлен';
         if ($previewUrl!=='') $state=InitialInvoicePreview::LABEL;
-        return RentalUI::reviewSection('Первый счёт',$body,$state,(bool)$issued,$previewUrl);
+        return RentalUI::reviewSection('Первый расчёт',$body,$state,(bool)$issued,$previewUrl);
     }
 
     private static function invoiceLabel(array $line): string

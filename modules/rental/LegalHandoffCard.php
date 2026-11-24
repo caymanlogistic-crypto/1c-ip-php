@@ -106,13 +106,39 @@ final class LegalHandoffCard
                 ['Кратность обеспечительного платежа',(string)$form['multiple']],
             ]);
         }
-        $facts.='<div class="registry-ui-review-actions"><div></div><div class="demo-row">'
+        $initial=self::initialTerms($contract);
+        $facts.='<div class="registry-ui-review-actions"><div>'
+            .($initial?self::toggle('legal-initial-terms','Подтвердить условия первого начисления'):'')
+            .'</div><div class="demo-row">'
             .self::toggle('review-terms-return','Условия неверны',true,true)
             .self::confirm($contract,LegalHandoff::TERMS,'Условия верны',$checked)
             .'</div></div>'
+            .$initial
             .self::reason($contract,'contract.return','review-terms-return','Условия неверны','Закрыть форму возврата',
                 'Укажите, каких данных не хватает или что нужно уточнить.','Вернуть на доработку');
         return self::section('Проверка условий',$facts,$checked?'Условия подтверждены':'Ожидает решения',$checked);
+    }
+
+    private static function initialTerms(array $contract): string
+    {
+        $db=DB::pdo();
+        $id=(int)$contract['id'];
+        if (!InitialInvoice::can($contract,InitialInvoice::TERMS) || InitialInvoice::issuedFor($db,$id)
+            || InitialInvoice::receipt($db,$id)) return '';
+        $forms=LeasePaymentTerms::allowedForms($db,$contract);
+        if (!$forms) return '';
+        $labels=[];
+        foreach ($forms as $form=>$label) $labels[$form]=$form.' · '.$label;
+        $fields='<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
+            .DirectoryUi::select('lease_form','Согласованная форма',[''=>'Выберите форму']+$labels,'',true,alignedLabel:true)
+            .'<label class="field"><span class="field-label-row"><span class="field-label">Кратность обеспечения <span class="req">*</span></span></span>'
+            .'<input class="field-input" type="number" name="multiple" min="0" step="1" placeholder="0 — без обеспечения" required></label></div>'
+            .'<label class="field"><span class="field-label">Пункт договора о первом начислении и обеспечении <span class="req">*</span></span>'
+            .'<textarea class="field-textarea" name="reason" rows="2" maxlength="600" required></textarea></label>';
+        $form='<form class="registry-ui-form-section" method="post" action="/rental/action">'
+            .self::fields($contract,LegalHandoff::TERMS).$fields
+            .'<div class="demo-row"><button class="btn btn-success-solid" type="submit">Подтвердить первый расчёт</button></div></form>';
+        return self::panel('legal-initial-terms','Подтвердить условия первого начисления','Закрыть условия первого начисления',$form);
     }
 
     private static function documents(array $contract,array $files,bool $ready): string
