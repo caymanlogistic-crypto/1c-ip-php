@@ -28,7 +28,9 @@ final class BookingController {
         return [
             '<form id="'
             . $fid
-            . '" class="registry-ui-modal-grid" method="post" action="/rental/action" data-rental-availability-url="/rental/availability?mode=booking"><input type="hidden" name="_csrf" value="'
+            . '" class="registry-ui-modal-grid" method="post" action="/rental/action" data-rental-availability-url="/rental/availability?mode=booking"'
+            . ($action==='reservation.create'?' novalidate data-source-validation':'')
+            . '><input type="hidden" name="_csrf" value="'
             . View::e(Http::csrf())
             . '"><input type="hidden" name="action" value="'
             . $action
@@ -56,15 +58,17 @@ final class BookingController {
         ]);
         \App\PagePolicy::requireCommand('reservation.create');
         $start = date('Y-m-d');
-        $fields = '<label class="field"><span class="field-label">Помещение</span><select class="field-input field-select" name="object_id" required data-rental-picker="room">'
+        $fields = '<label class="field"><span class="field-label">Помещение <span class="req">*</span></span><select class="field-input field-select" name="object_id" required data-rental-picker="room">'
         . Availability::options(Availability::items($start, $start, null, null, true),(int)($_GET['object_id'] ?? 0) ?: null)
         . '</select></label>'
-        . Controller::input('client_name', 'Предварительное имя клиента', '', 'text', true)
+        . DirectoryUi::input('client_name', 'Предварительное имя клиента', '', 'text', true)
         . '<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
-        . Controller::input('start_date', 'Планируемое начало аренды', $start, 'date', true)
-        . Controller::input('until_date', 'Резервирование действует до', date('Y-m-d'), 'date', true)
+        . DirectoryUi::input('start_date', 'Планируемое начало аренды', $start, 'date', true)
+        . '<label class="field"><span class="field-label-row"><span class="field-label">Резервирование действует до <span class="req">*</span></span></span>'
+        . '<input class="field-input" name="until_date" type="date" value="'.$start.'" min="'.$start.'" required></label>'
         . '</div>'
-        . Controller::input('comment', 'Комментарий', '', 'text', false);
+        . DirectoryUi::input('comment', 'Комментарий', '', 'text', true)
+        . '<template data-source-validation-alert>'.RentalUI::alert('Заполните или исправьте выделенные поля.','','error').'</template>';
         [
             $body,
             $actions

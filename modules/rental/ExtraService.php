@@ -271,16 +271,22 @@ final class ExtraService {
                     ->execute([$until,Importer::json($source),$id]);
             }
             elseif($action === 'reservation.create') {
-                if (trim((string)($in['client_name'] ?? '')) === '' && empty($in['party_id']))throw new RuntimeException('Укажите предварительное имя клиента.',422);
-                $oid = (int)($in['object_id'] ?? 0);
+                $oid=filter_var($in['object_id'] ?? null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);
+                if ($oid===false) throw new RuntimeException('Выберите помещение.',422);
+                $whitespace='[\p{Z}\x{9}-\x{D}\x{FEFF}]';
+                $text=static fn(mixed $value): string => is_string($value)?preg_replace('/^'.$whitespace.'+|'.$whitespace.'+$/u','',$value) ?? '':'';
+                $client=$text($in['client_name'] ?? null);
+                $comment=$text($in['comment'] ?? null);
+                if ($client==='') throw new RuntimeException('Укажите предварительное имя клиента.',422);
+                if ($comment==='') throw new RuntimeException('Укажите комментарий к резервированию.',422);
+                $start=Service::date(is_string($in['start_date'] ?? null)?$in['start_date']:'');
+                $until=Service::date(is_string($in['until_date'] ?? null)?$in['until_date']:'');
+                if ($until<date('Y-m-d'))throw new RuntimeException('Срок резервирования уже истёк.');
                 $party = !empty($in['party_id'])?(int)$in['party_id']:null;
                 if ($party) {
                     $pa = Service::get($p, 'parties', $party);
                     if ($pa['blocked'])throw new RuntimeException('Контрагент заблокирован.');
                 }
-                $start = Service::date($in['start_date'] ?? date('Y-m-d'));
-                $until = Service::date($in['until_date'] ?? '');
-                if ($until<date('Y-m-d'))throw new RuntimeException('Срок резервирования уже истёк.');
                 Service::available($p, [
                     $oid
                 ], $start, $start, null, null, false, null, true);
@@ -289,11 +295,11 @@ final class ExtraService {
                     $id,
                     $oid,
                     $party,
-                    trim($in['client_name'] ?? ''),
+                    $client,
                     $u['id'],
                     $start,
                     $until,
-                    $in['comment'] ?? ''
+                    $comment
                 ]);
             }
             else throw new RuntimeException('Неизвестное действие резервирования.');
