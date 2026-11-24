@@ -235,13 +235,22 @@ final class PartyDirectory
                 foreach([$name,$phone,$email] as $field)if(trim((string)($party[$field] ?? ''))!=='')$hasData=true;
                 $body.='<details id="party-additional-contact" class="registry-ui-form-disclosure" data-form-disclosure'.($hasData?' open':'').'><summary class="btn btn-secondary"><span data-disclosure-collapsed>Добавить контакт</span><span data-disclosure-expanded>Дополнительный контакт · Скрыть</span></summary>';
             }
-            $body.='<section class="registry-ui-form-section" aria-label="'.$title.'"><div class="form-grid-3">'
-                .DirectoryUi::input($name,'ФИО',$party[$name] ?? '')
-                .DirectoryUi::input($phone,'Телефон',$party[$phone] ?? '','tel')
-                .DirectoryUi::input($email,'Электронная почта',$party[$email] ?? '').'</div>'
-                .'<div class="form-grid-3">'.DirectoryUi::input($name.'_position','Должность',$details[$name.'_position'] ?? '')
-                .DirectoryUi::input($name.'_role','Роль контакта',$details[$name.'_role'] ?? '')
-                .DirectoryUi::checkbox($recipient,'Получает документы',$selected).'</div></section>';
+            $nameField=DirectoryUi::input($name,'ФИО',$party[$name] ?? '');
+            $phoneField=DirectoryUi::input($phone,'Телефон',$party[$phone] ?? '','tel');
+            $emailField=DirectoryUi::input($email,'Электронная почта',$party[$email] ?? '');
+            $positionField=DirectoryUi::input($name.'_position','Должность',$details[$name.'_position'] ?? '');
+            $roleField=DirectoryUi::input($name.'_role','Роль контакта',$details[$name.'_role'] ?? '');
+            $recipientField=DirectoryUi::checkbox($recipient,'Получает документы',$selected);
+            $body.='<section class="registry-ui-form-section" aria-label="'.$title.'"><div class="form-grid-3">';
+            if ($id) {
+                $body.=$nameField.$phoneField.$emailField.'</div><div class="form-grid-3">'.$positionField.$roleField.$recipientField;
+            } else {
+                foreach ([$nameField.$positionField,$phoneField.$roleField] as $column) {
+                    $body.='<div><div class="registry-ui-form-section">'.$column.'</div></div>';
+                }
+                $body.='<div class="field">'.$emailField.$recipientField.'</div>';
+            }
+            $body.='</div></section>';
             if($index===1)$body.='</details>';
         }
         $bankValue=fn(string $key)=>$key==='bank' && $bank?DirectoryUi::bankName($bank):($bank[$key] ?? '');
