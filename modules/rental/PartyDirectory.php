@@ -184,14 +184,16 @@ final class PartyDirectory
         $details=$id?DirectoryDetails::read(DB::pdo(),'parties',$id):[];
         $sectionClass=$id?'registry-ui-form-section':'registry-ui-form-section registry-ui-review-section';
         $headingClass=$id?'registry-ui-modal-summary':'modal-title';
+        $stack='registry-ui-form-sections registry-ui-form-sections--compact';
         $body='';
         if ($id) {
             $provenance=PartyOrigin::read($party);
             $body=DirectoryUi::pairs([['Источник',$provenance['label']],['ID в базе',$provenance['local_id']],['Код 1С',$provenance['code'] ?: '—'],['GUID 1С',$provenance['guid'] ?: '—']]);
         }
-        $body.='<div class="registry-ui-form-sections registry-ui-form-sections--compact" data-party-editor>'
-            .'<section class="'.$sectionClass.'" aria-labelledby="party-organization-title"><h3 class="'.$headingClass.'" id="party-organization-title">Данные клиента</h3>'
-            .'<div class="registry-ui-form-row">'
+        $body.=$id?'<div class="'.$stack.'" data-party-editor>'
+            :'<div class="registry-ui-modal-grid registry-ui-modal-grid--reading" data-party-editor><div class="'.$stack.'">';
+        $body.='<section class="'.$sectionClass.'" aria-labelledby="party-organization-title"><h3 class="'.$headingClass.'" id="party-organization-title">Данные клиента</h3>'
+            .'<div class="'.($id?'registry-ui-form-row':'registry-ui-modal-grid').'">'
             .DirectoryUi::input('name','Название в документах / ФИО',$party['name'] ?? '','text',true)
             .'<div class="field"><div class="field-label-row"><label class="field-label" for="party-reference-inn">ИНН</label></div>'
             .'<div class="registry-ui-modal-address-row"><input class="field-input" id="party-reference-inn" name="inn" type="text" value="'.View::e($party['inn'] ?? '').'">'
@@ -200,7 +202,7 @@ final class PartyDirectory
             .'<strong id="party-reference-inn-error" class="field-msg is-error" role="alert" hidden></strong>'
             .'</div></div>'
             .'<div class="registry-ui-modal-grid" data-party-reference-result="inn" aria-live="polite" hidden></div>'
-            .'<div class="form-grid-4">'.DirectoryUi::select('party_type','Тип клиента',[''=>$id?'Уточнить тип':'Выберите тип']+DirectoryRules::PARTY_TYPES,
+            .'<div class="'.($id?'form-grid-4':'registry-ui-form-row').'">'.DirectoryUi::select('party_type','Тип клиента',[''=>$id?'Уточнить тип':'Выберите тип']+DirectoryRules::PARTY_TYPES,
                 $details['party_type'] ?? '',!$id,alignedLabel:true)
             .'<div data-party-type-fields="company">'.DirectoryUi::input('kpp','КПП',$party['kpp'] ?? '').'</div>'
             .'<div data-party-type-fields="company">'.DirectoryUi::input('ogrn','ОГРН',$details['ogrn'] ?? '').'</div>'
@@ -212,10 +214,15 @@ final class PartyDirectory
             .DirectoryUi::input('signer','ФИО подписанта',$details['signer'] ?? '')
             .DirectoryUi::input('signer_position','Должность подписанта',$details['signer_position'] ?? '')
             .DirectoryUi::input('signer_basis','Основание полномочий',$details['signer_basis'] ?? '').'</div></section>'
-            .'<section class="'.$sectionClass.'" aria-labelledby="party-address-title"><h3 class="'.$headingClass.'" id="party-address-title">Адреса</h3><div class="registry-ui-form-row">'
-            .DirectoryUi::input('address','Адрес / юридический адрес',$party['address'] ?? '')
-            .DirectoryUi::inputWithOption('postal_address','Почтовый адрес',$party['postal_address'] ?? '', 'postal_same_as_legal','Совпадает с юридическим адресом','Почтовый адрес совпадает с юридическим',$party?self::selected($party['postal_same_as_legal']):true).'</div></section>'
-            .'<section class="'.$sectionClass.'" aria-labelledby="party-contacts-title"><div class="registry-ui-form-section-heading">'
+            .'<section class="'.$sectionClass.'" aria-labelledby="party-address-title">';
+        $addressHeading='<h3 class="'.$headingClass.'" id="party-address-title">Адреса</h3>';
+        $body.=$id?$addressHeading:'<div class="registry-ui-form-section-heading">'.$addressHeading
+            .DirectoryUi::checkbox('postal_same_as_legal','Совпадает с юридическим адресом',true).'</div>';
+        $body.='<div class="registry-ui-form-row">'.DirectoryUi::input('address',$id?'Адрес / юридический адрес':'Адрес / юрадрес',$party['address'] ?? '')
+            .($id?DirectoryUi::inputWithOption('postal_address','Почтовый адрес',$party['postal_address'] ?? '', 'postal_same_as_legal','Совпадает с юридическим адресом','Почтовый адрес совпадает с юридическим',self::selected($party['postal_same_as_legal']))
+                :DirectoryUi::input('postal_address','Почтовый адрес')).'</div></section>';
+        if (!$id) $body.='</div><div class="'.$stack.'">';
+        $body.='<section class="'.$sectionClass.'" aria-labelledby="party-contacts-title"><div class="registry-ui-form-section-heading">'
             .'<h3 class="'.$headingClass.'" id="party-contacts-title">Контакты</h3>'
             .'<button class="btn btn-secondary" type="button" data-form-disclosure-control aria-expanded="false" aria-controls="party-additional-contact" hidden>Добавить контакт</button></div>';
         foreach ([['Основной контакт','contact','phone','email','document_recipient'],['Дополнительный контакт','additional_contact','additional_phone','account_email','additional_document_recipient']] as $index=>[$title,$name,$phone,$email,$recipient]) {
@@ -249,13 +256,14 @@ final class PartyDirectory
             .self::edoOperator($party['edo'] ?? '').DirectoryUi::input('edo_id','Идентификатор ЭДО',$party['edo_id'] ?? '').'</div>'
             .'<div class="registry-ui-modal-grid" data-edo-conflict hidden><span role="status"></span>'
             .'<button class="btn btn-secondary" type="button" data-edo-apply>Подставить оператора</button></div></section></div>';
+        if (!$id) $body.='</div>';
         [$form,$actions,$formId]=DirectoryUi::form('party.save',$party,$body);
         // Temporary presentation helper, only for a new party opened from a contract.
         $demo=!$id && ($_GET['context'] ?? '')==='contract-create'
             ?'<button class="btn btn-danger" type="button" form="'.View::e($formId).'" data-party-demo-fill="company">Демо: ООО</button>'
             .'<button class="btn btn-danger" type="button" form="'.View::e($formId).'" data-party-demo-fill="entrepreneur">Демо: ИП</button>':'';
         return RentalUI::modal($id?'Редактировать контрагента':'Новый контрагент',$form,$actions,'parties',
-            wide:(bool)$id,leadingActions:$party?self::statusButton($party):$demo,canvas:(bool)$id);
+            wide:(bool)$id,leadingActions:$party?self::statusButton($party):$demo,canvas:(bool)$id,tall:!$id);
     }
 
     private static function edoOperator(string $current): string
