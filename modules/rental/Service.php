@@ -606,6 +606,13 @@ final class Service {
                     'accountant'
                 ]);
                 if (!in_array($status,['accounting','approved'],true))throw new RuntimeException('Договор не у бухгалтера.');
+                if ($status==='approved') {
+                    $q=$p->prepare("SELECT 1 FROM rental_packet_confirmations WHERE record_kind='contract' AND record_id=?
+                        UNION ALL SELECT 1 FROM rental_delivery_intents WHERE entity_type='contract' AND entity_id=? AND operation='contract-packet'
+                        LIMIT 1");
+                    $q->execute([$id,$id]);
+                    if ($q->fetchColumn()) throw new RuntimeException('Пакет уже подтверждён или по нему начата отправка. Продолжите работу с существующим пакетом.',409);
+                }
                 LegalHandoff::assertCounterparty($p,$c);
                 if (empty($in['packet_confirmed']))
                     throw new RuntimeException('Откройте и проверьте актуальный пакет договора.',409);
@@ -620,7 +627,10 @@ final class Service {
                 ]);
                 $legal = $q->fetch();
                 if (!$legal || $legal['baseline_hash'] !== Evidence::approvalSignature($p, $id, $legal['file_id']))throw new RuntimeException('Юрист должен подтвердить актуальный файл и условия.');
-                $next = 'approved';
+                if ($c['end_date'] && $c['end_date']<date('Y-m-d'))
+                    throw new RuntimeException('Срок аренды уже истёк. Проверьте даты договора перед подтверждением пакета.',409);
+                CustomerBookings::checkActivation($p,$c);
+                $next = 'active';
                 break;
                 case 'contract.sign':self::roles([
                     'manager'

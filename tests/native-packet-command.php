@@ -3,7 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\{Auth, DB};
-use Modules\Rental\{Importer, NativePacket, Service};
+use Modules\Rental\{Evidence, Importer, NativePacket, Service};
 
 // Usage: php tests/native-packet-command.php <accounting-contract-id>
 set_exception_handler(static function (Throwable $error): void {
@@ -22,12 +22,33 @@ function effects(PDO $db, int $id): array
         'SELECT COUNT(*) FROM invoices WHERE contract_id=?',
         "SELECT COUNT(*) FROM rental_packet_confirmations WHERE record_kind='contract' AND record_id=?",
         "SELECT COUNT(*) FROM rental_events WHERE contract_id=? AND action='contract.packet'",
+        "SELECT COUNT(*) FROM rental_delivery_intents WHERE entity_type='contract' AND entity_id=?",
     ];
     return array_map(static function (string $sql) use ($db, $id): int {
         $query = $db->prepare($sql);
         $query->execute([$id]);
         return (int)$query->fetchColumn();
     }, $queries);
+}
+
+function rejected(callable $operation, string $message, ?int $code = null): void
+{
+    try {
+        $operation();
+    } catch (RuntimeException $error) {
+        check(str_contains($error->getMessage(), $message) && ($code === null || $error->getCode() === $code),
+            'Unexpected rejection: '.$error->getMessage());
+        return;
+    }
+    throw new RuntimeException('Expected rejection: '.$message);
+}
+
+function packetInput(PDO $db, int $id): array
+{
+    $preview = NativePacket::preview($db, 'contract', $id, Auth::user());
+    return ['id' => $id, 'version' => $preview['record']['version'], 'command_key' => bin2hex(random_bytes(16)),
+        'expected_packet_hash' => $preview['expected_packet_hash'], 'packet_confirmed' => '1',
+        'counterparty_confirmed' => '1', 'financial_confirmed' => '1', 'document_confirmed' => '1'];
 }
 
 $id = (int)($argv[1] ?? 0);
@@ -54,16 +75,46 @@ try {
     $db->prepare("INSERT IGNORE INTO rental_facts(namespace,source_key,fact_json,operative)
         VALUES('zero_point_runtime','active',?,0)")->execute([Importer::json(['epoch' => $epoch, 'event_floor' => 0])]);
 
-    $preview = NativePacket::preview($db, 'contract', $id, Auth::user());
     $action = 'contract.packet';
-    $input = ['id' => $id, 'version' => $preview['record']['version'], 'command_key' => bin2hex(random_bytes(16)),
-        'expected_packet_hash' => $preview['expected_packet_hash'], 'packet_confirmed' => '1',
-        'counterparty_confirmed' => '1', 'financial_confirmed' => '1', 'document_confirmed' => '1'];
+    $input = packetInput($db, $id);
     $before = effects($db, $id);
+    $accountantSession = $_SESSION;
+    $manager = $db->query("SELECT id,auth_version FROM users WHERE role='manager' AND active=1 ORDER BY id LIMIT 1")->fetch();
+    check((bool)$manager, 'Manager fixture required.');
+    $_SESSION = ['user_id' => $manager['id'], 'auth_version' => $manager['auth_version']];
+    rejected(fn()=>Service::command($action, $input), '', 403);
+    $_SESSION = $accountantSession;
+
+    $db->exec('SAVEPOINT occupied_packet');
+    $conflict = (int)$db->query('SELECT MAX(id)+1 FROM contracts')->fetchColumn();
+    $db->prepare("INSERT INTO contracts(id,number,party_id,start_date,end_date,amount,status,source_json)
+        SELECT ?,?,party_id,start_date,end_date,amount,'active','{}' FROM contracts WHERE id=?")
+        ->execute([$conflict, 'occupancy-test-'.$conflict, $id]);
+    $db->prepare('INSERT INTO contract_objects(contract_id,object_id)
+        SELECT ?,object_id FROM contract_objects WHERE contract_id=?')->execute([$conflict, $id]);
+    rejected(fn()=>Service::command($action, $input), 'Объект занят договором на выбранный период');
+    check(effects($db, $id) === $before, 'A blocked approval wrote effects.');
+    $db->exec('ROLLBACK TO SAVEPOINT occupied_packet');
+
+    $db->exec('SAVEPOINT expired_packet');
+    $db->prepare('UPDATE contracts SET end_date=? WHERE id=?')->execute([date('Y-m-d', strtotime('-1 day')), $id]);
+    $legal = $db->prepare("SELECT file_id FROM rental_approvals WHERE entity_type='contract' AND entity_id=? AND role='lawyer'");
+    $legal->execute([$id]);
+    $db->prepare("UPDATE rental_approvals SET baseline_hash=? WHERE entity_type='contract' AND entity_id=? AND role='lawyer'")
+        ->execute([Evidence::approvalSignature($db, $id, $legal->fetchColumn()), $id]);
+    rejected(fn()=>Service::command($action, packetInput($db, $id)), 'Срок аренды уже истёк');
+    $db->exec('ROLLBACK TO SAVEPOINT expired_packet');
+    check(effects($db, $id) === $before, 'Rejected approval changed durable records.');
+
     $result = Service::command($action, $input);
     $after = effects($db, $id);
-    check($after === [$before[0], $before[1]+1, $before[2]+1], 'Contract approval must create a receipt and zero invoices.');
-    check(Service::get($db, 'contracts', $id)['version'] === $preview['record']['version']+1, 'Contract version did not advance.');
+    $active = Service::get($db, 'contracts', $id);
+    check($after === [$before[0], $before[1]+1, $before[2]+1, $before[3]],
+        'Contract approval must create a receipt with no invoice or delivery intent.');
+    check($result['status'] === 'active' && $active['status'] === 'active' && !(bool)$active['signed']
+        && $active['start_date'] === $contract['start_date'] && $active['end_date'] === $contract['end_date'],
+        'Approval must activate the contract without rewriting signature or dates.');
+    check($active['version'] === $input['version']+1, 'Contract version did not advance.');
 
     $query = $db->prepare('SELECT fingerprint FROM rental_commands WHERE command_key=?');
     $query->execute([$input['command_key']]);
@@ -73,7 +124,10 @@ try {
         'Saved packet proof is unreadable.');
     check(Service::command($action, $input) === $result && effects($db, $id) === $after,
         'Retry wrote effects or returned a different receipt.');
-    echo "PASS: epoch-bound command receipt, zero issued invoices, history and retry\n";
+    $db->prepare("UPDATE contracts SET status='approved' WHERE id=?")->execute([$id]);
+    rejected(fn()=>Service::command($action, packetInput($db, $id)), 'Продолжите работу с существующим пакетом');
+    check(effects($db, $id) === $after, 'Legacy confirmation may not be replayed.');
+    echo "PASS: accounting activation, occupancy and expiry, epoch-bound receipt, roles, zero automatic invoices or deliveries, legacy protection and retry\n";
 } finally {
     $db->rollBack();
 }

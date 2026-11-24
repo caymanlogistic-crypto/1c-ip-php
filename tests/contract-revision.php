@@ -107,7 +107,7 @@ try {
     $confirmChecks=['counterparty_confirmed'=>1,'financial_confirmed'=>1,'document_confirmed'=>1];
     $result=Service::command('contract.packet',['id'=>$id,'version'=>$preview['record']['version'],
         'command_key'=>bin2hex(random_bytes(16)),'packet_confirmed'=>1,'expected_packet_hash'=>$preview['expected_packet_hash']]+$confirmChecks);
-    verify($result['status']==='approved','Revision C could not be approved.');
+    verify($result['status']==='active','Revision C could not be approved and activated.');
     $proofAfter=NativePacket::current($db,'contract',$id,Auth::user(),'prepare');
     verify($proofAfter['state']==='confirmed','Revision C approval proof is unavailable.');
     $invoiceQuery->execute([$id]);

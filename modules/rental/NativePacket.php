@@ -295,7 +295,8 @@ final class NativePacket
             throw new RuntimeException('NATIVE_PACKET_COMMAND_RECEIPT_CHANGED');
         }
         $context = self::context($p, $kind, $id, true);
-        if ($context['record']['status'] !== 'approved' || (int)$context['record']['version'] !== $validated['record']['version'] + 1) throw new RuntimeException('NATIVE_PACKET_POST_B_VERSION_CHANGED');
+        $expectedStatus = $kind === 'contract' ? 'active' : 'approved';
+        if ($context['record']['status'] !== $expectedStatus || (int)$context['record']['version'] !== $validated['record']['version'] + 1) throw new RuntimeException('NATIVE_PACKET_POST_B_VERSION_CHANGED');
         $before = $validated['view']['context'];
         $after = $context;
         // Only the addendum command still books invoices during B.
