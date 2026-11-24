@@ -222,9 +222,9 @@ final class PartyDirectory
             .'<'.$groupHeading.' class="registry-ui-modal-summary" id="party-address-title">Адреса</'.$groupHeading.'>'.$groupHeadingEnd
             .'<div class="registry-ui-form-row">'.DirectoryUi::input('address','Адрес / юридический адрес',$party['address'] ?? '')
             .($id?DirectoryUi::inputWithOption('postal_address','Почтовый адрес',$party['postal_address'] ?? '', 'postal_same_as_legal','Совпадает с юридическим адресом','Почтовый адрес совпадает с юридическим',self::selected($party['postal_same_as_legal']))
-                :DirectoryUi::input('postal_address','Почтовый адрес')).'</div>';
-        if (!$id) $body.=DirectoryUi::checkbox('postal_same_as_legal','Совпадает с юридическим адресом',true);
-        $body.='</section>'.($id?'':'</section>');
+                :'<div class="registry-ui-form-section">'.DirectoryUi::input('postal_address','Почтовый адрес')
+                    .DirectoryUi::checkbox('postal_same_as_legal','Совпадает с юридическим адресом',true).'</div>')
+            .'</div></section>'.($id?'':'</section>');
         $body.='<section class="'.$sectionClass.'" aria-labelledby="party-contacts-title"><div class="registry-ui-form-section-heading">'
             .'<h3 class="'.$headingClass.'" id="party-contacts-title">Контакты</h3>'
             .'<button class="btn btn-secondary" type="button" data-form-disclosure-control aria-expanded="false" aria-controls="party-additional-contact" hidden>Добавить контакт</button></div>';
@@ -262,6 +262,8 @@ final class PartyDirectory
             .self::edoOperator($party['edo'] ?? '').DirectoryUi::input('edo_id','Идентификатор ЭДО',$party['edo_id'] ?? '').'</div>'
             .'<div class="registry-ui-modal-grid" data-edo-conflict hidden><span role="status"></span>'
             .'<button class="btn btn-secondary" type="button" data-edo-apply>Подставить оператора</button></div></section></div>';
+        if (!$id) $body.='<template data-party-validation-alert>'
+            .RentalUI::alert('Заполните или исправьте выделенные поля.','','error').'</template>';
         [$form,$actions,$formId]=DirectoryUi::form('party.save',$party,$body);
         // Temporary presentation helper, only for a new party opened from a contract.
         $demo=!$id && ($_GET['context'] ?? '')==='contract-create'

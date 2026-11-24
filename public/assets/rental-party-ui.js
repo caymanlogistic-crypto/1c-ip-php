@@ -5,6 +5,8 @@
   const referenceValueEvents = new WeakSet();
   const observedInn = new WeakMap();
   const innReferenceValues = new WeakMap();
+  const pendingPartyValidation = new WeakSet();
+  const attemptedPartyValidation = new WeakSet();
   const externalValueClass = 'is-external-value';
   function syncAddress(form) {
     if (!form) return;
@@ -266,14 +268,76 @@
     }
   }
 
+  function markPartyValidation(form) {
+    let first = null;
+    for (const control of form.querySelectorAll('input,select,textarea')) {
+      const invalid = control.willValidate && !control.validity.valid;
+      if (!invalid && !control.hasAttribute('data-party-save-invalid')) continue;
+      const field = control.closest('.field');
+      const trigger = control.hidden ? field?.querySelector('[role="combobox"]') : null;
+      const visible = trigger || control;
+      field?.classList.toggle('is-error', invalid);
+      control.toggleAttribute('data-party-save-invalid', invalid);
+      if (invalid) {
+        control.setAttribute('aria-invalid', 'true');
+        visible.setAttribute('aria-invalid', 'true');
+        first ??= visible;
+      } else {
+        control.removeAttribute('aria-invalid');
+        visible.removeAttribute('aria-invalid');
+      }
+    }
+    if (!first) form.closest('dialog')?.querySelector('[data-party-client-error]')?.remove();
+    return first;
+  }
+
+  function showPartyValidation(form, template) {
+    const body = form.closest('.modal-body');
+    const current = body.parentElement.querySelector('[data-rental-form-error]');
+    const source = template.content.firstElementChild;
+    const alert = current || source.cloneNode(true);
+    if (current && !current.hasAttribute('data-party-client-error')) {
+      current.querySelector('.alert-body-title').textContent = source.querySelector('.alert-body-title').textContent;
+    }
+    alert.setAttribute('data-party-client-error', '');
+    alert.setAttribute('data-rental-form-error', '');
+    if (alert.nextElementSibling !== body) body.before(alert);
+  }
+
   document.addEventListener('invalid', event => {
     if (!event.target.closest('[data-party-editor]')) return;
     event.preventDefault();
+    const form = event.target.form;
+    const template = form?.querySelector('[data-party-validation-alert]');
+    if (template) {
+      if (pendingPartyValidation.has(form)) return;
+      pendingPartyValidation.add(form);
+      // The native attempt dispatches a separate invalid event for each control.
+      setTimeout(() => {
+        pendingPartyValidation.delete(form);
+        if (!form.closest('dialog[open]')) return;
+        attemptedPartyValidation.add(form);
+        const first = markPartyValidation(form);
+        if (!first) return;
+        showPartyValidation(form, template);
+        const collapsed = first.closest('details:not([open])');
+        if (collapsed) collapsed.open = true;
+        first.scrollIntoView({block: 'nearest'});
+        first.focus({preventScroll: true});
+      }, 0);
+      return;
+    }
     event.target.focus({preventScroll: true});
     event.target.scrollIntoView({block: 'nearest'});
     const message = event.target.name === 'party_type' && event.target.validity.valueMissing
       ? 'Выберите тип клиента.' : event.target.validationMessage;
     window.PlanexNotifications?.show({tone: 'danger', message});
+  }, true);
+
+  document.addEventListener('submit', event => {
+    if (event.target.querySelector('[data-party-validation-alert]')) {
+      event.target.closest('dialog')?.querySelector('[data-rental-form-error]')?.remove();
+    }
   }, true);
 
   document.addEventListener('click', event => {
@@ -312,6 +376,7 @@
       syncAddress(event.target.closest('form'));
     }
     if (event.target.matches('input[type="checkbox"][name="document_recipient"],input[type="checkbox"][name="additional_document_recipient"]')) syncRecipients(event.target.closest('form'));
+    if (attemptedPartyValidation.has(event.target.form)) markPartyValidation(event.target.form);
   });
   document.addEventListener('input', event => {
     if (!referenceValueEvents.has(event)) {
@@ -322,6 +387,7 @@
     if (event.target.matches('#party-reference-inn')) syncInnChange(event.target);
     if (event.target.matches('[name="legal_address"],[name="address"]')) syncAddress(event.target.closest('form'));
     if (event.target.matches('[name="email"],[name="account_email"]')) syncRecipients(event.target.closest('form'));
+    if (attemptedPartyValidation.has(event.target.form)) markPartyValidation(event.target.form);
   });
 
   window.RentalPartyUI = Object.freeze({enhance});
