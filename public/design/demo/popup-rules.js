@@ -2,7 +2,11 @@
 (() => {
   const party=document.getElementById('party-composition-example');
   window.RentalPartyUI?.enhance(document);
-  document.querySelector('[data-open-party-example]').addEventListener('click',()=>party.showModal());
+  const partyTitle=party.querySelector('#party-composition-title');
+  document.querySelector('[data-open-party-example]').addEventListener('click',()=>{
+    partyTitle.textContent='Новый контрагент';
+    party.showModal();
+  });
   party.querySelectorAll('[data-close-party-example]').forEach(button=>button.addEventListener('click',()=>party.close()));
   party.querySelector('[data-demo-bank-reference]').addEventListener('click',()=>{
     const error=party.querySelector('#demo-party-bik-error');
@@ -98,6 +102,10 @@
   const structuredParty=document.getElementById('structured-party-example');
   document.querySelector('[data-open-structured-party]').addEventListener('click',()=>structuredParty.showModal());
   structuredParty.querySelectorAll('[data-close-structured-party]').forEach(button=>button.addEventListener('click',()=>structuredParty.close()));
+  structuredParty.querySelector('[data-edit-structured-party]').addEventListener('click',()=>{
+    partyTitle.textContent='Редактировать контрагента';
+    party.showModal();
+  });
   structuredParty.querySelectorAll('[data-demo-party-contract]').forEach(button=>button.addEventListener('click',()=>{
     document.getElementById(button.dataset.demoPartyContract).showModal();
   }));

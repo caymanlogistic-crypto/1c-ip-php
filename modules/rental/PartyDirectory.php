@@ -159,14 +159,18 @@ final class PartyDirectory
         $body.='<div class="registry-ui-form-sections registry-ui-form-sections--compact">'
             .self::reviewDetails($party,true).PartyLegalReview::presentation($party,structured:true)
             .self::contractSection((int)$party['id']).'</div>';
-        $actions=self::editable($party)?RentalUI::button('Редактировать','/rental/edit-party?id='.$party['id'],true):'';
-        $actions.=PartyLegalReview::actions($party);
+        $actions=self::editAction($party).PartyLegalReview::actions($party);
         return RentalUI::modal('Контрагент: '.$party['name'],$body,$actions,'parties',false,self::statusButton($party));
+    }
+
+    private static function editAction(array $party): string
+    {
+        return self::editable($party)?RentalUI::button('Редактировать','/rental/edit-party?id='.$party['id'],true):'';
     }
 
     public static function reviewModal(array $party): string
     {
-        return RentalUI::modal('Контрагент · '.$party['name'],self::reviewDetails($party),
+        return RentalUI::modal('Контрагент · '.$party['name'],self::reviewDetails($party),self::editAction($party),
             active:'approvals',closeLabel:'Вернуться');
     }
 
