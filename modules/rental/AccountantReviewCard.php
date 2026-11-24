@@ -113,7 +113,8 @@ final class AccountantReviewCard
         if (!self::available($contract) || ($decision==='return' && $contract['status']!=='accounting'))
             throw new RuntimeException('Стадия договора изменилась. Откройте карточку заново.',409);
         $formId='accountant-decision';
-        $form='<form id="'.$formId.'" method="post" action="/rental/action" class="registry-ui-form-section">'
+        $form='<form id="'.$formId.'" method="post" action="/rental/action"'
+            .($decision==='return'?' class="registry-ui-form-section"':' hidden').'>'
             .self::fields($contract,$action);
         if ($decision==='return') {
             $body=$form.'<label class="field"><span class="field-label">Причина возврата</span>'
@@ -160,8 +161,8 @@ final class AccountantReviewCard
             default=>'Состав первых счетов пока не рассчитан.',
         };
         return '<h3 class="registry-ui-modal-summary">После подтверждения пакета</h3>'
-            .'<ol><li>Если контрагент новый, система заведёт его в 1С.</li>'
-            .'<li>'.View::e($billing).($bills?'<ul>'.$bills.'</ul>':'').'</li>'
+            .'<ol class="registry-ui-modal-list"><li>Если контрагент новый, система заведёт его в 1С.</li>'
+            .'<li>'.View::e($billing).($bills?'<ul class="registry-ui-modal-list">'.$bills.'</ul>':'').'</li>'
             .'<li>'.View::e($delivery).'</li>'
             .'<li>Договор будет принят на обслуживание с контролем счетов и оплаты.</li></ol>';
     }
