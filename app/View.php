@@ -3,14 +3,22 @@ declare(strict_types=1);
 namespace App;
 final class View {
     public static function e(mixed $v):string{return htmlspecialchars((string)($v??''),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');}
-    public static function login(string $error='',array $presets=[]):string {
+    public static function login(string $error='',array $presets=[],array $serverPresets=[]):string {
         // Exact native login composition from S/templates/registration/login.html.
         $css=self::fontPreloads();foreach(['system/palette.css','system/css/erp-ui.css','system/css/registry-components.css','system/css/ui-controls.css','system/css/time-picker.css','system/css/ui-shell.css','system/css/registry-viewport.css','system/css/notification-icons.css','demo/demo_geometry.css','erp/login-brand.css']as $asset)$css.='<link rel="stylesheet" href="/design/'.$asset.'">';
         $roles='';
         $script='';
         if ($presets) {
+            $roles='<fieldset><legend class="field-label">Тестовые роли</legend><div class="inline-actions" data-local-test-login>';
+            foreach ($presets as $account) {
+                $roles.='<button type="button" class="btn btn-secondary" data-login-name="'.self::e($account['username'])
+                    .'" data-login-password="'.self::e($account['password']).'">'.self::e($account['label']).'</button>';
+            }
+            $roles.='</div></fieldset>';
+            $script='<script defer src="/assets/local-test-login.js"></script>';
+        } elseif ($serverPresets) {
             $roles='<fieldset data-server-role-login><legend class="field-label">Тестовые роли</legend><div class="inline-actions">';
-            foreach ($presets as $role=>$label) {
+            foreach ($serverPresets as $role=>$label) {
                 $roles.='<button type="button" class="btn btn-secondary" data-login-role="'.self::e($role).'">'
                     .self::e($label).'</button>';
             }
