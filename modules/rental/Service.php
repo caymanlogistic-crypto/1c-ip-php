@@ -163,6 +163,9 @@ final class Service {
             $eventContext = WorkflowEvents::before($p, $action, $in);
             $objectContext = ObjectActivity::before($p,$action,$in);
             $validatedPacket = NativePacket::validateBeforeB($p, $u, $action, $in);
+            if ($action === 'contract.packet' && $eventContext !== null && $validatedPacket !== null) {
+                $eventContext['accountant_confirmation_summary'] = $validatedPacket['view']['accountant_confirmation_summary'];
+            }
             $r = self::execute($p, $u, $action, $in, materials:$materials,createdFiles:$createdFiles);
             $p->prepare('INSERT INTO rental_commands(command_key,action,fingerprint,result_json) VALUES(?,?,?,?)')->execute([
                 $key,
