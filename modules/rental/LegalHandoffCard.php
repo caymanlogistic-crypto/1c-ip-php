@@ -24,7 +24,8 @@ final class LegalHandoffCard
         }
         $body.='<div class="registry-ui-form-sections registry-ui-form-sections--compact">'
             .self::party($contract,$party,$details,$review['party'])
-            .self::terms($contract,$review['terms'],$multiple)
+            .self::terms($contract,$review['terms'])
+            .self::securityMultiple($contract,$multiple)
             .self::documents($contract,$files,$ready).self::history($id,true).'</div>';
         $formId='legal-handoff';
         $canTransfer=$ready && $files && $multiple!==null;
@@ -75,7 +76,7 @@ final class LegalHandoffCard
             $checked?'Работа разрешена':($blocked?'Работа заблокирована':'Ожидает решения'),$checked);
     }
 
-    private static function terms(array $contract,bool $checked,?int $multiple): string
+    private static function terms(array $contract,bool $checked): string
     {
         $db=DB::pdo();
         $terms=BillableTerms::forContract($db,(int)$contract['id']);
@@ -98,22 +99,22 @@ final class LegalHandoffCard
         $facts.='<div class="registry-ui-review-actions"><div></div><div class="demo-row">'
             .ApprovalDecision::lawyerButton($contract,'terms')
             .self::confirm($contract,LegalHandoff::TERMS,'Условия верны',$checked)
-            .'</div></div>'
-            .self::securityMultiple($contract,$multiple);
+            .'</div></div>';
         return self::section('Проверка условий',$facts,$checked?'Условия подтверждены':'Ожидает решения',$checked);
     }
 
     private static function securityMultiple(array $contract,?int $multiple): string
     {
         $issued=InitialInvoice::issuedSecurityMultiple(DB::pdo(),(int)$contract['id']);
-        $help=$multiple===null ? 'Перед передачей бухгалтеру согласуйте кратность.' : 'Согласованная кратность: '.$multiple.'.';
-        return '<form id="legal-security-multiple" class="registry-ui-form-section" method="post" action="/rental/action">'
+        $form='<form id="legal-security-multiple" class="registry-ui-form-section" method="post" action="/rental/action">'
             .self::fields($contract,LegalHandoff::SECURITY_MULTIPLE)
-            .'<div class="form-grid-3"><label class="field"><span class="field-label">Кратность обеспечения</span>'
+            .'<div class="registry-ui-form-row"><div class="registry-ui-modal-address-row registry-ui-modal-address-row--code">'
             .'<input class="field-input" type="number" name="multiple" min="0" step="1" value="'.($multiple??$issued??1)
-            .'" aria-describedby="legal-security-multiple-help" required'.($issued!==null?' readonly':'').'></label></div>'
-            .'<p id="legal-security-multiple-help" class="registry-ui-modal-help">'.View::e($help.' 0 — без обеспечения.').'</p>'
-            .'<div class="demo-row"><button class="btn btn-success-solid" type="submit">Согласовать кратность</button></div></form>';
+            .'" aria-label="Кратность обеспечения" aria-describedby="legal-security-multiple-help" required'.($issued!==null?' readonly':'').'>'
+            .'<button class="btn btn-success-solid" type="submit"'.($multiple!==null?' disabled':'')
+            .'>Согласовать кратность</button></div></div>'
+            .'<p id="legal-security-multiple-help" class="registry-ui-modal-help">0 — без обеспечения.</p></form>';
+        return RentalUI::reviewSection('Кратность обеспечения',$form,$multiple===null?'Ожидает согласования':'Согласована',$multiple!==null);
     }
 
     private static function documents(array $contract,array $files,bool $ready): string

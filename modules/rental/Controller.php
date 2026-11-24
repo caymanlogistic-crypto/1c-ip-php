@@ -1221,7 +1221,7 @@ final class Controller {
             if (str_starts_with($action, 'reservation.') && !empty($result['id']))$target = '/rental/booking?id='
             . $result['id'];
             if (str_starts_with($action,'party.review.')) $target='/rental/party?id='.(int)$result['id'];
-            if (($action===LegalHandoff::REMOVE || $completeInApprovals) && $maxNotice==='') {
+            if (($action===LegalHandoff::REMOVE || $action===LegalHandoff::SECURITY_MULTIPLE || $completeInApprovals) && $maxNotice==='') {
                 unset($_SESSION['rental_notice']);
             } else {
                 $_SESSION['rental_notice'] = ($result['message'] ?? 'Сохранено.').$maxNotice;

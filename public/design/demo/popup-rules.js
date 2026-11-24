@@ -24,15 +24,22 @@
     document.querySelector('[aria-controls="'+panel.id+'"]')?.focus();
   }));
   const securityForm=reviewTerms.querySelector('[data-demo-security-multiple]');
+  const securityState=reviewTerms.querySelector('[data-demo-security-state]');
   const transfer=reviewTerms.querySelector('[data-demo-legal-transfer]');
+  const saveSecurity=securityForm.querySelector('button[type="submit"]');
   let confirmedMultiple=null;
   securityForm.addEventListener('input',()=>{
-    transfer.disabled=securityForm.elements.multiple.value!==confirmedMultiple;
+    const field=securityForm.elements.multiple;
+    const matches=field.value===confirmedMultiple;
+    saveSecurity.disabled=matches||!field.validity.valid||!/^(?:0|[1-9][0-9]*)$/.test(field.value);
+    transfer.disabled=!matches;
   });
   securityForm.addEventListener('submit',event=>{
     event.preventDefault();
     confirmedMultiple=securityForm.elements.multiple.value;
-    reviewTerms.querySelector('#demo-legal-security-multiple-help').textContent='Согласованная кратность: '+confirmedMultiple+'. 0 — без обеспечения.';
+    securityState.textContent='Согласована';
+    securityState.setAttribute('data-complete','');
+    saveSecurity.disabled=true;
     transfer.disabled=false;
   });
   const reviewStatus=reviewTerms.querySelector('[data-demo-review-files-status]');

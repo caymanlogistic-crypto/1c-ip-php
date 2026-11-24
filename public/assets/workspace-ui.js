@@ -590,9 +590,13 @@
   }
   document.addEventListener('input',event=>{
     if(event.target.matches('#legal-security-multiple input[name="multiple"]')){
-      const dialog=event.target.closest('dialog');
-      const transfer=dialog?.querySelector('[data-legal-transfer-ready]');
-      if(transfer)transfer.disabled=event.target.value!==transfer.form.elements.security_multiple.value;
+      const field=event.target;
+      const dialog=field.closest('dialog');
+      const agreed=dialog.querySelector('#legal-handoff').elements.security_multiple.value;
+      const matches=agreed!==''&&field.value===agreed;
+      field.form.querySelector('button[type="submit"]').disabled=matches||!field.validity.valid||!/^(?:0|[1-9][0-9]*)$/.test(field.value);
+      const transfer=dialog.querySelector('[data-legal-transfer-ready]');
+      if(transfer)transfer.disabled=!matches;
     }
     if(event.target.name==='number' && event.target.form?.hasAttribute('data-rental-addendum-base')){
       const number=event.target.value.trim().replace(/^(?:ДС(?=\s|№|\d)\s*)?№?\s*/iu,'');
