@@ -45,7 +45,7 @@ final class DirectoryRules
 
     public static function partySaveRoles(int $id): array
     {
-        return $id === 0 ? ['manager', 'accountant'] : ['manager'];
+        return $id === 0 ? ['manager', 'accountant'] : ['manager', 'lawyer', 'accountant'];
     }
 
     public const PARTY_TYPES=['company'=>'Организация','entrepreneur'=>'ИП','person'=>'Физлицо'];
