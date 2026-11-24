@@ -375,7 +375,7 @@ const roles={
 function showComponent(id){
  const config=roles[id];if(!config)return;
  document.querySelectorAll('dialog[open]').forEach(d=>d.close());state.mode='normal';navigate(config[1]);const exampleRoot=document.querySelector('[data-page="'+config[1]+'"]');exampleRoot?.querySelector('.registry-ui-reset')?.click();if(['objects','documents','operations'].includes(config[1]))renderRows(config[1]);
- if(config[2]==='toast'){document.documentElement.dataset.componentShown=id;document.documentElement.dataset.componentFound='true';toast('info','Бухгалтерия согласовала пакет. Ожидается отправка клиенту.','ДС №2 к договору №178. ООО «Пример»');toast('success','Согласовано юристом и передано бухгалтеру.','Договор №178. ООО «Пример»');toast('warning','Проверьте условия и согласуйте документ.','Договор №181. ООО «Пример»');toast('danger','Не удалось выполнить действие.');return;}
+ if(config[2]==='toast'){document.documentElement.dataset.componentShown=id;document.documentElement.dataset.componentFound='true';toast('info','Бухгалтерия согласовала пакет. Ожидается отправка клиенту.','ДС №2 к договору №178. ООО «Пример»');toast('success','Согласовано юристом и передано бухгалтеру.','Договор №178. ООО «Пример»');toast('warning','Согласовать и подготовить пакет','Договор №181. ООО «Пример»');toast('danger','Не удалось выполнить действие.');return;}
  if(config[2])openModal(config[2]);
  if(id==='registry.state'){const q=document.querySelector('[data-page=objects] [data-registry-field=query]');q.value='Объект';q.dispatchEvent(new Event('input',{bubbles:true}));}
  const selector=D.catalog.find(c=>c.id===id)?.selector;

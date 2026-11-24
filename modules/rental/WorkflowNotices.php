@@ -85,7 +85,7 @@ final class WorkflowNotices
         if ($task['page']!=='approvals') return $notice;
 
         $message=match ($event['event_kind']) {
-            'submit'=>'Проверьте условия и согласуйте документ.',
+            'submit'=>'Согласовать и подготовить пакет',
             'resubmit'=>'Проверьте внесённые исправления и согласуйте документ.',
             'legalApprove'=>'Проверьте и подтвердите комплект.',
             'lawyerReturn'=>'Доработайте документ по замечанию юриста.',
@@ -97,8 +97,8 @@ final class WorkflowNotices
         if ($message===null) return $notice;
 
         $sla=$task['legal_sla']??[];
-        if (($sla['state']??null)==='UNKNOWN') $message.=' Срок проверки не подтверждён.';
-        if (($sla['working_seconds']??0)>=21600) $message.=' Истекли 6 рабочих часов юридической проверки.';
+        if (($sla['state']??null)==='UNKNOWN') $message=rtrim($message,'.').'. Срок проверки не подтверждён.';
+        if (($sla['working_seconds']??0)>=21600) $message=rtrim($message,'.').'. Истекли 6 рабочих часов юридической проверки.';
         return self::approvalLayout($notice,$event,$message);
     }
 
@@ -125,14 +125,12 @@ final class WorkflowNotices
 
     private static function approvalLayout(array $notice,array $event,string $message): array
     {
-        $number=trim($event['record_number']);
-        if ($event['entity_kind']==='document') {
-            $number=preg_replace('/^(?:ДС\s*)?№?\s*/ui','',$number);
-            $record=$number===''?'ДС':'ДС №'.$number;
-            $contract=trim($event['contract_number']??'');
+        $kind=$event['entity_kind']==='document'?'ДС':'Договор';
+        $number=self::displayNumber($event['record_number'],$kind);
+        $record=$kind.($number===''?'':' №'.$number);
+        if ($kind==='ДС') {
+            $contract=self::displayNumber($event['contract_number']??'','Договор');
             if ($contract!=='') $record.=' к договору №'.$contract;
-        } else {
-            $record='Договор №'.$number;
         }
         $party=trim(preg_replace('/\s+/u',' ',$event['party_name']));
         $reason=in_array($event['event_kind'],['lawyerReturn','accountantReturn'],true)?trim($event['reason']??''):'';
@@ -142,6 +140,11 @@ final class WorkflowNotices
         $notice['title']=$record.($party===''?'':'. '.$party);
         $notice['text']=$message.($reason===''?'':' '.$reason);
         return $notice;
+    }
+
+    private static function displayNumber(string $number,string $prefix): string
+    {
+        return preg_replace('/^(?:'.preg_quote($prefix,'/').'(?=\s|№|\d|$)\s*)?№?\s*/ui','',trim($number));
     }
 
     private static function variables(array $event): array

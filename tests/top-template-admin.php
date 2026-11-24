@@ -30,7 +30,15 @@ $notice = WorkflowNotices::task($task, $event, $catalog);
 checkTopAdmin($notice['severity'] === 'red', 'Text template changed actual task severity');
 checkTopAdmin($notice['event_key'] === 'task-received'
     && $notice['title'] === 'Договор №173. ООО «Пример»'
-    && $notice['text'] === 'Проверьте условия и согласуйте документ.', 'Recipient notice did not identify the approval');
+    && $notice['text'] === 'Согласовать и подготовить пакет', 'Recipient notice did not identify the approval');
+foreach (['№173', 'Договор №173'] as $number) {
+    $prefixed=WorkflowNotices::task($task,array_replace($event,['record_number'=>$number]),$catalog);
+    checkTopAdmin($prefixed['title']==='Договор №173. ООО «Пример»','Duplicate contract number prefix');
+}
+foreach (['','№','Договор №'] as $number) {
+    $missing=WorkflowNotices::task($task,array_replace($event,['record_number'=>$number]),$catalog);
+    checkTopAdmin($missing['title']==='Договор. ООО «Пример»','Empty contract number displayed');
+}
 checkTopAdmin($notice['dedupe_text'] === 'Договор №173. Проверьте документ Раздел: approvals.', 'Former fingerprint input changed');
 
 $accountantEvent = array_replace($event, ['event_kind'=>'legalApprove', 'text'=>'Договор №173: legal → accounting']);
@@ -39,7 +47,7 @@ checkTopAdmin($accountantTask['text'] === 'Проверьте и подтвер�
 $lawyerSender = WorkflowNotices::sender($accountantEvent, $catalog);
 checkTopAdmin($lawyerSender['text'] === 'Согласовано юристом и передано бухгалтеру.', 'Lawyer saw raw transition text');
 
-$return = array_replace($event, ['entity_kind'=>'document', 'record_number'=>'ДС№2', 'contract_number'=>'173',
+$return = array_replace($event, ['entity_kind'=>'document', 'record_number'=>'ДС№2', 'contract_number'=>'Договор №173',
     'event_kind'=>'accountantReturn', 'reason'=>'Уточните дату оплаты.']);
 $lawyerTask = WorkflowNotices::task($task, $return, $catalog);
 checkTopAdmin($lawyerTask['title'] === 'ДС №2 к договору №173. ООО «Пример»'
