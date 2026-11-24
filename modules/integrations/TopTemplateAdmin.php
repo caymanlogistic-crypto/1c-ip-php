@@ -5,8 +5,8 @@ namespace Modules\Integrations;
 /** Presentation metadata only. WorkflowNotices remains authoritative for events and severity. */
 final class TopTemplateAdmin
 {
-    private const ACTIVE_KEYS = [
-        'task-received', 'document-submitted', 'agreement-submitted',
+    private const APPROVAL_KEYS = [
+        'document-submitted', 'agreement-submitted',
         'document-approved', 'document-returned', 'packet-confirmed',
     ];
 
@@ -51,18 +51,23 @@ final class TopTemplateAdmin
 
     public static function help(): string
     {
-        return 'Редактируются заголовок и текст. Цвет задаёт результат действия или текущая задача. '
+        return 'Для общих задач применяются заголовок и текст шаблона. Для согласования договора и ДС заголовок и действие формируются по этапу. '
+            .'Цвет задаёт результат действия или текущая задача. '
             .'Получатели, условия появления и время показа 10 секунд определяются системой. '
-            .'Закрытие уведомления не снимает задачу. Предпросмотр использует учебные данные.';
+            .'Закрытие уведомления не снимает задачу. В предпросмотре используются текст из формы и учебные данные.';
     }
 
     /** Exact current producer coverage, not a promise inferred from the imported catalog's name. */
     public static function usage(array $entry): array
     {
-        $active = in_array((string)($entry['source_key'] ?? ''), self::ACTIVE_KEYS, true);
-        return ['active' => $active, 'text' => $active
-            ? 'Используется в уведомлениях согласования документов.'
-            : 'Сохранён в каталоге. В текущем приложении событие этого шаблона не подключено.'];
+        $key=$entry['source_key']??'';
+        if ($key==='task-received') {
+            return ['active'=>true,'text'=>'Используется для общих задач. Текст согласования договора и ДС формируется по этапу.'];
+        }
+        $text=in_array($key,self::APPROVAL_KEYS,true)
+            ?'Для согласования действуют системные тексты. Здесь хранится прежний шаблон и история версий.'
+            :'Сохранён в каталоге. В текущем приложении событие этого шаблона не подключено.';
+        return ['active'=>false,'text'=>$text];
     }
 
     /** Pass tone/title/message to the existing PlanexNotifications.show; never create a second toast renderer. */

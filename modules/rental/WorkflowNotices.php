@@ -82,6 +82,9 @@ final class WorkflowNotices
         // Task severity is authoritative; a text template cannot recolor a business cause.
         $notice=self::notice('task:'.$event['event_id'].':'.$task['key'],(int)$event['event_id'],$task['severity'],'task-received',$variables,
             [(int)$event['entity_version'],$task['legal_sla']['state']??null],$catalog);
+        if ($task['page']==='contracts-active' && $event['entity_kind']==='document' && $event['event_kind']==='signed') {
+            return self::approvalLayout($notice,$event,'Допсоглашение подписано и ожидает применения');
+        }
         if ($task['page']!=='approvals') return $notice;
 
         $message=match ($event['event_kind']) {
@@ -95,6 +98,10 @@ final class WorkflowNotices
             default=>null,
         };
         if ($message===null) return $notice;
+        if ($event['entity_kind']==='document' && $task['severity']==='red' && in_array($event['event_kind'],['package','handed'],true)) {
+            $reason=trim($task['reason']??'');
+            $message='Проверьте отправку допсоглашения.'.($reason===''?'':' '.$reason);
+        }
 
         $sla=$task['legal_sla']??[];
         if (($sla['state']??null)==='UNKNOWN') $message=rtrim($message,'.').'. Срок проверки не подтверждён.';

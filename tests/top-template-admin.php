@@ -60,12 +60,27 @@ checkTopAdmin(str_contains($lateTask['text'],'Истекли 6 рабочих ч
 $elsewhere = WorkflowNotices::task(array_replace($task,['page'=>'reconciliation']), $event, $catalog);
 checkTopAdmin(!isset($elsewhere['dedupe_text']) && $elsewhere['title']==='Новая задача или уведомление',
     'A notice outside approvals changed');
+$signed=WorkflowNotices::task(array_replace($task,['page'=>'contracts-active','severity'=>'blue','text'=>'Подписано, ожидает применения']),
+    array_replace($return,['event_kind'=>'signed']),$catalog);
+checkTopAdmin($signed['title']==='ДС №2 к договору №173. ООО «Пример»'
+    && $signed['text']==='Допсоглашение подписано и ожидает применения' && $signed['severity']==='blue',
+    'Signed addendum update did not use approval format');
+$failed=WorkflowNotices::task(array_replace($task,['text'=>'Допсоглашение: Не удалось доставить пакет.', 'reason'=>'Не удалось доставить пакет.']),
+    array_replace($return,['event_kind'=>'handed']),$catalog);
+checkTopAdmin($failed['text']==='Проверьте отправку допсоглашения. Не удалось доставить пакет.'
+    && $failed['severity']==='red','Delivery failure reason lost');
 $invoiceEvent = array_replace($event,['event_kind'=>'firstInvoice']);
 checkTopAdmin(!isset(WorkflowNotices::task($task,$invoiceEvent,$catalog)['dedupe_text']), 'Unrelated event changed');
 $catalog['document-submitted']['tone'] = 'danger';
 $sender = WorkflowNotices::sender($event, $catalog);
 checkTopAdmin($sender !== null && $sender['severity'] === 'green', 'Catalog tone recolored sender success');
-checkTopAdmin(Admin::usage($catalog['task-received'])['active'], 'Active workflow template not identified');
+$generic=Admin::usage($catalog['task-received']);
+checkTopAdmin($generic['active'] && str_contains($generic['text'],'общих задач'), 'Generic template usage not identified');
+foreach (['document-submitted','agreement-submitted','document-approved','document-returned','packet-confirmed'] as $key) {
+    $usage=Admin::usage($catalog[$key]);
+    checkTopAdmin(!$usage['active'] && str_contains($usage['text'],'системные тексты'), 'Fixed approval usage mislabeled: '.$key);
+}
+checkTopAdmin(str_contains(Admin::help(),'формируются по этапу'), 'Fixed approval formatting missing from help');
 checkTopAdmin(!Admin::usage($catalog['booking-created'])['active'], 'Unwired booking template presented as active');
 
 $fields = Admin::fields(['title' => '"><script>alert(1)</script>', 'body_text' => '</textarea><script>alert(1)</script>']);
