@@ -17,7 +17,7 @@ final class Documents {
     private static function e(mixed $v):string {
         return htmlspecialchars((string)($v ?? ''), ENT_QUOTES|ENT_XML1, 'UTF-8');
     }
-    private static function directory():string {
+    public static function directory():string {
         $dir = APP_ROOT
         . '/.local/documents';
         if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir))throw new RuntimeException('Не удалось создать хранилище документов.');
@@ -59,7 +59,16 @@ final class Documents {
         return $dom->output();
     }
     public static function validateFile(string $path, string $extension):void {
-        if ($extension === 'pdf') {
+        if ($extension === 'zip') {
+            $archive = new \ZipArchive();
+            if ($archive->open($path, \ZipArchive::RDONLY | \ZipArchive::CHECKCONS) !== true) {
+                throw new RuntimeException('ZIP-архив повреждён.',422);
+            }
+            $numberOfFiles = $archive->numFiles;
+            $archive->close();
+            if ($numberOfFiles === 0) throw new RuntimeException('ZIP-архив пуст.',422);
+        }
+        elseif ($extension === 'pdf') {
             $size = filesize($path);
             $head = file_get_contents($path, false, null, 0, 8);
             $tail = file_get_contents($path, false, null, max(0, $size-4096));
@@ -553,45 +562,64 @@ final class Documents {
         Auth::requirePermission('rental.read');
         Access::finance(2);
         $id = (int)($_POST['id'] ?? 0);
-        $path = null;
+        $created=[];
         try {
-            $fileId = DB::transaction(function (\PDO $db) use ($id, &$path): string {
-                FileOrder::lock($db);
-                Service::get($db, 'invoices', $id);
-                $invoice = Controller::query(
-                    'SELECT i.*,p.name party_name '
-                    .'FROM invoices i JOIN contracts c ON c.id=i.contract_id JOIN parties p ON p.id=c.party_id WHERE i.id=?',
-                    [$id]
-                )[0] ?? throw new RuntimeException('Счёт не найден.', 404);
-                $original = InvoiceDocument::original($db, $id);
-                if ($original) return $original['id'];
-                $bytes = self::renderPdf(InvoiceDocument::html($db, $invoice));
-                $fileId = bin2hex(random_bytes(16));
-                $path = self::directory().'/'.$fileId.'.pdf';
-                if (file_put_contents($path, $bytes, LOCK_EX) !== strlen($bytes)) {
-                    throw new RuntimeException('Не удалось сохранить PDF счёта.');
-                }
-                $db->prepare(
-                    "INSERT INTO rental_files(id,entity_type,entity_id,version,kind,filename,path,sha256,mime) "
-                    ."VALUES(?,'invoice',?,?,'pdf',?,?,?,'application/pdf')"
-                )->execute([
-                    $fileId, $id, $invoice['version'], InvoiceDocument::filename($invoice, $invoice['party_name']),
-                    basename($path), hash('sha256', $bytes),
-                ]);
-                $order = FileOrder::assign($db, $fileId);
-                Audit::record('invoice.pdf', 'invoice', $id, null, [
-                    'file' => $fileId, 'sha256' => hash('sha256', $bytes), 'upload_order' => $order,
-                ]);
-                return $fileId;
+            $fileId=DB::transaction(static function(\PDO $db) use ($id,&$created): string {
+                return self::persistInvoicePdf($db,$id,$created);
             });
         } catch (\Throwable $error) {
-            if ($path && is_file($path)) {
-                unlink($path);
-            }
+            self::removeUncommitted(DB::pdo(),$created);
             throw $error;
         }
         Http::redirect('/rental/download?id='.$fileId);
     }
+
+    public static function persistInvoicePdf(\PDO $db,int $id,array &$created): string
+    {
+        FileOrder::lock($db);
+        Service::get($db,'invoices',$id);
+        $invoice=Controller::query(
+            'SELECT i.*,p.name party_name FROM invoices i JOIN contracts c ON c.id=i.contract_id JOIN parties p ON p.id=c.party_id WHERE i.id=?',
+            [$id]
+        )[0] ?? throw new RuntimeException('Счёт не найден.',404);
+        if ($original=InvoiceDocument::original($db,$id)) return $original['id'];
+        $query=$db->prepare("SELECT * FROM rental_files WHERE entity_type='invoice' AND entity_id=? AND version=?
+            AND kind='pdf' AND mime='application/pdf' ORDER BY upload_order DESC LIMIT 1");
+        $query->execute([$id,$invoice['version']]);
+        if ($print=$query->fetch()) {
+            Evidence::integrity($print);
+            return $print['id'];
+        }
+        $bytes=self::renderPdf(InvoiceDocument::html($db,$invoice));
+        $fileId=bin2hex(random_bytes(16));
+        $path=self::directory().'/'.$fileId.'.pdf';
+        $created[$fileId]=$path;
+        if (file_put_contents($path,$bytes,LOCK_EX)!==strlen($bytes)) {
+            throw new RuntimeException('Не удалось сохранить PDF счёта.');
+        }
+        $hash=hash('sha256',$bytes);
+        $db->prepare("INSERT INTO rental_files(id,entity_type,entity_id,version,kind,filename,path,sha256,mime)
+            VALUES(?,'invoice',?,?,'pdf',?,?,?,'application/pdf')")
+            ->execute([$fileId,$id,$invoice['version'],InvoiceDocument::filename($invoice,$invoice['party_name']),basename($path),$hash]);
+        $order=FileOrder::assign($db,$fileId);
+        Audit::record('invoice.pdf','invoice',$id,null,['file'=>$fileId,'sha256'=>$hash,'upload_order'=>$order]);
+        return $fileId;
+    }
+
+    public static function removeUncommitted(\PDO $db,array $files): void
+    {
+        if (!$files) return;
+        try {
+            $query=$db->prepare('SELECT 1 FROM rental_files WHERE id=?');
+            foreach ($files as $id=>$path) {
+                $query->execute([$id]);
+                if (!$query->fetchColumn() && is_file($path)) unlink($path);
+            }
+        } catch (\Throwable) {
+            // The outcome of the original command takes precedence.
+        }
+    }
+
     public static function invoicePdfResponse(array $invoice, ?array $original, bool $download): never
     {
         if ($original) {

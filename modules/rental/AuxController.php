@@ -29,6 +29,30 @@ final class AuxController
         }else throw new RuntimeException('Страница не найдена.',404);
         return RentalUI::modal($title,$h,'',in_array($page,['documents','document'],true)?'contracts':$page,in_array($page,['documents','reservations'],true));
     }
-    public static function uploadForm(array $r,string $kind,string $label,string $type='contract'):string{return '<form enctype="multipart/form-data" method="post" action="/rental/upload"><input type="hidden" name="_csrf" value="'.self::e(Http::csrf()).'"><input type="hidden" name="id" value="'.$r['id'].'"><input type="hidden" name="version" value="'.$r['version'].'"><input type="hidden" name="entity_type" value="'.$type.'"><input type="hidden" name="kind" value="'.$kind.'"><label>'.self::e($label).'<input type="file" name="file" accept=".doc,.docx,.pdf" required></label><button class="btn">Загрузить файл</button></form>';}
+    public static function uploadForm(array $r,string $kind,string $label,string $type='contract'):string
+    {
+        $signedContract=$kind==='signed-contract';
+        $input='<input type="file" name="file" accept=".doc,.docx,.pdf" required'
+            .($signedContract?' aria-label="'.self::e($label).'"':'').'>';
+        $fileField='<label>'.self::e($label).$input.'</label>';
+        if ($signedContract) {
+            $fileField='<label class="file-dropzone registry-ui-review-upload" data-file-dropzone>'
+                .'<span class="dz-title">Перетащите сюда подписанный договор</span>'
+                .'<span class="btn btn-secondary">Выбрать файл</span>'
+                .'<span class="dz-note">Word или PDF, до 20 МБ.</span>'
+                .'<span class="registry-ui-modal-text" data-file-dropzone-selection aria-live="polite"></span>'
+                .$input.'</label>';
+        }
+        return '<form enctype="multipart/form-data" method="post" action="/rental/upload"'
+            .($signedContract?' class="registry-ui-form-section"':'').'>'
+            .'<input type="hidden" name="_csrf" value="'.self::e(Http::csrf()).'">'
+            .'<input type="hidden" name="id" value="'.$r['id'].'">'
+            .'<input type="hidden" name="version" value="'.$r['version'].'">'
+            .'<input type="hidden" name="entity_type" value="'.$type.'">'
+            .'<input type="hidden" name="kind" value="'.$kind.'">'.$fileField
+            .($signedContract
+                ? '<div class="demo-row"><button class="btn btn-secondary" type="submit">Загрузить файл</button></div>'
+                : '<button class="btn">Загрузить файл</button>').'</form>';
+    }
     public static function contractActions(array $r):string{$role=Auth::user()['role'];$h='';if(in_array($role,['admin','manager'],true)&&in_array($r['status'],['sent','active'],true))$h.=self::uploadForm($r,'signed-contract','Договор с подписями обеих сторон');if(in_array($role,['admin','manager'],true)&&$r['status']==='reconciling')$h.=self::uploadForm($r,'signed-return-act','Подписанный акт возврата');if(in_array($role,['admin','lawyer'],true)&&in_array($r['status'],['legal','returned'],true))$h.=self::uploadForm($r,'lawyer-file','Актуальный Word или PDF');if(in_array($r['status'],['reconciling','ended'],true)){foreach(['finance'=>['accountant','Финансовая сверка: взаиморасчёты проверены'],'legal'=>['lawyer','Юридическая сверка: претензий нет']] as $kind=>$cfg)if(in_array($role,['admin',$cfg[0]],true))$h.=Controller::form('reconcile.'.$kind,(int)$r['id'],(int)$r['version'],'<label><input type="checkbox" name="confirmed" value="1">'.self::e($cfg[1]).'</label>','Подтвердить');}$h.=Controller::link('/rental/reservations','Брони помещений');return $h;}
 }

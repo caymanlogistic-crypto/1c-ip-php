@@ -112,8 +112,11 @@ final class NativePacket
         $legal = self::row($p, "SELECT * FROM rental_approvals WHERE entity_type=? AND entity_id=? AND role='lawyer'", [$kind, $id]);
         $file = self::row($p, 'SELECT * FROM rental_files WHERE id=?', [$legal['file_id']]);
         Evidence::integrity($file);
-        $latest = Evidence::latest($p, $kind, $id, (string)$file['kind'], (int)$file['version']);
-        if ($latest['id'] !== $file['id']) throw new RuntimeException('NATIVE_PACKET_LEGAL_FILE_SUPERSEDED');
+        $handoff=$kind==='contract'?LegalHandoff::approvedFiles($p,$id,$file):null;
+        if ($handoff===null) {
+            $latest=Evidence::latest($p,$kind,$id,(string)$file['kind'],(int)$file['version']);
+            if ($latest['id']!==$file['id']) throw new RuntimeException('NATIVE_PACKET_LEGAL_FILE_SUPERSEDED');
+        }
         $signature = $kind === 'contract'
             ? Evidence::approvalSignature($p, $id, $file['id'])
             : Evidence::documentSignature($p, $record, $file['id']);
@@ -145,7 +148,8 @@ final class NativePacket
         foreach ([&$record, &$contract, &$party, &$organization, &$file, &$legal] as &$row) unset($row['source_json']);
         unset($row);
         $context=compact('record', 'contract', 'party', 'organization', 'legal', 'file', 'terms', 'objects', 'template', 'financial_state');
-        if($pack=WordPack::evidence($p,$file['id']))$context['word_pack']=$pack;
+        if ($handoff!==null) $context['legal_handoff']=$handoff;
+        elseif ($pack=WordPack::evidence($p,$file['id'])) $context['word_pack']=$pack;
         if($partState!==null)$context['part_state']=$partState;
         if ($kind === 'contract' && $separatePolicy) $context['initial_terms'] = InitialInvoice::approvalTerms($p,$id);
         return $context;

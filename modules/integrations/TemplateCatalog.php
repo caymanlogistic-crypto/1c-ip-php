@@ -15,10 +15,12 @@ final class TemplateCatalog
 
     public static function messageVariables(string $channel,string $key): array
     {
-        return $channel==='max'
-            ? array_merge(self::MESSAGE_VARS,ContractSubmitMax::VARIABLES,
-                isset(self::RESERVATION_VARS[$key]) ? [...self::RESERVATION_VARS[$key],'reservationTypeLabel','reservationAreaLabel'] : [])
-            : self::MESSAGE_VARS;
+        if ($channel!=='max') return self::MESSAGE_VARS;
+        $reservation=self::RESERVATION_VARS[$key] ?? [];
+        if (in_array($key,['booking','bookingCreated','bookingUpdated','bookingCancelled'],true)) {
+            $reservation=['reservationStart','previousDeadline'];
+        }
+        return array_merge(self::MESSAGE_VARS,ContractSubmitMax::VARIABLES,['reservationTypeLabel','reservationAreaLabel'],$reservation);
     }
 
     public const TOP_VARS=['title','text','record','section','why','actor','number','party','template','details'];
@@ -45,6 +47,14 @@ final class TemplateCatalog
     public static function safeUrl(string $url): bool {return !preg_match('/[\s<>"\'\\\\{}]/u',$url)&&preg_match('~^(?:https?://[^/\s]+|mailto:[^\s]+)~i',$url)===1;}
     public static function validateFormat(string $format,string $text,array $variables=self::MESSAGE_VARS): void {if(!in_array($format,['plain','markdown','html'],true))throw new \InvalidArgumentException('UNKNOWN_TEMPLATE_FORMAT');self::validateText($text,$variables,4000);if($format==='markdown'){preg_match_all('/\]\(([^)]*)\)/u',$text,$m);foreach($m[1] as $url)if(!self::safeUrl($url))throw new \InvalidArgumentException('UNSAFE_TEMPLATE_LINK');}if($format==='html'){$rest=preg_replace('~</?(?:b|strong|i|em|s|del|u|ins|code|pre|mark|blockquote|h[1-6])\s*>~i','',$text);$rest=preg_replace_callback('~<a\s+href=("([^"]*)"|\'([^\']*)\')\s*>~i',static function($m){if(!self::safeUrl($m[2]?:$m[3]))throw new \InvalidArgumentException('UNSAFE_TEMPLATE_LINK');return '';},$rest);$rest=preg_replace('~</a\s*>~i','',$rest);if(preg_match('~<[^>]*>|<\s*[a-z!/]~i',$rest))throw new \InvalidArgumentException('UNSAFE_TEMPLATE_HTML');}}
     public function importState(string $bytes): array {$source=Support::decode($bytes);$domain=$source['domain']??$source;$hash=hash('sha256',$bytes);$q=$this->db->prepare('SELECT 1 FROM rental_imports WHERE state_hash=?');$q->execute([$hash]);if(!$q->fetchColumn())throw new \RuntimeException('STATE_IMPORT_ATTESTATION_REQUIRED');$path=$this->store->put('catalog-imports',$bytes);$counts=[];$this->db->beginTransaction();try{foreach(['max'=>'maxTemplates','email'=>'emailTemplates'] as $channel=>$key){$entries=$domain[$key]??null;if(!is_array($entries))throw new \RuntimeException('CATALOG_SOURCE_MISSING');$counts[$channel]=0;foreach($entries as $sourceKey=>$record){if(!is_array($record))throw new \RuntimeException('CATALOG_SOURCE_INVALID');$this->importRecord($channel,(string)$sourceKey,$record,$hash,$path,'state.2026-10-31');$counts[$channel]++;}}$top=Support::decode(file_get_contents(__DIR__.'/defaults/top-catalog.json'));$overrides=$domain['topToastTemplates']??[];$counts['top']=0;foreach($top['entries'] as $record){$key=$record['id'];$record=array_replace($record,$overrides[$key]??[]);$this->importRecord('top',$key,$record,$hash,$path,$top['source_commit']);$counts['top']++;}$this->db->commit();return ['source_sha256'=>$hash,'counts'=>$counts];}catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}}
+    public function installFirstInvoice(): void
+    {
+        $bytes=file_get_contents(__DIR__.'/defaults/first-invoice-max.json');
+        $entry=Support::decode($bytes);
+        self::validateFormat($entry['format'],$entry['body'],self::messageVariables('max','firstInvoice'));
+        $this->importRecord('max','firstInvoice',$entry,hash('sha256',$bytes),'bundled','first-invoice-v1');
+    }
+
     public function installHandoverQuestion(): void {
         $bytes = file_get_contents(__DIR__.'/defaults/handover-question-max.json');
         $entry = Support::decode($bytes);
@@ -55,51 +65,40 @@ final class TemplateCatalog
     {
         $bytes = file_get_contents(__DIR__.'/defaults/staff-handoff-max.json');
         $entry = Support::decode($bytes);
-        self::validateFormat($entry['format'], $entry['body']);
+        self::validateFormat($entry['format'], $entry['body'],self::messageVariables('max','staffHandoff'));
         $this->importRecord('max', 'staffHandoff', $entry, hash('sha256', $bytes), 'bundled', 'staff-handoff-v1');
     }
 
-    public function installContractWorkflowLayout(bool $apply,array $pinned,?array $expected=null): array
+    public function installApprovedMaxLayout(bool $apply): array
     {
-        return $this->installPinnedMaxLayout('contract-max-templates.json',ServerWorkflowMax::KINDS,$apply,$pinned,$expected);
-    }
-
-    public function installReservationWorkflowLayout(bool $apply,array $pinned,?array $expected=null): array
-    {
-        return $this->installPinnedMaxLayout('reservation-max-templates.json',
-            array_column(\Modules\Rental\BookingNotices::TEMPLATES,0),$apply,$pinned,$expected);
-    }
-
-    private function installPinnedMaxLayout(string $file,array $keys,bool $apply,array $pinned,?array $expected): array
-    {
-        $entries=Support::decode(file_get_contents(__DIR__.'/defaults/'.$file));
-        if (array_diff($keys,array_keys($entries)) || array_diff(array_keys($entries),$keys)) {
-            throw new \RuntimeException('APPROVED_WORKFLOW_CATALOG_MISMATCH');
+        $staffBytes=file_get_contents(__DIR__.'/defaults/staff-handoff-max.json');
+        $entries=['staffHandoff'=>Support::decode($staffBytes)];
+        foreach (['contract-max-templates.json','reservation-max-templates.json','retained-max-templates.json'] as $file) {
+            $entries+=Support::decode(file_get_contents(__DIR__.'/defaults/'.$file));
         }
+        ksort($entries);
         $this->db->beginTransaction();
         try {
-            $select=$this->db->prepare("SELECT * FROM integration_template_catalog WHERE channel='max' AND source_key=? FOR UPDATE");
+            $rows=$this->db->query("SELECT * FROM integration_template_catalog WHERE channel='max' ORDER BY source_key FOR UPDATE")
+                ->fetchAll(\PDO::FETCH_ASSOC);
+            $current=array_column($rows,null,'source_key');
+            if (count($entries)!==34 || array_diff_key($entries,$current) || array_diff_key($current,$entries)) {
+                throw new \RuntimeException('APPROVED_MAX_CATALOG_MISMATCH');
+            }
             $update=$this->db->prepare("UPDATE integration_template_catalog
-                SET body_text=?, format=?, version=version+1, actor_label=?, changed_at=?
+                SET body_text=?, format=?, source_sha256=?, version=version+1, actor_label=?, changed_at=?
                 WHERE channel='max' AND source_key=?");
             $result=[];
             foreach ($entries as $key=>$entry) {
                 self::validateFormat($entry['format'],$entry['body'],self::messageVariables('max',$key));
-                $select->execute([$key]);
-                $old=$select->fetch(\PDO::FETCH_ASSOC);
-                if (!$old) throw new \RuntimeException('TEMPLATE_MISSING_'.$key);
-                $changed=$old['format']!==$entry['format'] || $old['body_text']!==$entry['body'];
-                if ($changed && isset($pinned[$key]) && (int)$old['version']!==$pinned[$key]) {
-                    throw new \RuntimeException('WORKFLOW_CATALOG_PIN_MISMATCH_'.$key);
-                }
+                $old=$current[$key];
+                $sha=$key==='staffHandoff'?hash('sha256',$staffBytes):$old['source_sha256'];
+                $changed=$old['format']!==$entry['format'] || $old['body_text']!==$entry['body'] || $old['source_sha256']!==$sha;
                 if ($apply && $changed) {
                     $this->rememberVersion($old);
-                    $update->execute([$entry['body'],$entry['format'],'По поручению владельца: оформление MAX',date(DATE_ATOM),$key]);
+                    $update->execute([$entry['body'],$entry['format'],$sha,'По поручению владельца: оформление MAX',date(DATE_ATOM),$key]);
                 }
-                $result[$key]=['changed'=>$changed,'before'=>(int)$old['version'],'version'=>(int)$old['version']+(int)$changed];
-            }
-            if ($expected!==null && $result!==$expected) {
-                throw new \RuntimeException('WORKFLOW_CATALOG_CHANGED_DURING_INSTALL');
+                $result[$key]=['changed'=>$changed,'version'=>(int)$old['version']+(int)($apply && $changed)];
             }
             $this->db->commit();
             return $result;

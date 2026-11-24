@@ -133,6 +133,10 @@ input,select,textarea,button{font-family:var(--font)}
 /* OWNER 2026-11-13 PARTY ACTIONS BEGIN */
 .btn.btn-success{background:var(--p-success-fill);border-color:var(--p-success);color:var(--p-success)}
 .btn.btn-success:hover{background:color-mix(in srgb,var(--p-success) 12%,var(--p-success-fill));border-color:var(--p-success);color:var(--p-success)}
+/* Solid decision button shares the danger button's shape and elevation. */
+.btn.btn-success-solid{height:var(--btn-h);padding:0 13px;background:linear-gradient(180deg,color-mix(in srgb,var(--p-success) 88%,var(--p-inverse)),var(--p-success));border:1px solid color-mix(in srgb,var(--p-success) 80%,black);color:var(--tone-ffffff);font-weight:700;border-radius:2px;box-shadow:inset 0 1px 0 rgb(from var(--tone-ffffff) r g b / .12),0 1px 2px rgb(0 0 0 / .12)}
+.btn.btn-success-solid:hover:not(:disabled){background:linear-gradient(180deg,var(--p-success),color-mix(in srgb,var(--p-success) 85%,black));border-color:color-mix(in srgb,var(--p-success) 70%,black)}
+.btn.btn-success-solid:active:not(:disabled){background:color-mix(in srgb,var(--p-success) 76%,black);transform:translateY(1px)}
 /* OWNER 2026-11-13 PARTY ACTIONS END */
 
 /* OWNER 2026-11-14 FLOW FEEDBACK BEGIN */

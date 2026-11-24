@@ -14,6 +14,48 @@
     party.querySelector('[name=correspondent_account]').value='00000000000000000000';
   });
   party.querySelector('form').addEventListener('submit',event=>{event.preventDefault();document.querySelector('[data-compact-example-result]').textContent='Сохранён демонстрационный контрагент: '+party.querySelector('[name=name]').value;party.close();});
+  const reviewTerms=document.getElementById('review-terms-example');
+  document.querySelector('[data-open-review-terms]').addEventListener('click',()=>reviewTerms.showModal());
+  reviewTerms.querySelectorAll('[data-close-review-terms]').forEach(button=>button.addEventListener('click',()=>reviewTerms.close()));
+  document.querySelectorAll('[data-demo-review-reason]').forEach(form=>form.addEventListener('submit',event=>{
+    event.preventDefault();
+    const panel=form.closest('[data-form-disclosure]');
+    panel.open=false;
+    document.querySelector('[aria-controls="'+panel.id+'"]')?.focus();
+  }));
+  const reviewStatus=reviewTerms.querySelector('[data-demo-review-files-status]');
+  reviewTerms.querySelector('[data-demo-review-files]').addEventListener('change',event=>{
+    reviewStatus.textContent=[...event.target.files].map(file=>file.name).join(', ');
+  });
+  reviewTerms.querySelectorAll('[data-demo-review-zip]').forEach(link=>link.addEventListener('click',event=>{
+    event.preventDefault();
+    reviewStatus.textContent='В рабочем окне комплект скачивается одним ZIP.';
+  }));
+  const approvalPreview=document.getElementById('approval-preview-example');
+  document.querySelector('[data-open-approval-preview]').addEventListener('click',()=>approvalPreview.showModal());
+  approvalPreview.querySelectorAll('[data-close-approval-preview]').forEach(button=>button.addEventListener('click',()=>approvalPreview.close()));
+  approvalPreview.querySelector('[data-demo-approval-file]').addEventListener('click',event=>event.preventDefault());
+  const accountantReview=document.getElementById('accountant-review-example');
+  document.querySelector('[data-open-accountant-review]').addEventListener('click',()=>accountantReview.showModal());
+  accountantReview.querySelectorAll('[data-close-accountant-review]').forEach(button=>button.addEventListener('click',()=>accountantReview.close()));
+  accountantReview.querySelectorAll('[data-demo-accountant-file]').forEach(link=>link.addEventListener('click',event=>event.preventDefault()));
+  accountantReview.querySelectorAll('[data-show-accountant-decision]').forEach(button=>button.addEventListener('click',()=>{
+    document.getElementById(button.dataset.showAccountantDecision).showModal();
+  }));
+  document.querySelectorAll('[data-close-accountant-decision]').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
+  document.querySelector('[data-finish-accountant-decision]').addEventListener('click',event=>{
+    event.target.closest('dialog').close();
+    accountantReview.close();
+  });
+  document.querySelector('[data-accountant-return-form]').addEventListener('submit',event=>{
+    event.preventDefault();
+    event.target.reset();
+    event.target.closest('dialog').close();
+    accountantReview.close();
+  });
+  const reviewParty=document.getElementById('review-party-example');
+  document.querySelectorAll('[data-open-review-party]').forEach(button=>button.addEventListener('click',()=>reviewParty.showModal()));
+  reviewParty.querySelectorAll('[data-close-review-party]').forEach(button=>button.addEventListener('click',()=>reviewParty.close()));
   const dialog=document.getElementById('compact-popup-example');
   document.querySelector('[data-open-compact-example]').addEventListener('click',()=>dialog.showModal());
   dialog.querySelectorAll('[data-close-compact-example]').forEach(button=>button.addEventListener('click',()=>dialog.close()));

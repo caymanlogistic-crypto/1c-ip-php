@@ -25,6 +25,7 @@ final class ContractWorkflowRelay
         'package'=>['invoiceSummary','actor'],
         'signed'=>['text','actor'],
         'cancelled'=>['reason','actor'],
+        'firstInvoice'=>['invoiceSummary','actor','recordUrl'],
     ];
     private const COMMON=['number','party','contractStart','contractEnd','contractObjectLines'];
     private ?string $request=null;
@@ -122,7 +123,7 @@ final class ContractWorkflowRelay
             || !is_string($scope['key'] ?? null) || !preg_match('/^[a-f0-9]{64}$/D',$scope['key'])
             || !is_array($scope['contract_ids'] ?? null) || !array_is_list($scope['contract_ids'])
             || !is_array($scope['actor_map'] ?? null) || !$scope['actor_map']
-            || !is_array($scope['catalog_versions'] ?? null) || array_diff_key(self::FIELDS,$scope['catalog_versions'])
+            || !is_array($scope['catalog_versions'] ?? null) || array_diff_key(array_diff_key(self::FIELDS,['firstInvoice'=>true]),$scope['catalog_versions'])
             || array_diff_key($scope['catalog_versions'],self::FIELDS)) {
             throw new RuntimeException('CONTRACT_RELAY_SCOPE');
         }
@@ -175,11 +176,22 @@ final class ContractWorkflowRelay
         return array_merge(self::COMMON,self::FIELDS[$kind]);
     }
 
+    public static function contractLink(int $id): string
+    {
+        $base='https://ui.89.208.213.14.sslip.io';
+        $settings=APP_ROOT.'/.local/runtime-settings.json';
+        if (!getenv('APP_STAND') && is_file($settings)) {
+            $port=Support::decode(file_get_contents($settings))['port']??0;
+            if (is_int($port) && $port>=1024 && $port<=65535) $base='http://127.0.0.1:'.$port;
+        }
+        return $base.'/rental/contract?id='.$id;
+    }
+
     public static function actorAllowed(string $kind,string $role): bool
     {
         return $role==='admin' || in_array($role,match ($kind) {
             'legalApprove','lawyerReturn'=>['lawyer'],
-            'accountantReturn','package'=>['accountant'],
+            'accountantReturn','package','firstInvoice'=>['accountant'],
             'cancelled'=>['manager','director'],
             default=>['manager'],
         },true);
@@ -195,7 +207,8 @@ final class ContractWorkflowRelay
         $kind=$plan['kind'];
         $actions=is_string($kind)?match($kind) {
             'submit'=>['contract.create','contract.edit','contract.submit'],
-            'lawyerReturn'=>['contract.return','contract.forward'],
+            'lawyerReturn'=>['contract.return','contract.forward','contract.legal-block'],
+            'firstInvoice'=>[\Modules\Rental\InitialInvoice::ISSUE],
             'resubmit'=>['contract.edit','contract.submit'],
             'legalApprove'=>['contract.legal'],
             'accountantReturn'=>['contract.return'],
@@ -214,6 +227,10 @@ final class ContractWorkflowRelay
             if (!is_string($value) || strlen($value)>$limit || str_contains($value,"\0"))
                 throw new RuntimeException('CONTRACT_RELAY_VALUES',400);
         }
+        if ($kind==='firstInvoice' && !preg_match('~^(?:https://ui[.]89[.]208[.]213[.]14[.]sslip[.]io|http://127[.]0[.]0[.]1:[0-9]{4,5})/rental/contract[?]id='
+            .$plan['contract_id'].'$~D',$plan['values']['recordUrl'])) {
+            throw new RuntimeException('CONTRACT_RELAY_VALUES',400);
+        }
         try {
             $objects=json_decode($plan['values']['contractObjectLines'],true,8,JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
@@ -231,7 +248,9 @@ final class ContractWorkflowRelay
 
     public static function assertApproved(PDO $db,string $kind,int $version): void
     {
-        $approved=Support::decode(file_get_contents(__DIR__.'/defaults/contract-max-templates.json'))[$kind];
+        $approved=$kind==='firstInvoice'
+            ?Support::decode(file_get_contents(__DIR__.'/defaults/first-invoice-max.json'))
+            :Support::decode(file_get_contents(__DIR__.'/defaults/contract-max-templates.json'))[$kind];
         $q=$db->prepare("SELECT version,format,body_text FROM integration_template_catalog WHERE channel='max' AND source_key=?");
         $q->execute([$kind]);
         $row=$q->fetch();

@@ -1,0 +1,82 @@
+{
+  "activated": {
+    "format": "html",
+    "body": "<b>✅ НОВЫЕ УСЛОВИЯ АРЕНДЫ ВСТУПИЛИ В СИЛУ</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\n{text}\nАктуальные ставки и начисления доступны в карточке договора."
+  },
+  "addendum": {
+    "format": "html",
+    "body": "<b>📄 ДОПСОГЛАШЕНИЕ НАПРАВЛЕНО ЮРИСТУ</b>\nДопсоглашение <b>№{documentNumber}</b> к договору <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\n{effectiveSummary}\nДействие · <b>Проверить условия и актуальный файл допсоглашения</b>\nОбеспечение и первый период начисляются по добавленным объектам."
+  },
+  "block": {
+    "format": "html",
+    "body": "<b>⛔ РАБОТА С КОНТРАГЕНТОМ ЗАБЛОКИРОВАНА</b>\nКлиент <b>{party}</b>\nПричина · <b>{reason}</b>\nИнициатор · <b>{actor}</b>\nСоздание новых договоров закрыто. Незавершённые проекты аннулированы с сохранением истории. Действующие договоры продолжают обслуживаться."
+  },
+  "unblock": {
+    "format": "html",
+    "body": "<b>✅ РАБОТА С КОНТРАГЕНТОМ ВОЗОБНОВЛЕНА</b>\nКлиент <b>{party}</b>\nПричина · <b>{reason}</b>\nПодтвердил · <b>{actor}</b>\nМожно создать новый проект. История аннулированных проектов доступна в системе."
+  },
+  "booking": {
+    "format": "html",
+    "body": "<b>📌 РЕЗЕРВИРОВАНИЕ ИЗМЕНЕНО</b>\nКлиент <b>{party}</b>\nОбъект: <b>{context}</b>{reservationTypeLabel}{reservationAreaLabel}\nНовый период с <b>{reservationStart}</b> по <b>{effective}</b>\nИзменил · <b>{actor}</b>"
+  },
+  "bookingCancelled": {
+    "format": "html",
+    "body": "<b>🔓 БРОНИРОВАНИЕ ЗАВЕРШЕНО</b>\nКлиент <b>{party}</b>\nОбъект: <b>{context}</b>{reservationTypeLabel}{reservationAreaLabel}\nПричина · <b>{reason}</b>\nСнял · <b>{actor}</b>\nИстория бронирования сохранена."
+  },
+  "bookingCreated": {
+    "format": "html",
+    "body": "<b>📌 ОБЪЕКТ ЗАБРОНИРОВАН</b>\nКлиент <b>{party}</b>\nОбъект: <b>{context}</b>{reservationTypeLabel}{reservationAreaLabel}\nс <b>{reservationStart}</b> по <b>{effective}</b>\nОтветственный · <b>{manager}</b>\nДействие · <b>Получить реквизиты и подготовить проект договора до окончания брони</b>"
+  },
+  "bookingUpdated": {
+    "format": "html",
+    "body": "<b>🗓️ СРОК БРОНИ ИЗМЕНЁН</b>\nКлиент <b>{party}</b>\nОбъект: <b>{context}</b>{reservationTypeLabel}{reservationAreaLabel}\nс <b>{reservationStart}</b> по <b>{effective}</b>\nПрежний срок до <b>{previousDeadline}</b>\nПродлил · <b>{actor}</b>"
+  },
+  "completed": {
+    "format": "html",
+    "body": "<b>✅ ДОГОВОР ЗАВЕРШЁН</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\nАкт возврата, взаиморасчёты и отсутствие претензий подтверждены. Документы и история доступны в карточке."
+  },
+  "desync": {
+    "format": "html",
+    "body": "<b>⚠️ ДАННЫЕ 1С И ERP РАЗЛИЧАЮТСЯ</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\nСчёт <b>№{documentNumber}</b>\n{text}\nДействие · <b>Сверить суммы по оригиналу счёта и подтвердить результат в карточке</b>"
+  },
+  "expiry": {
+    "format": "html",
+    "body": "<b>🗓️ ПРИБЛИЖАЕТСЯ ОКОНЧАНИЕ ДОГОВОРА</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\nОтветственный · <b>{manager}</b>\nДействие · <b>Согласовать продление или начать завершение</b>\nПри остатке срока до недели — контроль руководителя."
+  },
+  "invoice": {
+    "format": "html",
+    "body": "<b>🧾 СЧЁТ ОБНОВЛЁН</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\nСчёт <b>№{documentNumber}</b>\n{text}\nДействие · <b>Проверить реквизиты, период, сумму и файл счёта</b>"
+  },
+  "manual": {
+    "format": "html",
+    "body": "<b>🤝 РУЧНОЕ ВЫПОЛНЕНИЕ ЗАФИКСИРОВАНО</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\n{text}\nЗафиксировал · <b>{actor}</b>"
+  },
+  "movement": {
+    "format": "html",
+    "body": "<b>ℹ️ СОСТАВ ДОГОВОРА ИЗМЕНЁН</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\nИзменение · <b>{text}</b>\nВнёс · <b>{actor}</b>"
+  },
+  "payment": {
+    "format": "html",
+    "body": "<b>💳 ОПЛАТА ПО СЧЁТУ ОБНОВЛЕНА</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\nСчёт <b>№{documentNumber}</b>\n{text}\nДействие · <b>Проверить остаток и платёжный документ</b>"
+  },
+  "paymentOverdue": {
+    "format": "html",
+    "body": "<b>🔴 СРОК ОПЛАТЫ НАРУШЕН</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\nСчёт <b>№{documentNumber}</b>\n{text}\nДействие · <b>Связаться с клиентом и проверить поступления</b>\nКонтроль · <b>Руководитель</b>"
+  },
+  "paymentWarning": {
+    "format": "html",
+    "body": "<b>🟡 ТРЕБУЕТСЯ КОНТРОЛЬ ОПЛАТЫ</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\nСчёт <b>№{documentNumber}</b>\n{text}\nДействие · <b>Сверить поступление и отметить результат в карточке счёта</b>"
+  },
+  "reconciliation": {
+    "format": "html",
+    "body": "<b>🔎 НАЧАТА ФИНАЛЬНАЯ СВЕРКА</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\nЖдём <b>акт возврата от менеджера, юридическое подтверждение и сверку расчётов от бухгалтера</b>."
+  },
+  "retry": {
+    "format": "html",
+    "body": "<b>🔄 ОПЕРАЦИЯ ВЫПОЛНЕНА ПОВТОРНО</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\nРезультат · <b>{text}</b>\nПодробности доступны в разделе «Операции и отправки»."
+  },
+  "sendFailure": {
+    "format": "html",
+    "body": "<b>⚠️ ОТПРАВКА ДОКУМЕНТОВ ТРЕБУЕТ ПРОВЕРКИ</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\nПричина · <b>{text}</b>\nДействие · <b>Проверить причину в разделе «Операции и отправки» и повторить незавершённый шаг</b>"
+  }
+}

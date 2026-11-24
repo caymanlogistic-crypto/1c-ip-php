@@ -254,7 +254,9 @@
     const creatingParty=data.get('action')==='party.save'&&data.get('id')==='0';
     let response,partySaved=false;
     form.dataset.submitting='true';
-    const buttons=[...dialog.querySelectorAll('button[type="submit"]')];
+    const autoUpload=form.querySelector('[data-rental-upload-on-select]');
+    const scroll=autoUpload ? dialog.querySelector('.modal-body')?.scrollTop : null;
+    const buttons=[...dialog.querySelectorAll('button[type="submit"]:enabled')];
     buttons.forEach(b=>b.disabled=true);
     try{
       const method=(submitter?.getAttribute('formmethod')||form.getAttribute('method')||'post').toUpperCase(),requestURL=localURL(submitter?.getAttribute('formaction')||form.getAttribute('action')||location.href);
@@ -275,7 +277,8 @@
         const url=URL.createObjectURL(blob);
         const link=document.createElement('a');
         link.href=url;
-        link.download=type.includes('pdf')?'document.pdf':'document.docx';
+        const zipName=type.includes('application/zip')&&response.headers.get('content-disposition')?.match(/filename\*=UTF-8''([^;]+)/i);
+        link.download=zipName?decodeURIComponent(zipName[1]):type.includes('application/zip')?'contract-templates.zip':type.includes('pdf')?'document.pdf':'document.docx';
         link.click();
         setTimeout(()=>URL.revokeObjectURL(url),1000);
         return;
@@ -319,6 +322,11 @@
         // Pure reads keep the original DOM, including unsaved fields, in rentalStack.
         while(rentalStack.length)disposeRental(rentalStack.pop().dialog);
         mountRental(replacement,lastFocus);
+        if(autoUpload){
+          const body=replacement.querySelector('.modal-body');
+          if(body && scroll!=null)body.scrollTop=scroll;
+          replacement.querySelector('[data-rental-upload-on-select]')?.focus({preventScroll:true});
+        }
         menu?.requestRefresh();
         return;
       }
@@ -509,6 +517,13 @@
     if(event.target.matches('input[name^="term_amount["]')){
       const form=event.target.closest('form');
       if(form)total(form);
+    }
+  });
+  document.addEventListener('change',event=>{
+    const input=event.target;
+    if(input.matches?.('input[type="file"][data-rental-upload-on-select]') && input.files.length){
+      input.form?.requestSubmit();
+      input.value='';
     }
   });
   document.addEventListener('submit',event=>{

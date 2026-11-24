@@ -30,6 +30,7 @@ final class LegalReview
             .RentalUI::button('Условия договора','/rental/conditions?id='.$contract['id'])
             .'</div>'
             .PartyLegalReview::presentation(Service::get(DB::pdo(),'parties',(int)$contract['party_id']))
+            .ContractReviewFiles::presentation($contract)
             .ContractRevision::presentation($contract)
             .($contract['status']==='returned'?RentalUI::alert('Замечания бухгалтера',(string)$contract['reason'],'error'):'');
     }

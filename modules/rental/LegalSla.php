@@ -9,10 +9,10 @@ use RuntimeException;
 /** One legal handoff's elapsed RF working seconds. No B/booking/payment timers. */
 final class LegalSla
 {
-    public static function evaluate(array $record,?array $handoff,string $now,?SourceCalendar $calendar): array
+    public static function evaluate(array $record,?array $handoff,string $now,?SourceCalendar $calendar,string $kind='contract'): array
     {
         if(($record['status']??null)!=='legal')return ['state'=>'NOT_APPLICABLE'];
-        $base=!empty($handoff['resubmitted'])?'blue':'yellow';
+        $base=$kind==='document' && !empty($handoff['resubmitted'])?'blue':'yellow';
         if($handoff===null)return ['state'=>'UNKNOWN','severity'=>$base,'reason'=>'LEGAL_HANDOFF_NOT_RECORDED'];
         if($calendar===null)return ['state'=>'UNKNOWN','severity'=>$base,'reason'=>'CALENDAR_REFERENCE_UNAVAILABLE'];
         try{
