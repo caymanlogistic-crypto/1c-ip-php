@@ -41,7 +41,7 @@
     accountantReview.close();
   }));
   const reviewParty=document.getElementById('review-party-example');
-  document.querySelector('[data-open-review-party]').addEventListener('click',()=>reviewParty.showModal());
+  document.querySelectorAll('[data-open-review-party]').forEach(button=>button.addEventListener('click',()=>reviewParty.showModal()));
   reviewParty.querySelectorAll('[data-close-review-party]').forEach(button=>button.addEventListener('click',()=>reviewParty.close()));
   const dialog=document.getElementById('compact-popup-example');
   document.querySelector('[data-open-compact-example]').addEventListener('click',()=>dialog.showModal());

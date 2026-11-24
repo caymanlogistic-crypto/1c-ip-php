@@ -12,6 +12,11 @@ final class InitialInvoiceCard
         return '/rental/initial-invoice?id='.$id;
     }
 
+    public static function defaultIssueDate(array $contract): string
+    {
+        return max(date('Y-m-d'),$contract['document_date'] ?? '');
+    }
+
     public static function entry(array $contract): string
     {
         if (!InitialInvoice::available($contract) && !InitialInvoice::issuedFor(DB::pdo(),(int)$contract['id'])) return '';
@@ -58,7 +63,7 @@ final class InitialInvoiceCard
             throw new RuntimeException('Первый счёт недоступен на этом этапе.',409);
         $page = Access::statusPages($contract['status'])[0];
         $url = self::route($id);
-        $issued = (string)($_GET['issued'] ?? max(date('Y-m-d'),$contract['document_date'] ?? ''));
+        $issued = (string)($_GET['issued'] ?? self::defaultIssueDate($contract));
         try {
             Service::date($issued);
         } catch (RuntimeException $error) {

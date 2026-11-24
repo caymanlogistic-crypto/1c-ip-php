@@ -45,8 +45,7 @@ final class LegalHandoffCard
             throw new RuntimeException('Договор не у юриста.',409);
         }
         $party=Service::get(DB::pdo(),'parties',(int)$contract['party_id']);
-        return RentalUI::modal('Контрагент · '.$party['name'],PartyDirectory::reviewDetails($party),
-            active:'approvals',closeLabel:'Вернуться');
+        return PartyDirectory::reviewModal($party);
     }
 
     private static function party(array $contract,array $party,array $details,bool $checked): string

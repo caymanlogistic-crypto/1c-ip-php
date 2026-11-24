@@ -126,6 +126,12 @@ final class PartyDirectory
         return RentalUI::modal('Контрагент: '.$party['name'],$body,$actions,'parties',false,self::statusButton($party));
     }
 
+    public static function reviewModal(array $party): string
+    {
+        return RentalUI::modal('Контрагент · '.$party['name'],self::reviewDetails($party),
+            active:'approvals',closeLabel:'Вернуться');
+    }
+
     public static function reviewDetails(array $party,bool $technical=false): string
     {
         $details=DirectoryDetails::read(DB::pdo(),'parties',(int)$party['id']);
