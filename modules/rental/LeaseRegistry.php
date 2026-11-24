@@ -79,6 +79,9 @@ final class LeaseRegistry
         Access::pages([$page]);
         $user=Auth::user();
         $query=isset($_GET['reset'])?'':trim((string)($_GET['q'] ?? ''));
+        $types=['office'=>'Офис','parking'=>'Машиноместо'];
+        $typeFilter=$active && !isset($_GET['reset']) && is_string($_GET['type'] ?? null) && isset($types[$_GET['type']])
+            ?$_GET['type']:'all';
         $flag=(string)($_GET['flag'] ?? 'all');
         if (!in_array($flag,$active?['all','ending','review']:['all','ended','closed'],true)) $flag='all';
         $tasks=Indicators::tasks(null,null,[$page]);
@@ -107,6 +110,7 @@ final class LeaseRegistry
             foreach (Controller::query('SELECT o.type,o.name FROM contract_objects co JOIN rental_objects o ON o.id=co.object_id WHERE co.contract_id=? ORDER BY o.id',[$contract['id']]) as $object) {
                 $groups[$object['type'] ?: 'Объекты'][]=$object['name'];
             }
+            if ($typeFilter!=='all' && !isset($groups[$types[$typeFilter]])) continue;
             $objects='';
             foreach ($groups as $type=>$names) {
                 $prefix=match($type){'Офис'=>'Офисы','Машиноместо'=>'Машиноместа',default=>$type};
@@ -132,10 +136,19 @@ final class LeaseRegistry
         $actions=$active && in_array($user['role'],['manager','admin'],true) && Auth::can('rental.write')
             && \App\PagePolicy::level('rental.contracts',$user)>=2?RentalUI::button('Создать договор','/rental/new-contract',true):'';
         $title=$active?'Действующие договоры':'Завершённые договоры';
-        $controls='<form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'.View::e($flag).'">'.DirectoryUi::search($query)
-            .'<button type="submit" name="reset" value="1" class="registry-ui-reset"'.($query===''?' hidden':'').'>Сбросить фильтры</button></form>';
+        $typeSelect='';
+        if ($active) {
+            $typeSelect='<select class="toolbar-select" id="lease-object-type" name="type" aria-label="Тип объекта">';
+            foreach (['all'=>'Показать все','office'=>'Офисы','parking'=>'Машиноместа'] as $value=>$label) {
+                $typeSelect.='<option value="'.$value.'"'.($typeFilter===$value?' selected':'').'>'.$label.'</option>';
+            }
+            $typeSelect.='</select>';
+        }
+        $controls='<form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'.View::e($flag).'">'
+            .$typeSelect.DirectoryUi::search($query)
+            .'<button type="submit" name="reset" value="1" class="registry-ui-reset"'.($query==='' && $typeFilter==='all'?' hidden':'').'>Сбросить фильтры</button></form>';
         $body=Controller::heading($title,$active?'Действующие условия аренды, сроки и назначенные действия.':'История завершённой аренды и подтверждений расчётов.',$actions)
-            .Controller::tabs($tabs,$flag,true).DirectoryUi::registry('rental-'.$page,
+            .Controller::tabs($tabs,$flag,!$active,$active?['q'=>$query,'type'=>$typeFilter]:[]).DirectoryUi::registry('rental-'.$page,
                 ['Договор','Контрагент','Начало','Окончание','Объекты аренды','Стадия','Комментарий','Аренда с НДС','Ответственный'],$rows,
                 ['short','flex','short','code','flex','text','flex','money','text'],$controls,' · Аренда с НДС: <b>'.Controller::money($known?$sum:($rows?null:'0.00')).'</b>');
         return View::page($title,$body,$page);
