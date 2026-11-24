@@ -45,7 +45,7 @@ final class PartyDirectory
 
     private static function accessibleContracts(int $partyId): iterable
     {
-        foreach (Controller::query('SELECT id,number,document_date FROM contracts c WHERE party_id=? AND '
+        foreach (Controller::query('SELECT id,number,document_date,end_date,finish_date,status,source_json FROM contracts c WHERE party_id=? AND '
             .ContractDraft::visibleSql('c').' ORDER BY document_date DESC,id DESC',[$partyId]) as $contract) {
             try {Access::contract((int)$contract['id']);}
             catch (RuntimeException $error) {if ($error->getCode()===403) continue; throw $error;}
@@ -70,14 +70,25 @@ final class PartyDirectory
         foreach (self::accessibleContracts($partyId) as $contract) {
             $id=(int)$contract['id'];
             $signed=Documents::signedContractLinks($id);
+            $section=LeaseRegistry::section($contract);
+            $stage=RegistryState::stage($contract);
+            $completed=$section==='contracts-completed';
+            $status=match (true) {
+                $completed=>'<strong class="registry-ui-error">ЗАВЕРШЕННЫЙ</strong>',
+                $section==='contracts-active' && $stage==='Действует'=>'<strong class="registry-ui-success">ДЕЙСТВУЮЩИЙ</strong>',
+                default=>View::e($stage),
+            };
             $rows[]=[
                 RentalUI::button('№ '.$contract['number'],'/rental/contract?id='.$id),
                 View::e(RegistryState::date($contract['document_date'])),
+                View::e(RegistryState::date($completed && $contract['finish_date']?$contract['finish_date']:$contract['end_date'])),
+                $status,
                 $signed?'<div class="demo-row">'.implode('',$signed).'</div>':'—',
             ];
         }
         $body=$rows?'<div class="registry-ui-review-table">'
-            .Controller::table(['Номер','Дата','Подписанный экземпляр'],$rows,['short','short','flex'],inferRowLinks:false).'</div>'
+            .Controller::table(['Номер','Дата','Окончание','Статус','Подписанный экземпляр'],$rows,
+                ['short','short','short','text','flex'],inferRowLinks:false).'</div>'
             :'<p class="registry-ui-modal-text">Нет доступных договоров.</p>';
         return RentalUI::reviewSection('Договоры',$body);
     }
