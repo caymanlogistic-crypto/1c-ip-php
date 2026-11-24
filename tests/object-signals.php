@@ -3,7 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\{DB,Menu};
-use Modules\Rental\{Availability,DirectoryScope,DirectoryUi,Indicators,ObjectDirectory,ObjectFacts};
+use Modules\Rental\{Availability,DirectoryScope,DirectoryUi,Indicators,ObjectDirectory,ObjectFacts,RecentContractPackages};
 
 // Run only against an isolated task copy. All fixtures roll back, including on failure.
 $p=DB::pdo();
@@ -13,6 +13,10 @@ $today=date('Y-m-d');
 foreach ([13,14,29,30] as $days) {
     $expected=$days>=30?'red':($days>=14?'yellow':'');
     $check(ObjectFacts::idleSeverity($days)===$expected,'Common idle boundary:'.$days);
+}
+foreach ([-1=>null,0=>0,13=>13,14=>null] as $days=>$expected) {
+    $eventDate=(new DateTimeImmutable($today))->modify(sprintf('%+d days',-$days))->format('Y-m-d');
+    $check(RecentContractPackages::age($eventDate,$today)===$expected,'Recent contract calendar boundary:'.$days);
 }
 $check(ObjectFacts::idleSeverity(null)==='','Unknown date must not be a task');
 $check(ObjectFacts::idleDays(['free_since'=>null],true,$today)===null,'Missing date');
