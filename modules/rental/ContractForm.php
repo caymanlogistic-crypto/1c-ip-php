@@ -18,6 +18,7 @@ final class ContractForm {
             'draft',
             'returned'
         ], true) || $c['return_to'] === 'lawyer'))throw new RuntimeException('Проект не доступен для редактирования.', 403);
+        $returned = ($c['status'] ?? null) === 'returned';
         $draft = ContractDraft::input($c);
         if ($draft !== null) foreach (['party_id','document_date','start_date','end_date'] as $field) $c[$field]=$draft[$field] ?? '';
         $continuation=ExpiryContinuation::editorContext($c,'contract');
@@ -92,7 +93,7 @@ final class ContractForm {
         . 'Выберите или создайте карточку клиента.')
         . '</span>':'';
         if ($c) $fields.=CustomerBookings::contractOrigin($c);
-        if (($c['status']??null)==='returned' && !empty($c['reason']))
+        if ($returned && !empty($c['reason']))
             $fields.=RentalUI::alert('Причина возврата',(string)$c['reason'],'warning');
         if ($continuation) $fields.=ExpiryContinuation::editorNote($continuation);
         $fields.='<section class="registry-ui-modal-grid registry-ui-review-section"'.$section('party').'>'
@@ -163,14 +164,15 @@ final class ContractForm {
         . $hidden
         . $fields
         . '</form>';
-        $actions = '<button class="btn btn-secondary" type="submit" form="'
+        $actions = $returned ? '' : '<button class="btn btn-secondary" type="submit" form="'
         . $fid
-        . '" name="intent"'.$section('draft').' value="draft" formnovalidate>Сохранить в черновиках</button><button class="btn btn-primary" type="submit" form="'
+        . '" name="intent"'.$section('draft').' value="draft" formnovalidate>Сохранить в черновиках</button>';
+        $actions .= '<button class="btn btn-primary" type="submit" form="'
         . $fid
         . '" name="intent"'.$section('submit').' value="submit">'
-        . ($c && $c['status'] === 'returned'?'Повторно согласовать':'Отправить на согласование')
+        . ($returned?'Повторно согласовать':'Отправить на согласование')
         . '</button>';
-        $leading = $c ? InitialInvoiceCard::entry($c) : '';
+        $leading = $c && !$returned ? InitialInvoiceCard::entry($c) : '';
         if ($c && ContractDraft::deletable(\App\DB::pdo(),$c))
             $leading.=RentalUI::button('Удалить черновик','/rental/action-form?id='.$id.'&action=contract.delete',false,true);
         return RentalUI::modal($c?'Изменить проект договора':'Новый договор', $body, $actions, 'contracts', true, $leading,design:$design);
