@@ -1123,7 +1123,7 @@ final class Controller {
         return null;
     }
 
-    public static function workflowMaxNotice(?int $freshEventId,string $commandKey,string $action):string {
+    public static function workflowMaxNotice(?int $freshEventId,string $commandKey,string $action,bool $showAccepted=true):string {
         if($freshEventId===null)return '';
         try{
             $actor=Auth::user();
@@ -1147,7 +1147,7 @@ final class Controller {
             }
             return match($delivery['status']??'uncertain'){
                 'disabled','skipped'=>'',
-                'accepted'=>' MAX принял уведомление; прочтение не подтверждено.',
+                'accepted'=>$showAccepted?' MAX принял уведомление; прочтение не подтверждено.':'',
                 'unavailable'=>' Уведомление MAX не отправлено: в этой среде отправка не разрешена.',
                 default=>' Результат уведомления MAX не подтверждён; автоматического повтора нет.',
             };
@@ -1201,7 +1201,9 @@ final class Controller {
             $result = Service::command($action, $in, $freshCommittedEventId,$materials);
             if (in_array($action,RentalServices::ACTIONS,true) && !empty($result['service_id'])) $target='/rental/service?id='.$result['service_id'];
             if ($action===PremisesInventory::MOVE) $target='/rental/object-inventory?id='.(int)$result['id'];
-            $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''),$action);
+            $completion = self::completionTarget($action, $in);
+            $completeInApprovals = $completion === '/rental/approvals';
+            $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''),$action,showAccepted: !$completeInApprovals);
             if ($action === 'party.save' && empty($in['id']) && ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'ERP-Fetch') {
                 $party = self::query('SELECT id,name,inn FROM parties WHERE id=?', [
                     $result['id']
@@ -1218,13 +1220,12 @@ final class Controller {
             if (str_starts_with($action, 'reservation.') && !empty($result['id']))$target = '/rental/booking?id='
             . $result['id'];
             if (str_starts_with($action,'party.review.')) $target='/rental/party?id='.(int)$result['id'];
-            if ($action===LegalHandoff::REMOVE && $maxNotice==='') {
+            if (($action===LegalHandoff::REMOVE || $completeInApprovals) && $maxNotice==='') {
                 unset($_SESSION['rental_notice']);
             } else {
                 $_SESSION['rental_notice'] = ($result['message'] ?? 'Сохранено.').$maxNotice;
             }
             if(is_string($in['command_key']??null))$_SESSION['rental_top_command']=$in['command_key'];
-            $completion = self::completionTarget($action, $in);
             if ($completion !== null) {
                 $workspace=FinanceController::workspaceTarget($_SERVER['HTTP_X_RENTAL_WORKSPACE_URL'] ?? null);
                 if (parse_url($workspace,PHP_URL_PATH)===$completion) $completion=$workspace;
