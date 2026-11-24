@@ -38,7 +38,12 @@ final class MaxTemplateAdmin
                 default=>$deadline,
             };
         }
-        return [
+        $contract=match ($key) {
+            ContractSecurityMax::KEY => [ContractSecurityMax::TOKEN=>'Строка об изменении кратности обеспечения'],
+            AccountantPackageMax::KEY => [AccountantPackageMax::TOKEN=>'Подтверждённые суммы первых платежей'],
+            default => [],
+        };
+        return $contract+[
             'text'=>'Текст события', 'number'=>'Номер договора', 'party'=>'Контрагент',
             'lawyer'=>'Юрист', 'manager'=>'Менеджер', 'accountant'=>'Бухгалтер',
             'director'=>'Директор', 'admin'=>'Администратор', 'version'=>'Версия документа',
@@ -65,6 +70,22 @@ final class MaxTemplateAdmin
             ]),
         ];
         if ($key==='submit') return $contractSample;
+        if ($key===ContractSecurityMax::KEY) {
+            return ['party'=>'ООО «Учебный клиент»',
+                ContractSecurityMax::TOKEN=>Support::json(['previous'=>1,'current'=>2,'amount'=>'40000.00'])]+$contractSample;
+        }
+        if ($key===AccountantPackageMax::KEY) {
+            return ['number'=>'178','party'=>'ООО «Учебный клиент»','actor'=>'Бухгалтер','invoiceSummary'=>'',
+                AccountantPackageMax::TOKEN=>Support::json([
+                    'external_operations'=>\Modules\Rental\AccountantPacketSummary::EXTERNAL_DISABLED,
+                    'planned'=>[
+                        ['kind'=>'security','amount'=>'40000.00'],
+                        ['kind'=>'rent','amount'=>'4666.67'],
+                        ['kind'=>'next','amount'=>'20000.00'],
+                    ],
+                    'issued'=>[],
+                ])]+$contractSample;
+        }
         if (array_key_exists($key,TemplateCatalog::RESERVATION_VARS)) {
             return [
                 'number'=>'173','context'=>'2.2','party'=>'ООО «Пример»','reservationStart'=>'23.11.2026',

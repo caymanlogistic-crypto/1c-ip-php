@@ -42,7 +42,7 @@ final class CurrentContractMaxProof
             'submit','resubmit'=>in_array($operation,['create','edit','submit'],true)&&($event['to_status']??null)==='legal',
             'legalApprove'=>$operation==='legal'&&($event['to_status']??null)==='accounting',
             'lawyerReturn','accountantReturn'=>in_array($operation,['return','forward','legal-block'],true)&&($event['to_status']??null)==='returned',
-            'package'=>$operation==='packet'&&($event['to_status']??null)==='approved',
+            'package'=>$operation==='packet'&&(($event['to_status']??null)==='approved' || AccountantPackageMax::initialConfirmation($event)),
             'signed'=>$operation==='sign'&&in_array($event['to_status']??null,['signed','active'],true),
             'activated'=>$operation==='apply',
             'block','unblock'=>$entity==='party'&&$operation===$kind&&($event['party_id']??null)===($event['entity_id']??null)
@@ -142,6 +142,16 @@ final class CurrentContractMaxProof
             $lease=$event['entity_kind']==='contract'?$owner:Service::get($this->db,'contracts',$event['contract_id']);
             $values+=ContractSubmitMax::values($this->db,$lease,$key==='submit')+['party'=>$event['party_name']];
         }
+        if ($key===ContractSecurityMax::KEY) {
+            $change=ContractSecurityMax::value($event);
+            if ($change!=='') $values[ContractSecurityMax::TOKEN]=$change;
+        }
+        if ($key===AccountantPackageMax::KEY && AccountantPackageMax::initialConfirmation($event)) {
+            if (!empty($owner['signed']) || !ContractWorkflowRelay::assertApproved($this->db,$key,$catalogVersion)) {
+                throw new RuntimeException('ACCOUNTANT_PACKAGE_MAX_NOT_ADMITTED');
+            }
+            $values[AccountantPackageMax::TOKEN]=AccountantPackageMax::fromEvent($event);
+        }
         if ($key==='firstInvoice') {
             $receipt=InitialInvoice::receipt($this->db,(int)$event['contract_id']);
             if (($receipt['command_key']??null)!==$event['command_key'] || $receipt['invoice_ids']!==$event['invoice_ids']) {
@@ -161,7 +171,9 @@ final class CurrentContractMaxProof
             $values['invoiceSummary']=implode("\n",$invoices);
             $values['recordUrl']=ContractWorkflowRelay::contractLink($event['entity_id']);
         }
-        $render=TemplateCatalog::renderEvent($this->db,'max',$key,$values);
+        $legacyDirectPackage=$groupId!==null && !$staff && $key===AccountantPackageMax::KEY
+            && $catalogVersion===AccountantPackageMax::LEGACY_VERSION && $event['to_status']==='approved';
+        $render=TemplateCatalog::renderEvent($this->db,'max',$key,$values,$legacyDirectPackage);
         if($render['binding']['version']!==$catalogVersion)throw new RuntimeException('RENTAL_MAX_CATALOG_REVISION_CHANGED');
         if ($staff) {
             $bytes=file_get_contents(__DIR__.'/defaults/staff-handoff-max.json');

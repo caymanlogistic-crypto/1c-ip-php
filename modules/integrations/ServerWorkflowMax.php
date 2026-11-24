@@ -183,6 +183,7 @@ final class ServerWorkflowMax
         } else {
             $version = $scope['catalog_versions'][$event['event_kind']] ?? null;
             if ($version === null) return null;
+            if ($version < AccountantPackageMax::VERSION && AccountantPackageMax::initialConfirmation($event)) return null;
         }
         $current=Auth::user();
         if(!$current||(int)$current['id']!==(int)($actor['id']??0)||$event['actor_id']!==(int)$current['id']

@@ -1,0 +1,4 @@
+{
+  "format": "html",
+  "body": "<b>✅ ЮРИДИЧЕСКАЯ ПРОВЕРКА ЗАВЕРШЕНА</b>\nДоговор <b>№{number}</b> · {party}\n{contractObjectLines}\nс <b>{contractStart}</b> по <b>{contractEnd}</b>\n{contractSecurityMultipleChange}Контрагент и условия согласованы. Договор передан в бухгалтерию. Актуальный файл доступен в карточке."
+}
