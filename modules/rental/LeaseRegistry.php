@@ -131,7 +131,6 @@ final class LeaseRegistry
         }
         $actions=$active && in_array($user['role'],['manager','admin'],true) && Auth::can('rental.write')
             && \App\PagePolicy::level('rental.contracts',$user)>=2?RentalUI::button('Создать договор','/rental/new-contract',true):'';
-        if ($active) $actions.=RentalUI::button('Клининг и допуслуги','/rental/services');
         $title=$active?'Действующие договоры':'Завершённые договоры';
         $controls='<form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'.View::e($flag).'">'.DirectoryUi::search($query)
             .'<button type="submit" name="reset" value="1" class="registry-ui-reset"'.($query===''?' hidden':'').'>Сбросить фильтры</button></form>';
@@ -158,11 +157,12 @@ final class LeaseRegistry
         $tabs=[];
         $labels=$active?['all'=>'Все','ending'=>'Заканчиваются','review'=>'На завершении']
             :['all'=>'Все','ended'=>'Аренда завершена','closed'=>'Расчёты закрыты'];
+        $colors=$active?[2=>'green',3=>'blue']:['red','yellow','green','blue'];
         foreach ($labels as $flag=>$label) {
             $visible=array_filter($items,fn($item)=>self::selected($item,$flag));
             $counts=[0,0,0,0];
             foreach ($visible as $item) {
-                $index=array_search($item['view']['severity'],['red','yellow','green','blue'],true);
+                $index=array_search($item['view']['severity'],$colors,true);
                 if ($index!==false) $counts[$index]++;
             }
             $tabs[$flag]=[$label,count($visible),$counts];
