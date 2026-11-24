@@ -300,7 +300,7 @@ final class FinanceController {
         $id = (int)($_GET['id'] ?? 0);
         if(!$id){
             self::requirePaymentWrite();
-            $fields=self::standaloneFields(Controller::query('SELECT id,name FROM parties ORDER BY name,id'));
+            $fields=self::standaloneFields(Controller::query('SELECT id,name FROM parties p WHERE '.WorkspaceReset::visibleSql('p').' ORDER BY name,id'));
             $fields=RentalUI::notice().$fields;
             [$body,$actions]=self::form('payment.create',[],$fields,'Сохранить приход');
             return RentalUI::modal('Внести отдельный приход',$body,$actions,'invoices');

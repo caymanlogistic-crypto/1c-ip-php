@@ -83,23 +83,30 @@ final class BookingMax
                 $plan=$this->plan($m,$row,$date);
                 if (!$plan) { $summary['skipped']++; continue; }
                 if ($processed>=20) return array_replace($summary,['state'=>'more']);
-                if ($this->pending($m['chat_id'])) return array_replace($summary,['state'=>'reconciliation']);
-                $this->waitForTarget($m['chat_id']);
+                try {
+                    $route=$this->route($m,$row);
+                } catch (RuntimeException $error) {
+                    if (!str_starts_with($error->getMessage(),'MAX_WORKING_DESTINATION_')) throw $error;
+                    $summary['route_blocked']=($summary['route_blocked']??0)+1;
+                    continue;
+                }
+                if ($this->pending($route['chat_id'])) return array_replace($summary,['state'=>'reconciliation']);
+                $this->waitForTarget($route['chat_id']);
                 $this->checkContext($m);
                 if ($this->plan($m,$row,$date)!==$plan) { $summary['skipped']++; continue; }
-                $this->delivery=['scope'=>$m,'row'=>$row,'date'=>$date,'plan'=>$plan];
+                $this->delivery=['scope'=>$m,'route'=>$route,'row'=>$row,'date'=>$date,'plan'=>$plan];
                 $this->prepared=false;$this->sent=false;
                 $fixture=$this->fixture ? function($method,$path,$headers,$body,$timeout):array {
                     $this->assertHttpRequest($method,'https://platform-api2.max.ru'.$path,$body);
                     return ($this->httpFixture)($method,$path,$headers,$body,$timeout);
                 } : null;
                 $native=new MessageTransport($fixture,null,null,$this);
-                $transport=static function($provider,$operation,$config,$secret,$target,$raw,$id,$groups) use($native): array {
-                    if (!in_array($target,$groups,true)) throw new RuntimeException('RESERVATION_MAX_GROUP_CHANGED');
-                    return $native->execute($provider,$operation,$config,$secret,$target,$raw,$id,[$target]);
+                $transport=static function($provider,$operation,$config,$secret,$target,$raw,$id,$groups) use($native,$route): array {
+                    return $native->execute($provider,$operation,$config,MaxWorkingDestination::recipientSecret($secret,$target,$route,$groups),
+                        $target,$raw,$id,[$target]);
                 };
                 $attempt=(new Messaging($this->db,$this->store ?? Config::store(),$transport))->dispatch(
-                    'max',$plan['actor_id'],$plan['request_key'],'send',[$m['group_id']],$plan['text'],maxFormat:$plan['format']);
+                    'max',$plan['actor_id'],$plan['request_key'],'send',[$route['group_id']],$plan['text'],maxFormat:$plan['format']);
                 $status=$attempt[0]['status'] ?? '';
                 if (!in_array($status,['accepted','failed','uncertain'],true)) throw new RuntimeException('RESERVATION_MAX_RESULT_INVALID');
                 $summary[$status]++;
@@ -117,6 +124,26 @@ final class BookingMax
     {
         if ($this->settings()!==$scope) throw new RuntimeException('RESERVATION_MAX_SCOPE_CHANGED');
         ServerWorkflowMax::assertProfile($this->db,$scope);
+    }
+
+    public function requireWorkingRelayDestination(string $source): void
+    {
+        $scope=$this->settings();
+        if (!$scope) throw new RuntimeException('MAX_WORKING_DESTINATION_RELAY_NOT_ADMITTED',403);
+        MaxWorkingDestination::relayed($this->db,$scope,'reservation',$source,true);
+    }
+
+    private function route(array $scope,array $row): array
+    {
+        if ($row['namespace']!==ReservationMaxRelay::INBOX) {
+            return MaxWorkingDestination::route($this->db,$scope,(int)$row['id'],true);
+        }
+        $stored=$this->read('SELECT fact_json FROM rental_facts WHERE id=? AND namespace=? AND source_key=? AND operative=1',
+            [$row['id'],$row['namespace'],$row['source_key']]);
+        if (!$stored) throw new RuntimeException('RESERVATION_MAX_EVENT_CHANGED');
+        $fact=Importer::decodeExact($stored['fact_json']);
+        return MaxWorkingDestination::relayed($this->db,$scope,'reservation',$fact['source'],
+            ($fact['event']['destination']??null)===MaxWorkingDestination::WORK);
     }
 
     private function pending(string $target): bool
@@ -195,7 +222,7 @@ final class BookingMax
             'source_sha256'=>$sha,'template'=>$render['binding']];
     }
 
-    public function exports(int $floor,int $since,string $date,array $actors=[]): array
+    public function exports(int $floor,int $since,string $date,array $actors=[],bool $includeId=false): array
     {
         $scope=['epoch'=>$this->db->query('SELECT epoch FROM rental_runtime_context WHERE id=1')->fetchColumn(),
             'event_floor'=>$floor,'valid_from'=>$since];
@@ -212,9 +239,11 @@ final class BookingMax
             if (!$notice) continue;
             $actor=$notice['actor_id'] ?? $notice['responsible_id'];
             if ($actors && !in_array($actor,$actors,true)) continue;
-            $events[]=['key'=>$row['source_key'],'action'=>$notice['action'],'recorded_at'=>$notice['recorded_at'],
+            $event=['key'=>$row['source_key'],'action'=>$notice['action'],'recorded_at'=>$notice['recorded_at'],
                 'actor_id'=>$actor,'version'=>$notice['version'],
                 'values'=>BookingNotices::values($notice)];
+            if ($includeId) $event['source_fact_id']=(int)$row['id'];
+            $events[]=$event;
             if (count($events)>=20) break;
         }
         return $events;
@@ -254,11 +283,12 @@ final class BookingMax
     public function assertOperation(string $provider,string $operation,string $target,string $raw,array $groups): void
     {
         $delivery=$this->delivery;
-        if (!$delivery || $provider!=='max' || $operation!=='send' || $target!==$delivery['scope']['chat_id'] || $groups!==[$target]
+        if (!$delivery || $provider!=='max' || $operation!=='send' || $target!==$delivery['route']['chat_id'] || $groups!==[$target]
             || $raw!==MessageTransport::maxPayload($delivery['plan']['text'],$delivery['plan']['format'])) throw new RuntimeException('RESERVATION_MAX_REQUEST_REJECTED');
         if (!$this->fixture && $delivery['date']!==date('Y-m-d')) throw new RuntimeException('RESERVATION_MAX_EVENT_CHANGED');
         $this->checkContext($delivery['scope']);
-        if ($this->plan($delivery['scope'],$delivery['row'],$delivery['date'])!==$delivery['plan'])
+        if ($this->plan($delivery['scope'],$delivery['row'],$delivery['date'])!==$delivery['plan']
+            || $this->route($delivery['scope'],$delivery['row'])!==$delivery['route'])
             throw new RuntimeException('RESERVATION_MAX_EVENT_CHANGED');
         $p=$delivery['plan'];
         $claim=$this->read("SELECT COUNT(*) n FROM messaging_attempts WHERE provider='max'
@@ -284,7 +314,7 @@ final class BookingMax
     private function assertRequest(string $method,string $url,?string $body): void
     {
         if (!$this->delivery) throw new RuntimeException('RESERVATION_MAX_HTTP_REJECTED');
-        $chat=$this->delivery['scope']['chat_id'];
+        $chat=$this->delivery['route']['chat_id'];
         ServerWorkflowMax::assertPath((int)$this->sent,$method,$url,$body,$chat,$this->delivery['plan']['text'],$this->delivery['plan']['format']);
         $this->assertOperation('max','send',$chat,(string)$body,[$chat]);
     }

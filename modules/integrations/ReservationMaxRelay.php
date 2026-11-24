@@ -68,7 +68,9 @@ final class ReservationMaxRelay
 
     private static function validEvent(array $e): bool
     {
-        if (array_diff(array_keys($e),['key','action','recorded_at','actor_id','version','values']) || count($e)!==6
+        $fields=['key','action','recorded_at','actor_id','version','values'];
+        if (($e['destination']??null)===MaxWorkingDestination::WORK) $fields[]='destination';
+        if (array_diff(array_keys($e),$fields) || count($e)!==count($fields)
             || !is_string($e['key'] ?? null) || !preg_match('/\A[a-f0-9]{64}\z/D',$e['key'])
             || !is_string($e['action'] ?? null) || !isset(BookingNotices::TEMPLATES[$e['action']])
             || !is_int($e['recorded_at'] ?? null) || !is_int($e['actor_id'] ?? null) || $e['actor_id']<1
@@ -87,6 +89,10 @@ final class ReservationMaxRelay
 
     private function enqueue(array $event,array $scope,bool $example=false): string
     {
+        if (($event['destination']??null)===MaxWorkingDestination::WORK) {
+            if ($example) throw new RuntimeException('MAX_WORKING_DESTINATION_RELAY_NOT_ADMITTED',403);
+            (new BookingMax($this->db))->requireWorkingRelayDestination($scope['source']);
+        }
         $now=time();
         if ($event['recorded_at']<$scope['started_at'] || $event['recorded_at']>$now+10) {
             throw new RuntimeException('RESERVATION_RELAY_EVENT_TOO_OLD',409);
@@ -121,6 +127,7 @@ final class ReservationMaxRelay
              AND a.request_key=CONCAT('reservation-max-',f.source_key) AND a.status='accepted'
             WHERE f.namespace=? AND f.operative=1 AND JSON_UNQUOTE(JSON_EXTRACT(f.fact_json,'$.source'))=?
               AND JSON_UNQUOTE(JSON_EXTRACT(f.fact_json,'$.event.values.number'))=?
+              AND JSON_EXTRACT(f.fact_json,'$.event.destination') IS NULL
               AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(f.fact_json,'$.example')),'false')<>'true'");
         $q->execute([self::INBOX,$scope['source'],$booking]);
         $original=[];
@@ -242,7 +249,10 @@ final class ReservationMaxRelay
                 throw new RuntimeException('RESERVATION_RELAY_ACTOR_BINDING');
         }
         $count=0;
-        foreach ((new BookingMax($this->db))->exports($scope['event_floor'],$scope['started_at'],$date,array_keys($actorMap)) as $event) {
+        foreach ((new BookingMax($this->db))->exports($scope['event_floor'],$scope['started_at'],$date,array_keys($actorMap),true) as $event) {
+            $id=$event['source_fact_id'];
+            unset($event['source_fact_id']);
+            if (MaxWorkingDestination::localChoice($this->db,'reservation',$scope['source'],$id)) $event['destination']=MaxWorkingDestination::WORK;
             $event['actor_id']=$actorMap[$event['actor_id']];
             $json=self::forwardPayload($event,$objectFieldsAfter);
             $time=time();

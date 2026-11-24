@@ -56,29 +56,37 @@ final class ContractWorkflowReceiver
             $actor=$this->serverActor($scope,$plan);
             $text=$this->message($scope,$plan);
             ServerWorkflowMax::assertProfile($this->db,$scope);
+            $route=$this->route($scope,$plan);
             $q=$this->db->prepare("SELECT actor_id,target FROM messaging_attempts WHERE provider='max' AND request_key=?");
             $q->execute([$key]);
             $existing=$q->fetchAll();
-            if ($existing && (count($existing)!==1 || (int)$existing[0]['actor_id']!==$actor || $existing[0]['target']!==$scope['chat_id'])) {
+            if ($existing && (count($existing)!==1 || (int)$existing[0]['actor_id']!==$actor || $existing[0]['target']!==$route['chat_id'])) {
                 throw new RuntimeException('CONTRACT_RELAY_RECEIPT_CONFLICT',409);
             }
-            if (!$existing) $this->assertAvailable($scope['chat_id']);
+            if (!$existing) $this->assertAvailable($route['chat_id']);
             $this->sent=0;
-            $this->delivery=['scope'=>$scope,'plan'=>$plan,'actor'=>$actor,'key'=>$key,'text'=>$text];
+            $this->delivery=['scope'=>$scope,'route'=>$route,'plan'=>$plan,'actor'=>$actor,'key'=>$key,'text'=>$text];
             $fixture=$this->fixture===null?null:function(string $method,string $path,array $headers,?string $body): array {
                 $this->assertHttpRequest($method,'https://platform-api2.max.ru'.$path,$body);
                 return ($this->fixture)($method,$path,$headers,$body);
             };
             $adapter=new MessageTransport($fixture,null,null,$this);
             $transport=static fn($provider,$operation,$config,$secret,$target,$body,$id,$groups): array=>
-                $adapter->execute($provider,$operation,$config,$secret,$target,$body,$id,in_array($target,$groups,true)?[$target]:[]);
+                $adapter->execute($provider,$operation,$config,MaxWorkingDestination::recipientSecret($secret,$target,$route,$groups),
+                    $target,$body,$id,[$target]);
             $attempts=(new Messaging($this->db,Config::store(),$transport))->dispatch(
-                'max',$actor,$key,'send',[$scope['group_id']],$text,maxFormat:'html');
+                'max',$actor,$key,'send',[$route['group_id']],$text,maxFormat:'html');
             return ['status'=>$attempts[0]['status'],'event_id'=>$plan['event_id']];
         } finally {
             $this->delivery=null;
             $this->db->query("SELECT RELEASE_LOCK('ipphp-provider:max')")->fetchColumn();
         }
+    }
+
+    private function route(array $scope,array $plan): array
+    {
+        return MaxWorkingDestination::relayed($this->db,$scope,'contract',$scope['source'],
+            ($plan['destination']??null)===MaxWorkingDestination::WORK);
     }
 
     private function settings(): array
@@ -162,7 +170,8 @@ final class ContractWorkflowReceiver
     {
         $delivery=$this->delivery;
         if (!$delivery || $provider!=='max' || $operation!=='send' || $delivery['scope']!==$this->settings()
-            || $target!==$delivery['scope']['chat_id'] || $groups!==[$target]
+            || $target!==$delivery['route']['chat_id'] || $groups!==[$target]
+            || $this->route($delivery['scope'],$delivery['plan'])!==$delivery['route']
             || $raw!==MessageTransport::maxPayload($delivery['text'],'html')) {
             throw new RuntimeException('CONTRACT_RELAY_TRANSPORT_SCOPE');
         }
@@ -191,7 +200,7 @@ final class ContractWorkflowReceiver
     private function assertRequest(string $method,string $url,?string $body): void
     {
         if (!$this->delivery) throw new RuntimeException('CONTRACT_RELAY_TRANSPORT_SCOPE');
-        $target=$this->delivery['scope']['chat_id'];
+        $target=$this->delivery['route']['chat_id'];
         ServerWorkflowMax::assertPath($this->sent,$method,$url,$body,$target,$this->delivery['text'],'html');
         $this->assertOperation('max','send',$target,(string)$body,[$target]);
     }

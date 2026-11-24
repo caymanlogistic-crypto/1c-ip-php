@@ -50,6 +50,7 @@ final class ExtraService {
             $fields = [
             ];
             if ($table === 'parties') {
+                if ($old && WorkspaceReset::hidden($old))throw new RuntimeException('Контрагент не найден.',404);
                 if (!DirectoryRules::canEditPartyPassport($id,$u['role']) && array_key_exists('passport',$in)) {
                     throw new RuntimeException('Паспортные сведения существующего контрагента недоступны для изменения.',403);
                 }
@@ -60,7 +61,7 @@ final class ExtraService {
                     throw new RuntimeException('КПП должен содержать 9 цифр.',422);
                 if ($fields['inn']!=='') {
                     // Lock the identity range in the command transaction, including concurrent inserts.
-                    $q=$p->query('SELECT id,inn,blocked FROM parties ORDER BY id FOR UPDATE');
+                    $q=$p->query('SELECT id,inn,blocked FROM parties p WHERE '.WorkspaceReset::visibleSql('p').' ORDER BY id FOR UPDATE');
                     foreach ($q->fetchAll() as $existing) {
                         if((int)$existing['id']===$id || preg_replace('/\D/','',(string)$existing['inn'])!==$fields['inn'])continue;
                         if($existing['blocked'])throw new RuntimeException('Работа с контрагентом с этим ИНН заблокирована.',422);
