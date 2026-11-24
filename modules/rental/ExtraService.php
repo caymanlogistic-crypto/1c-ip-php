@@ -441,6 +441,8 @@ final class ExtraService {
                 'termination'
             ], true))throw new RuntimeException('Тип допсоглашения неизвестен.');
             $effective = Service::date($in['effective_date'] ?? $d['effective_date'] ?? '');
+            $selection = AddendumIndexation::selection($continuation || $kind!=='renewal' ? [] : $in,$d);
+            AddendumIndexation::validate($p,$c,$in,$selection,$effective);
             $terms = Addenda::terms($p, $c, $in, $d);
             if ($terms['end']<$effective)throw new RuntimeException('Срок помещений заканчивается раньше вступления ДС в силу.');
             $number = trim($in['number'] ?? $d['number'] ?? '');
@@ -510,6 +512,7 @@ final class ExtraService {
                 $id
             ]);
             Addenda::saveTerms($p, $id, $terms['rows']);
+            AddendumIndexation::saveSelection($p,$id,$selection);
             ExpiryContinuation::bind($p,$continuation,$id,'addendum');
             if ($partEdit !== null) {
                 \App\BillingPartTerms::save($p, 'document', $id, PartTerms::storageRows($terms['part_rows']),

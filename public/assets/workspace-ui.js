@@ -258,6 +258,11 @@
   }
   async function submitRental(form,dialog,submitter){
     if(form.dataset.submitting)return;
+    if(form.hasAttribute('data-rental-indexation-url') && form.dataset.indexationReady!=='true'){
+      const message=form.querySelector('[data-rental-indexation-status]')?.textContent;
+      formError(dialog,message||'Проверьте расчёт индексации.',form);
+      return;
+    }
     const data=new FormData(form,submitter);
     const creatingParty=data.get('action')==='party.save'&&data.get('id')==='0';
     const notifyErrors=notifiesFormErrors(form);
@@ -372,7 +377,8 @@
     }
   }
   function total(form){
-    let cents=0n;
+    const [fixedRub,fixedKopecks]=(form.querySelector('[data-rental-fixed-extra-total]')?.value||'0.00').split('.');
+    let cents=BigInt(fixedRub)*100n+BigInt(fixedKopecks);
     for(const input of form.querySelectorAll('input[name^="term_amount["]')){
       const value=input.value.trim().replace(',','.');
       if(/^term_amount\[part_[a-f0-9]{64}\]$/.test(input.name)){
@@ -515,7 +521,7 @@
   });
   document.addEventListener('change',event=>{
     if(event.target.matches('[name=\"start_date\"],[name=\"end_date\"]')){
-      const form=event.target.closest('form[data-rental-availability-url]');
+      const form=event.target.closest('form[data-rental-addendum-form],form[data-rental-availability-url]');
       if(form){
         if(form.hasAttribute('data-rental-addendum-form')){
           const start=event.target.name==='start_date',key=start?'rentalPeriodStart':'rentalPeriodEnd',prefix=start?'term_start[':'term_end[',previous=form.dataset[key]||'';
@@ -523,11 +529,63 @@
           form.dataset[key]=event.target.value;
           window.UIDatePicker?.sync(form);
         }
-        refreshAvailability(form);
+        if(form.hasAttribute('data-rental-availability-url'))refreshAvailability(form);
       }
     }
+    if(event.target.matches('[name="effective_date"]')){
+      const form=event.target.closest('[data-rental-indexation-url]');
+      if(form)refreshIndexation(form);
+    }
   });
+  const indexationRequests=new WeakMap();
+  async function refreshIndexation(form){
+    indexationRequests.get(form)?.abort();
+    const controller=new AbortController();
+    indexationRequests.set(form,controller);
+    const status=form.querySelector('[data-rental-indexation-status]');
+    const percent=form.elements.index_percent;
+    const effective=form.elements.effective_date.value;
+    form.dataset.indexationReady='false';
+    status.classList.remove('is-error');
+    if(!percent.validity.valid||!effective){
+      status.textContent='Укажите дату вступления ДС в силу и процент индексации.';
+      return;
+    }
+    status.textContent='Пересчитываем ставки…';
+    try{
+      const url=localURL(form.dataset.rentalIndexationUrl);
+      url.searchParams.set('effective_date',effective);
+      url.searchParams.set('index_percent',percent.value);
+      const response=await fetch(url,{signal:controller.signal});
+      const quote=await response.json();
+      if(!response.ok)throw new Error(quote.message||'Не удалось получить ставки.');
+      if(controller.signal.aborted||!form.isConnected)return;
+      for(const row of form.querySelectorAll('[data-rental-term-id]')){
+        const rate=quote.rates[row.dataset.rentalTermId];
+        row.querySelector('[data-rental-indexation-base]').textContent=rate.display_base;
+        row.querySelector('[data-rental-indexation-amount]').textContent=rate.display_amount;
+        row.querySelector('[data-unit-price]').value=rate.amount;
+      }
+      total(form);
+      status.textContent='Исходные ставки на '+quote.basis_label+'.';
+      form.dataset.indexationReady='true';
+    }catch(error){
+      if(controller.signal.aborted||!form.isConnected)return;
+      for(const row of form.querySelectorAll('[data-rental-term-id]')){
+        row.querySelector('[data-rental-indexation-base]').textContent='—';
+        row.querySelector('[data-rental-indexation-amount]').textContent='—';
+        row.querySelector('[data-unit-price]').value='';
+      }
+      total(form);
+      status.textContent=error.message;
+      status.classList.add('is-error');
+    }
+  }
   document.addEventListener('input',event=>{
+    if(event.target.name==='index_percent'){
+      const form=event.target.closest('[data-rental-indexation-url]');
+      if(form)refreshIndexation(form);
+    }
     if(event.target.matches('input[name^="term_amount["]')){
       const form=event.target.closest('form');
       if(form)total(form);

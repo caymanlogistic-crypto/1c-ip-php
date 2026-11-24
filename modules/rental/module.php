@@ -57,6 +57,7 @@ $routes['/rental/document-next']=[\Modules\Rental\DocumentCreator::class,'next']
 $routes['/rental/documents']=[\Modules\Rental\AddendumController::class,'listing'];
 $routes['/rental/document']=[\Modules\Rental\AddendumController::class,'card'];
 $routes['/rental/addendum-form']=[\Modules\Rental\AddendumController::class,'editor'];
+$routes['/rental/addendum-indexation']=[\Modules\Rental\AddendumController::class,'indexation'];
 $routes['/rental/addendum-action']=[\Modules\Rental\AddendumController::class,'action'];
 $routes['/rental/addendum-preview']=[\Modules\Rental\AddendumController::class,'preview'];
 $routes['/rental/new-contract']=[\Modules\Rental\SourceCards::class,'draft'];
