@@ -48,6 +48,11 @@ final class DirectoryRules
         return $id === 0 ? ['manager', 'accountant'] : ['manager', 'lawyer', 'accountant'];
     }
 
+    public static function canEditPartyPassport(int $id,string $role): bool
+    {
+        return $id===0 || $role!=='accountant';
+    }
+
     public const PARTY_TYPES=['company'=>'Организация','entrepreneur'=>'ИП','person'=>'Физлицо'];
 
     public static function partyDetails(array $input,array $old): array

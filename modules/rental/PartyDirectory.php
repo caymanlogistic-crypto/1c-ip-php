@@ -258,7 +258,8 @@ final class PartyDirectory
             .'<div data-party-type-fields="company">'.DirectoryUi::input('kpp','КПП',$party['kpp'] ?? '').'</div>'
             .'<div data-party-type-fields="company">'.DirectoryUi::input('ogrn','ОГРН',$details['ogrn'] ?? '').'</div>'
             .'<div data-party-type-fields="entrepreneur">'.DirectoryUi::input('ogrnip','ОГРНИП',$details['ogrnip'] ?? '').'</div>'
-            .'<div data-party-type-fields="person">'.DirectoryUi::input('passport','Паспортные сведения',$details['passport'] ?? '').'</div>'
+            .(DirectoryRules::canEditPartyPassport($id,$user['role'])
+                ?'<div data-party-type-fields="person">'.DirectoryUi::input('passport','Паспортные сведения',$details['passport'] ?? '').'</div>':'')
             .'<div data-party-type-fields="person">'.DirectoryUi::input('receipt_email','Почта для чека',$details['receipt_email'] ?? '','email').'</div>'
             .DirectoryUi::input('search_name','Название для поиска',$details['search_name'] ?? '').'</div></div>'
             .'<section class="registry-ui-form-section" aria-labelledby="party-signer-title"><div class="registry-ui-form-section-heading">'

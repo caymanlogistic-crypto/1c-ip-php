@@ -50,6 +50,9 @@ final class ExtraService {
             $fields = [
             ];
             if ($table === 'parties') {
+                if (!DirectoryRules::canEditPartyPassport($id,$u['role']) && array_key_exists('passport',$in)) {
+                    throw new RuntimeException('Паспортные сведения существующего контрагента недоступны для изменения.',403);
+                }
                 $fields=DirectoryRules::party($in,$old);
                 $partyDetails=DirectoryRules::partyDetails($in,$old?DirectoryDetails::read($p,'parties',$id):[]);
                 $type=$partyDetails['party_type'] ?? '';
