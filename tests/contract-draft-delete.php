@@ -14,7 +14,10 @@ $p->beginTransaction();
 try{
  actor('manager');
  $number='DELETE-'.keyForTest();
- $r=Service::command('contract.create',['number'=>$number,'command_key'=>keyForTest(),'intent'=>'draft']);$id=(int)$r['id'];$c=record($id);$_GET=['id'=>$id];
+ $object=(int)$p->query('SELECT id FROM rental_objects ORDER BY id LIMIT 1')->fetchColumn();
+ verify($object>0,'Missing test rental object');
+ $price=['objects'=>[$object],'term_amount'=>[$object=>'123.45']];
+ $r=Service::command('contract.create',['number'=>$number,'command_key'=>keyForTest(),'intent'=>'draft']+$price);$id=(int)$r['id'];$c=record($id);$_GET=['id'=>$id];
  $html=SourceCards::show();verify(str_contains($html,'Сохранить в черновиках')&&str_contains($html,'Отправить на согласование')&&str_contains($html,'Удалить черновик')&&!str_contains($html,'Аннулировать'),'Editor actions');
  verify(str_contains(WorkRegistry::render(),'contract:'.$id),'Missing draft');
  reject(fn()=>Service::command('contract.delete',['id'=>$id,'version'=>0,'command_key'=>keyForTest()]),409);
@@ -39,7 +42,7 @@ try{
  reject(fn()=>Access::contract($id),404);reject(fn()=>ContractForm::render(),404);
  reject(fn()=>Service::command('contract.submit',['id'=>$id,'version'=>$deleted['version'],'command_key'=>keyForTest()]),404);
  reject(fn()=>Service::command('contract.edit',['id'=>$id,'number'=>$number,'intent'=>'draft','version'=>$deleted['version'],'command_key'=>keyForTest()]),404);
- $replacement=Service::command('contract.create',['number'=>$number,'intent'=>'draft','command_key'=>keyForTest()]);
+ $replacement=Service::command('contract.create',['number'=>$number,'intent'=>'draft','command_key'=>keyForTest()]+$price);
  verify((int)$replacement['id']!==$id,'Number reuse');
  // Compatibility for a draft annulled before this change: positive audit proof is required.
  $oldId=(int)$replacement['id'];$old=record($oldId);

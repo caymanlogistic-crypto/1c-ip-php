@@ -72,12 +72,7 @@ final class PartTerms
             $term['part_version'] = $part['current_version'];
             if (isset($part['current_admission_sha256'])) $term['admission_sha256'] = $part['current_admission_sha256'];
             $raw = trim($value);
-            if (!preg_match('/^[0-9]{1,16}(?:\.[0-9]{1,12})?$/D', $raw) || bccomp($raw, '0', 12) <= 0) {
-                throw new RuntimeException('Цена каждой выбранной части должна быть положительной.');
-            }
-            // Source contract builder checks raw AND rounded fee; DS checks raw only.
-            $amount = bcadd($raw, '0.005', 2);
-            if ($priceKind==='contract' && bccomp($amount, '0', 2) <= 0) throw new RuntimeException('Цена части после округления должна быть положительной.');
+            $amount = self::validatedPrice($raw,$priceKind);
             $from = Service::date($fields['start_date'] ?? $start);
             $to = Service::date($fields['end_date'] ?? $end);
             if ($from > $to) throw new RuntimeException('Проверьте срок каждой части.');
@@ -88,6 +83,17 @@ final class PartTerms
                 '_validated_price' => ['raw_amount' => $raw, 'rounded_amount' => $amount, 'price_kind' => $priceKind]];
         }
         return $desired;
+    }
+
+    public static function validatedPrice(string $raw,string $priceKind): string
+    {
+        if (!preg_match('/^[0-9]{1,16}(?:\.[0-9]{1,12})?$/D', $raw) || bccomp($raw, '0', 12) <= 0) {
+            throw new RuntimeException('Цена каждой выбранной части должна быть положительной.');
+        }
+        // Source contract builder checks raw AND rounded fee; DS checks raw only.
+        $amount = bcadd($raw, '0.005', 2);
+        if ($priceKind==='contract' && bccomp($amount, '0', 2) <= 0) throw new RuntimeException('Цена части после округления должна быть положительной.');
+        return $amount;
     }
 
     public static function total(array $terms, bool $validatedDocumentInput = false): string

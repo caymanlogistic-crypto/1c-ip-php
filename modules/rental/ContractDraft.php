@@ -4,7 +4,7 @@ namespace Modules\Rental;
 use PDO;
 use RuntimeException;
 
-/** Unvalidated editor state. It does not reserve objects or create billing terms. */
+/** Editor state with priced rental positions. Saving does not reserve objects or create billing terms. */
 final class ContractDraft
 {
     public static function deleted(array $contract): bool
@@ -67,6 +67,38 @@ final class ContractDraft
         return $rows;
     }
 
+    private static function rentAmount(PDO $pdo,int $id,array $objects,array $draft): string
+    {
+        $sum='0.00';
+        foreach ($objects as $object) {
+            $message='Укажите месячную аренду с НДС больше нуля за объект «'.$object['name'].'».';
+            $price=$object['amount'];
+            if (!is_string($price) && !is_int($price)) throw new RuntimeException($message,422);
+            try {
+                $amount=Service::money($price);
+            } catch (RuntimeException $error) {
+                throw new RuntimeException($message,422,$error);
+            }
+            if (bccomp($amount,'0',2)<=0) throw new RuntimeException($message,422);
+            $sum=bcadd($sum,$amount,2);
+        }
+
+        // An empty optional part price keeps that part out of the contract.
+        $candidates=null;
+        foreach (array_keys((array)($draft['part_terms'] ?? [])) as $slot) {
+            $price=$draft['term_amount'][$slot] ?? '';
+            if (!is_string($price)) throw new RuntimeException('Проверьте месячную цену части.',422);
+            if (trim($price)==='') continue;
+            $candidates??=PartTerms::candidates($pdo,'contract',$id);
+            if (!isset($candidates[$slot])) throw new RuntimeException('Проверьте состав условий частей.',422);
+            $sum=bcadd($sum,PartTerms::validatedPrice(trim($price),'contract'),2);
+        }
+        if (bccomp($sum,'0',2)<=0) {
+            throw new RuntimeException('Добавьте объект аренды и укажите месячную ставку с НДС.',422);
+        }
+        return $sum;
+    }
+
     public static function save(PDO $pdo, array $input, ?array $old, string $number): int
     {
         if ($old && $old['return_to']==='lawyer') throw new RuntimeException('Проект не доступен для редактирования.',403);
@@ -74,20 +106,12 @@ final class ContractDraft
         // Keep the exact editor values; projection columns contain only valid, known facts.
         $draft['objects']=array_values(array_unique(array_map('intval',(array)($draft['objects'] ?? []))));
         if (count($draft['objects'])>256 || strlen(Importer::json($draft))>262144) throw new RuntimeException('Слишком большой черновик.',422);
-        self::objects($pdo,$draft);
+        if (!is_array($draft['term_amount'] ?? [])) throw new RuntimeException('Проверьте месячные ставки.',422);
+        $amount=self::rentAmount($pdo,(int)($old['id'] ?? 0),self::objects($pdo,$draft),$draft);
         $party=empty($draft['party_id'])?null:(int)$draft['party_id'];
         if ($party!==null) Service::get($pdo,'parties',$party);
         $source=$old?json_decode($old['source_json'],true):[];
         $source['draft_input']=$draft;
-        $amount=null;$sum='0.00';$known=true;$hasPrice=false;
-        $prices=[];
-        foreach ($draft['objects'] as $oid) $prices[]=$draft['term_amount'][$oid] ?? '';
-        foreach ($draft['term_amount'] ?? [] as $slot=>$price) if (str_starts_with((string)$slot,'part_') && trim((string)$price)!=='') $prices[]=$price;
-        foreach ($prices as $price) {
-            try { $value=Service::money($price); if(bccomp($value,'0',2)<=0)$known=false; $sum=bcadd($sum,$value,2);$hasPrice=true; }
-            catch (RuntimeException) { $known=false; }
-        }
-        if ($known && $hasPrice) $amount=$sum;
         $values=[$party,self::optionalDate($draft['document_date'] ?? ''),self::optionalDate($draft['start_date'] ?? ''),self::optionalDate($draft['end_date'] ?? ''),$amount,Importer::json($source)];
         if ($old) {
             $id=(int)$old['id'];
