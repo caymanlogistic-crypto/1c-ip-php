@@ -50,6 +50,7 @@ final class Documents {
             'isRemoteEnabled' => false,
             'defaultFont' => 'DejaVu Sans',
             'tempDir' => $temp,
+            'fontDir' => $cache,
             'fontCache' => $cache,
             'chroot' => APP_ROOT
         ]);
