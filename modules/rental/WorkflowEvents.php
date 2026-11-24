@@ -42,7 +42,8 @@ final class WorkflowEvents
         }elseif($op==='legal'&&$to==='accounting'){$kind='legalApprove';$target='accountant';}
         elseif(in_array($op,['return','legal-block'],true)&&$to==='returned'){$kind=$from==='accounting'?'accountantReturn':'lawyerReturn';$target=$after['return_to']??null;}
         elseif($op==='forward'&&$to==='returned'&&($after['return_to']??null)==='manager'){$kind='lawyerReturn';$target='manager';}
-        elseif($op==='packet'&&$to==='approved'&&!empty($input['packet_confirmed'])){$kind='package';$target='manager';}
+        elseif($action==='contract.packet'&&$from==='accounting'&&$to==='active'&&!empty($input['packet_confirmed'])){$kind='package';$target='manager';}
+        elseif($action==='document.packet'&&$to==='approved'&&!empty($input['packet_confirmed'])){$kind='package';$target='manager';}
         elseif($op==='handed'&&$from==='approved'&&$to==='sent'){$kind='handed';$target='manager';}
         elseif($op==='sign'&&$from==='sent'&&in_array($to,['active','signed'],true)){$kind='signed';$target='manager';}
         elseif($op==='apply'&&empty($before['applied'])&&!empty($after['applied'])){$kind='activated';$target='manager';}
@@ -93,6 +94,11 @@ final class WorkflowEvents
             if ($change!==null) $body['security_multiple_change']=$change;
         }
         if ($action===InitialInvoice::ISSUE) $body['invoice_ids']=$result['invoice_ids'];
+        if ($action==='contract.packet' && $transition['event_kind']==='package') {
+            $summary=$context['accountant_confirmation_summary']??null;
+            if (!is_array($summary)) throw new RuntimeException('ACCOUNTANT_PACKET_SUMMARY_REQUIRED');
+            $body['accountant_packet_confirmation']=$summary+['external_operations'=>AccountantPacketSummary::EXTERNAL_DISABLED];
+        }
         if (StaffHandoff::managed($action)) $body['staff_handoff']=$staff;
         if ($action==='contract.submit' && $staff && ($named=\Modules\Integrations\StaffHandoffProbe::assign($db,$body))) {
             $body['staff_handoff']['targets']=[$named];
