@@ -11,6 +11,7 @@ final class ServerObjectMax
 {
     private ?array $event=null;
     private ?array $scope=null;
+    private ?array $route=null;
     private ?string $pending=null;
     private int $sent=0;
     public function __construct(private PDO $db) {}
@@ -73,15 +74,20 @@ final class ServerObjectMax
             $q=$this->db->prepare("SELECT COUNT(*) FROM messaging_attempts WHERE provider='max' AND (status='pending' OR (status='uncertain' AND request_key LIKE 'object-activity-%')) AND NOT(actor_id=? AND request_key=?)");$q->execute([$event['actor_id'],$key]);
             if ((int)$q->fetchColumn()>0) throw new RuntimeException('OBJECT_MAX_RECONCILIATION_REQUIRED');
             $this->scope=$this->context();$this->event=$event;$this->sent=0;$this->pending=null;
-            $transport=fn($p,$o,$c,$s,$t,$r,$id,$g)=>(new MessageTransport(null,null,null,$this))->execute($p,$o,$c,$s,$t,$r,$id,$g);
-            return (new Messaging($this->db,Config::store(),$transport))->dispatch('max',$event['actor_id'],$key,'send',[$scope['group_id']],$event['text']);
-        } finally {$this->event=null;$this->scope=null;$this->pending=null;$this->db->query("SELECT RELEASE_LOCK('ipphp-provider:max')");}
+            if ($this->scope!==$scope) throw new RuntimeException('OBJECT_MAX_SCOPE_REJECTED');
+            $route=$this->route=MaxWorkingDestination::route($this->db,$scope,$event['event_id']);
+            $transport=fn($p,$o,$c,$s,$t,$r,$id,$g)=>(new MessageTransport(null,null,null,$this))->execute(
+                $p,$o,$c,MaxWorkingDestination::recipientSecret($s,$t,$route,$g),$t,$r,$id,[$t]);
+            return (new Messaging($this->db,Config::store(),$transport))->dispatch('max',$event['actor_id'],$key,'send',[$route['group_id']],$event['text']);
+        } finally {$this->event=null;$this->scope=null;$this->route=null;$this->pending=null;$this->db->query("SELECT RELEASE_LOCK('ipphp-provider:max')");}
     }
 
     public function assertOperation(string $provider,string $operation,string $target,string $raw,array $groups): void
     {
         if (!$this->event||!$this->scope||$this->context()!==$this->scope||$provider!=='max'||$operation!=='send'
-            ||$target!==$this->scope['chat_id']||$groups!==[$target]||$raw!==Support::json(['text'=>$this->event['text']])) throw new RuntimeException('OBJECT_MAX_REQUEST_REJECTED');
+            ||!$this->route||$target!==$this->route['chat_id']||$groups!==[$target]||$raw!==Support::json(['text'=>$this->event['text']])
+            ||MaxWorkingDestination::route($this->db,$this->scope,$this->event['event_id'])!==$this->route)
+            throw new RuntimeException('OBJECT_MAX_REQUEST_REJECTED');
         $proof=(new ObjectActivityMax($this->db))->plan($this->event['event_id'],$this->event['command_key'],Auth::user() ?? []);
         if ($proof!==$this->event) throw new RuntimeException('OBJECT_MAX_EVENT_REJECTED');
         $q=$this->db->prepare("SELECT COUNT(*) FROM messaging_attempts WHERE provider='max' AND actor_id=? AND request_key=? AND target=? AND revision=? AND status='pending' AND body_text=?");
@@ -101,9 +107,10 @@ final class ServerObjectMax
     }
     private function assertHttpScope(string $method,string $url,?string $body): void
     {
-        if (!$this->event||!$this->scope) throw new RuntimeException('OBJECT_MAX_SCOPE_REJECTED');
-        self::assertPath($this->sent,$method,$url,$body,$this->scope['chat_id'],$this->event['text']);
-        $this->assertOperation('max','send',$this->scope['chat_id'],(string)$body,[$this->scope['chat_id']]);
+        if (!$this->event||!$this->route) throw new RuntimeException('OBJECT_MAX_SCOPE_REJECTED');
+        $chat=$this->route['chat_id'];
+        self::assertPath($this->sent,$method,$url,$body,$chat,$this->event['text']);
+        $this->assertOperation('max','send',$chat,(string)$body,[$chat]);
     }
     public function assertHttpRequest(string $method,string $url,?string $body): void
     {

@@ -110,9 +110,39 @@ final class PageView
         $e=Support::e(...);$fields='';$enabled='<div class="field"><span class="field-label">Статус</span><label class="checkbox-inline"><input class="field-checkbox" type="checkbox" name="enabled" value="1"'.($c['enabled']?' checked':'').'> Подключение включено</label></div>';
         if($p==='email')$fields.=self::field('host','Сервер SMTP',$config['host']??'').self::field('port','Порт SMTP',$config['port']??465,'number','min="1" max="65535"').'<div class="field"><label class="field-label" for="message-security">Шифрование</label><select class="field-select" id="message-security" name="security"><option value="ssl"'.(($config['security']??'ssl')==='ssl'?' selected':'').'>SSL/TLS</option><option value="starttls"'.(($config['security']??'')==='starttls'?' selected':'').'>STARTTLS</option></select></div>'.self::field('username','Логин',$config['username']??'').self::field('from_email','Email отправителя',$config['from_email']??'','email').self::field('from_name','Имя отправителя',$config['from_name']??'').self::field('secret','Пароль SMTP','','password','autocomplete="new-password"');else $fields.=self::field('secret','Ключ бота MAX (токен)','','password','autocomplete="new-password"');$fields.=$enabled;
         $h='<dialog class="modal registry-ui-modal registry-ui-modal--reading ui-detail-card" id="message-settings" aria-labelledby="message-settings-title"'.($open?' data-open-on-load':'').'><form method="post" action="/integrations/action" class="registry-ui-modal-form">'.self::hidden($p,'save').'<input name="revision" type="hidden" value="'.$e($c['revision']).'"><div class="modal-head"><h2 class="modal-title" id="message-settings-title">Настройки · '.($p==='email'?'Электронная почта':'MAX').'</h2><button type="button" class="modal-close" data-dialog-close aria-label="Закрыть настройки">×</button></div><div class="modal-body registry-ui-modal-grid"><div class="form-grid-2">'.$fields.'</div><p class="registry-ui-modal-secondary">Для замены секрета введите новый; пустое поле оставит прежний.</p>';
-        if($p==='email')$h.='<p class="registry-ui-modal-secondary">Для отправки используется SMTP. IMAP предназначен для чтения входящих писем.</p>';else {$h.='<h3 class="section-title">Группы MAX</h3><p class="registry-ui-modal-secondary">Добавьте бота в каждую группу и укажите её числовой ID. Ключ бота общий для всех групп.</p><div class="registry-ui-modal-grid" data-integration-groups>';$i=0;foreach($groups as $g)$h.=self::group($i++,$g);$h.='</div><template id="integration-group-template">'.self::group('__INDEX__',[]).'</template><div class="inline-actions"><button type="button" class="btn btn-secondary" data-integration-group-add>Добавить группу</button></div>';}$h.='</div><div class="modal-foot"><div class="modal-foot-actions"><button type="button" class="btn btn-secondary" data-dialog-close>Отмена</button><button type="submit" class="btn btn-primary">Сохранить</button></div></div></form></dialog>';return $h;
+        $destinationForm='';
+        if($p==='email')$h.='<p class="registry-ui-modal-secondary">Для отправки используется SMTP. IMAP предназначен для чтения входящих писем.</p>';else {$h.='<h3 class="section-title">Группы MAX</h3><p class="registry-ui-modal-secondary">Добавьте бота в группу и укажите её числовой ID. Новую группу можно сохранить выключенной.</p><div class="registry-ui-modal-grid" data-integration-groups>';$i=0;foreach($groups as $g)$h.=self::group($i++,$g);$h.='</div><template id="integration-group-template">'.self::group('__INDEX__',[]).'</template><div class="inline-actions"><button type="button" class="btn btn-secondary" data-integration-group-add>Добавить группу</button></div>';
+            [$destination,$destinationForm]=self::workingDestination(DB::pdo());
+            $h.=$destination;
+        }
+        $h.='</div><div class="modal-foot"><div class="modal-foot-actions"><button type="button" class="btn btn-secondary" data-dialog-close>Отмена</button><button type="submit" class="btn btn-primary">Сохранить</button></div></div></form></dialog>';return $h.$destinationForm;
     }
-    private static function group(int|string $i,array $g): string {$e=Support::e(...);$prefix='group_rows['.$i.']';return '<fieldset class="demo-fieldset" data-integration-group><legend class="field-label">'.$e($g['name']??'Новая группа').'</legend><div class="form-grid-2">'.self::field($prefix.'[name]','Название группы',$g['name']??'').self::field($prefix.'[chat_id]','Идентификатор группы',$g['chat_id']??'').'</div><div class="demo-row"><label class="checkbox-inline"><input type="checkbox" name="'.$prefix.'[enabled]" value="1"'.(($g['enabled']??1)?' checked':'').'> Отправка включена</label><button type="button" class="btn btn-secondary" data-integration-group-remove>Убрать группу</button></div><input type="hidden" name="'.$prefix.'[delete]" value="0" data-integration-group-delete></fieldset>';}
+    private static function workingDestination(\PDO $db): array
+    {
+        $e=Support::e(...);
+        $choice=MaxWorkingDestination::selection($db);
+        $settings=null;$work=null;
+        try {
+            $settings=MaxWorkingDestination::settings($db);
+            if ($settings) $work=!empty($settings['via_relay'])?$settings:MaxWorkingDestination::admission($db,$settings);
+        } catch (\RuntimeException) {
+            // Unavailable admission leaves the TEST option and existing group controls usable.
+        }
+        $selectedWork=$choice['destination']===MaxWorkingDestination::WORK;
+        $test=!empty($settings['via_relay'])?'ТЕСТОВАЯ':($settings['group_name']??'ТЕСТОВАЯ');
+        $name=$work['group_name']??($selectedWork ? ($choice['group_name']??'Рабочая') : 'Рабочая');
+        $field='<h3 class="section-title">Автоматические уведомления ERP</h3><div class="demo-row">'
+            .'<label class="field"><span class="field-label">Группа для новых событий</span>'
+            .'<select class="field-select" name="destination" form="max-working-destination-form"'.($settings?'':' disabled').'>'
+            .'<option value="test"'.($selectedWork?'':' selected').'>'.$e($test).'</option>'
+            .'<option value="work"'.($selectedWork?' selected':'').($work?'':' disabled').'>'
+            .$e($name.($work?'':' · ждёт допуска')).'</option></select></label>'
+            .'<button type="submit" class="btn btn-secondary" form="max-working-destination-form"'.($settings?'':' disabled').'>Применить выбор</button></div>';
+        $form='<form method="post" action="/integrations/action" id="max-working-destination-form">'
+            .self::hidden('max','select_working_destination').'<input type="hidden" name="destination_serial" value="'.$e($choice['serial']).'"></form>';
+        return [$field,$form];
+    }
+    private static function group(int|string $i,array $g): string {$e=Support::e(...);$prefix='group_rows['.$i.']';return '<fieldset class="demo-fieldset" data-integration-group><legend class="field-label">'.$e($g['name']??'Новая группа').'</legend><div class="form-grid-2">'.self::field($prefix.'[name]','Название группы',$g['name']??'').self::field($prefix.'[chat_id]','Идентификатор группы',$g['chat_id']??'').'</div><div class="demo-row"><label class="checkbox-inline"><input type="checkbox" name="'.$prefix.'[enabled]" value="1"'.(($g['enabled']??false)?' checked':'').'> Отправка включена</label><button type="button" class="btn btn-secondary" data-integration-group-remove>Убрать группу</button></div><input type="hidden" name="'.$prefix.'[delete]" value="0" data-integration-group-delete></fieldset>';}
     private static function uiScript(): string {return <<<'JS'
 document.querySelectorAll('dialog[data-open-on-load]').forEach(d=>d.showModal());
 document.querySelector('[data-integration-group-add]')?.addEventListener('click',()=>{const root=document.querySelector('[data-integration-groups]');const index=root.children.length;const text=document.getElementById('integration-group-template').innerHTML.replaceAll('__INDEX__',String(index));root.insertAdjacentHTML('beforeend',text);});
