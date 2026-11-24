@@ -57,9 +57,9 @@ try {
         if ($signal['role']==='manager') $manager[]=$signal['id'];
         if ($signal['role']==='director') $director[]=$signal['id'];
     }
-    $expected=[$id,$id+1,$id+2,$id+3,$id+5];
+    $expected=[$id,$id+1,$id+2,$id+5];
     sort($manager);sort($director);
-    $check($manager===$expected&&$director===$expected,'Idle tasks must include draft/future/expired contracts and exclude active booking/inactive/unrentable');
+    $check($manager===$expected&&$director===$expected,'Idle tasks exclude an expired contract awaiting return, an active booking and unavailable objects');
     $tasks=array_values(array_filter(Indicators::tasks($today,null,['objects']),fn($task)=>$task['entity']==='object'&&$task['role']==='manager'&&$task['id']>=$id&&$task['id']<$id+8));
     $check(array_column($tasks,'id')===$expected,'Actual task registry must use directory semantics');
     $available=[];foreach(Availability::items($today,$today) as $item) $available[$item['id']]=$item['available'];

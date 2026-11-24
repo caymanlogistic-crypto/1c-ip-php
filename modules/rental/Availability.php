@@ -10,12 +10,13 @@ final class Availability {
         if ($start>$end)throw new \RuntimeException('Проверьте даты аренды.', 422);
         // Load occupancy sets once; the predicates and precedence are shared by every object.
         $busy=[];$held=[];$reserved=[];$expired=[];
-        foreach (Controller::query('SELECT DISTINCT co.object_id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE '
-            .\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease()." AND c.id<>? AND (c.status='reconciling' OR c.status='active' AND ".Occupancy::boundary('start_date')."<=? AND ".Occupancy::boundary('end_date').">=?)",[$start,$except ?? 0,$end,$start]) as $row) $busy[$row['object_id']]=true;
-        foreach (Controller::query('SELECT DISTINCT co.object_id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE '
-            .\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease().' AND c.id<>? AND c.id<>? AND '
-            .Occupancy::expiredWithoutReturn(Occupancy::boundary('end_date'),'LEAST(CURRENT_DATE,?)','?'),
-            [$start,$except ?? 0,$predecessor ?? 0,$end,$start]) as $row) $expired[$row['object_id']]=true;
+        $contracts='SELECT DISTINCT co.object_id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id'
+            .Occupancy::REQUESTED_PERIOD.' WHERE '.\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease();
+        foreach (Controller::query($contracts." AND c.id<>? AND (c.status='reconciling' OR c.status='active' AND "
+            .Occupancy::overlapsRequestedPeriod().')',[$start,$end,$start,$except ?? 0]) as $row) $busy[$row['object_id']]=true;
+        foreach (Controller::query($contracts.' AND c.id<>? AND c.id<>? AND '
+            .Occupancy::expiredWithoutReturn(Occupancy::boundary('end_date','co','c',Occupancy::RETURN_CHECK_DATE),Occupancy::RETURN_CHECK_DATE,'requested_period.starts_on'),
+            [$start,$end,$start,$except ?? 0,$predecessor ?? 0]) as $row) $expired[$row['object_id']]=true;
         foreach (Controller::query('SELECT DISTINCT h.object_id FROM rental_object_holds h JOIN contracts c ON c.id=h.contract_id WHERE '
             .\App\ContractOccupancy::physicalPredicate('h')." AND h.contract_id<>? AND h.return_confirmed=0 AND c.status<>'closed'",[$except ?? 0]) as $row) $held[$row['object_id']]=true;
         foreach (Controller::query('SELECT DISTINCT r.object_id FROM reservations r WHERE '.Occupancy::reservationPredicate('r')

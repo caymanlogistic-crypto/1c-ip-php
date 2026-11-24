@@ -208,19 +208,21 @@ final class Service {
                 $except ?? 0
             ]);
             if ($q->fetchColumn())throw new RuntimeException('Ожидается акт возврата исключённого помещения.');
-            $q = $p->prepare("SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE ".\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease()." AND co.object_id=? AND c.status='active' AND ".Occupancy::boundary('start_date')."<=? AND ".Occupancy::boundary('end_date').">=? AND c.id<>? LIMIT 1 FOR UPDATE");
+            $q = $p->prepare('SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id'.Occupancy::REQUESTED_PERIOD
+                .' WHERE '.\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease()
+                ." AND co.object_id=? AND c.status='active' AND ".Occupancy::overlapsRequestedPeriod().' AND c.id<>? LIMIT 1 FOR UPDATE');
             $q->execute([
                 $start,
-                $id,
                 $end,
                 $start,
+                $id,
                 $except ?? 0
             ]);
             if ($q->fetchColumn())throw new RuntimeException('Объект занят договором на выбранный период.');
-            $q=$p->prepare('SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id
-                WHERE '.\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease().' AND co.object_id=? AND c.id<>? AND c.id<>? AND '
-                .Occupancy::expiredWithoutReturn(Occupancy::boundary('end_date'),'LEAST(CURRENT_DATE,?)','?').' LIMIT 1 FOR UPDATE');
-            $q->execute([$start,$id,$except ?? 0,$predecessor ?? 0,$end,$start]);
+            $q=$p->prepare('SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id'.Occupancy::REQUESTED_PERIOD
+                .' WHERE '.\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease().' AND co.object_id=? AND c.id<>? AND c.id<>? AND '
+                .Occupancy::expiredWithoutReturn(Occupancy::boundary('end_date','co','c',Occupancy::RETURN_CHECK_DATE),Occupancy::RETURN_CHECK_DATE,'requested_period.starts_on').' LIMIT 1 FOR UPDATE');
+            $q->execute([$start,$end,$start,$id,$except ?? 0,$predecessor ?? 0]);
             if ($q->fetchColumn()) throw new RuntimeException('Срок прежней аренды истёк. Сначала подтвердите возврат или связанное продолжение.',409);
             $q = $p->prepare("SELECT id,party_id,document_id FROM reservations r WHERE ".Occupancy::reservationPredicate('r')." AND object_id=? AND status='active' AND (contract_id IS NULL OR contract_id<>?) AND ((document_id IS NULL AND until_date>=CURRENT_DATE) OR (document_id IS NOT NULL AND start_date<=? AND end_date>=?)) FOR UPDATE");
             $q->execute([
