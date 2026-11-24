@@ -147,7 +147,7 @@ final class AccountantReviewCard
         $issued=InitialInvoice::issuedFor($db,$id);
         $planned=$issued?[]:InitialInvoice::preview($db,$contract,InitialInvoiceCard::defaultIssueDate($contract))['rows'];
         $bills='';
-        foreach (self::securityFirst($issued ?: $planned) as $line) {
+        foreach (InitialInvoice::securityFirst($issued ?: $planned) as $line) {
             $label=self::invoiceLabel($line);
             if ($issued) $label='№'.InvoiceDocument::number($line['number']).' · '.$label;
             $bills.='<li>'.View::e($label).' · '.Controller::money($line['amount']).'</li>';
@@ -215,6 +215,7 @@ final class AccountantReviewCard
         $id=(int)$contract['id'];
         $db=DB::pdo();
         $issued=InitialInvoice::issuedFor($db,$id);
+        $previewUrl='';
         $body='';
         $rows=[];
         if ($issued) {
@@ -226,7 +227,7 @@ final class AccountantReviewCard
                 $body.=RentalUI::alert('Отдельные счета ждут проверки перед включением в пакет',
                     'Сверьте срок оплаты и актуальность условий этих счетов.','warning');
             }
-            foreach (self::securityFirst($issued) as $invoice) {
+            foreach (InitialInvoice::securityFirst($issued) as $invoice) {
                 $invoiceId=(int)$invoice['id'];
                 $fileId=$files[$invoiceId]??null;
                 $amount=Controller::money($invoice['amount']);
@@ -245,7 +246,8 @@ final class AccountantReviewCard
             }
         } else {
             $plan=InitialInvoice::preview($db,$contract,InitialInvoiceCard::defaultIssueDate($contract));
-            foreach (self::securityFirst($plan['rows']) as $line) {
+            if ($plan['rows']) $previewUrl=InitialInvoicePreview::route($id);
+            foreach (InitialInvoice::securityFirst($plan['rows']) as $line) {
                 $period=$line['kind']==='Обеспечительный платёж'?'—'
                     :Documents::dateText($line['from']).' — '.Documents::dateText($line['to']);
                 $rows[]=[View::e(self::invoiceLabel($line)),View::e($period),
@@ -263,14 +265,9 @@ final class AccountantReviewCard
         if ($issued) {
             $body.='<div class="demo-row">'.RentalUI::button('Открыть первые счета',InitialInvoiceCard::route($id)).'</div>';
         }
-        return RentalUI::reviewSection('Первый счёт',$body,$issued?'Зарегистрирован':'Не выставлен',(bool)$issued);
-    }
-
-    private static function securityFirst(array $rows): array
-    {
-        usort($rows,static fn(array $a,array $b): int =>
-            ($b['kind']===InitialInvoice::DUE_PARTS['security'])<=>($a['kind']===InitialInvoice::DUE_PARTS['security']));
-        return $rows;
+        $state=$issued?'Зарегистрирован':'Не выставлен';
+        if ($previewUrl!=='') $state=InitialInvoicePreview::LABEL;
+        return RentalUI::reviewSection('Первый счёт',$body,$state,(bool)$issued,$previewUrl);
     }
 
     private static function invoiceLabel(array $line): string

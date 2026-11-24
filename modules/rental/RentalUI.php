@@ -30,9 +30,11 @@ final class RentalUI
         return self::alert($message);
     }
 
-    public static function reviewSection(string $title,string $body,string $state='',bool $done=false): string
+    public static function reviewSection(string $title,string $body,string $state='',bool $done=false,string $statusUrl=''): string
     {
         $status=$state===''?'':'<span class="registry-ui-review-state"'.($done?' data-complete':'').'>'.View::e($state).'</span>';
+        if ($statusUrl!=='')
+            $status='<a class="registry-ui-review-state" href="'.View::e($statusUrl).'">'.View::e($state).'</a>';
         return '<section class="registry-ui-form-section registry-ui-review-section" data-form-disclosure-scope>'
             .'<div class="registry-ui-form-section-heading"><h3 class="modal-title">'.View::e($title).'</h3>'.$status.'</div>'
             .$body.'</section>';

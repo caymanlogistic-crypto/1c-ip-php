@@ -284,6 +284,22 @@ final class InitialInvoice
         return self::ruleDeadline($proof['form'],$proof['due_part'],$signature,$transfer);
     }
 
+    public static function securityFirst(array $rows): array
+    {
+        usort($rows,static fn(array $a,array $b): int =>
+            ($b['kind']===self::DUE_PARTS['security'])<=>($a['kind']===self::DUE_PARTS['security']));
+        return $rows;
+    }
+
+    public static function termsInPeriod(array $terms,string $from,string $to): array
+    {
+        return array_filter($terms,static fn(array $term): bool =>
+            ($term['end_date']===null || $term['end_date'] >= $from)
+            && ($term['superseded_on']===null || $term['superseded_on'] >= $from)
+            && ($term['start_date']===null || $term['start_date'] <= $to)
+            && ($term['effective_date']===null || $term['effective_date'] <= $to));
+    }
+
     private static function periodQuestion(PDO $db,int $id,array $row,array $terms,string $gross,array $changes,array $facts): ?string
     {
         foreach ($changes as $document) {
@@ -297,11 +313,7 @@ final class InitialInvoice
             }
         }
         $active = [];
-        foreach ($terms as $term) {
-            if (($term['end_date'] !== null && $term['end_date'] < $row['from'])
-                || ($term['superseded_on'] !== null && $term['superseded_on'] < $row['from'])
-                || ($term['start_date'] !== null && $term['start_date'] > $row['to'])
-                || ($term['effective_date'] !== null && $term['effective_date'] > $row['to'])) continue;
+        foreach (self::termsInPeriod($terms,$row['from'],$row['to']) as $term) {
             if ($term['start_date'] === null || $term['end_date'] === null || $term['amount'] === null
                 || $term['start_date'] > $row['from'] || $term['end_date'] < $row['to']
                 || ($term['effective_date'] !== null && $term['effective_date'] > $row['from'])
