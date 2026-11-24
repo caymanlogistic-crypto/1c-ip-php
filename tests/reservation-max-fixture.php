@@ -2,9 +2,9 @@
 declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 
-use App\DB;
+use App\{BusinessIds, DB};
 use Modules\Integrations\{BookingMax, Config, ReservationMaxRelay, Support, TemplateCatalog};
-use Modules\Rental\{Availability, BookingNotices, Service, WorkflowEvents};
+use Modules\Rental\{Availability, BookingNotices, CustomerBookings, Service, WorkflowEvents};
 
 function check(bool $condition,string $message):void {if (!$condition) throw new RuntimeException($message);}
 $db=DB::pdo();
@@ -28,7 +28,7 @@ try {
         .($object['area']===null?'':' — '.$escape(\Modules\Rental\DirectoryUi::area($object['area'])).' м²');
     $ru=static fn(int $n):string=>$day->modify("+$n days")->format('d.m.Y');
     $command=static fn(string $action,array $input):array=>Service::command($action,$input+['command_key'=>bin2hex(random_bytes(16))]);
-    $create=static fn(string $name,int $deadline,int $start=0,string $comment=''):int=>$command('reservation.create',
+    $create=static fn(string $name,int $deadline,int $start=0,string $comment='Учебный комментарий'):int=>$command('reservation.create',
         ['client_name'=>$name,'object_id'=>$room,'start_date'=>$date($start),'until_date'=>$date($deadline),'comment'=>$comment])['id'];
     $b=$create('Учебный отказ MAX 15',2);
     $c=$create('Учебное истечение MAX 15',3);
@@ -164,7 +164,13 @@ try {
     check(!in_array($mine[0]['key'],array_column($runner->exports($floor,$scope['valid_from'],$date(5)),'key'),true),
         'Confirmed local event was offered again');
 
-    $blank=$create('Учебная заявка без комментария',9,2,'   ');
+    // A historical notification may contain the data of a reservation created before comments became required.
+    DB::transaction(static function(PDO $db) use($actor,$room,$date): void {
+        $id=BusinessIds::next($db,'reservations',9000000);
+        $db->prepare("INSERT INTO reservations(id,object_id,client_name,author_id,start_date,until_date,status,comment,source_json)
+            VALUES(?,?,?,?,?,?,'active','   ','{}')")->execute([$id,$room,'Учебная заявка без комментария',$actor['id'],$date(2),$date(9)]);
+        CustomerBookings::history($db,'reservation.create',null,Service::get($db,'reservations',$id),origin:bin2hex(random_bytes(16)));
+    });
     check($runner->run($date(5))['accepted']===1 && count($sent)===6
         && $sent[5]==="<b>📌 ОБЪЕКТ ЗАРЕЗЕРВИРОВАН</b>\n$objectLine\nс <b>".$ru(2)."</b> по <b>".$ru(9)."</b>\nОтветственный · <b>$name</b>" ,'Blank comment left an extra line');
     $revoked=$create('Учебный отзыв роли MAX 15',9);

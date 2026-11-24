@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Modules\Rental;
 
-use App\{Auth,ContractOccupancy};
+use App\{Auth,ContractOccupancy,DB};
 
 /** Minimal object-directory projection, without exposing a counterparty bank or full contract. */
 final class ObjectFacts
@@ -41,13 +41,14 @@ final class ObjectFacts
     {
         $counts=[0,0,0,0];
         if (!Auth::can('rental.read') || \App\PagePolicy::level('rental.objects',Auth::user())<1) return $counts;
-        $today=date('Y-m-d');$read??=new ObjectReadModel($today);
+        $today=$read?->today??date('Y-m-d');$read??=new ObjectReadModel($today);
         foreach ($read->objects as $object) {
             $parent=ObjectReadModel::parent($object);
             if (!DirectoryScope::signals($object,$parent)) continue;
             $facts=self::project($object,$parent,$read->availability[$object['id']] ?? null,$today,$read);
             $index=array_search($facts['severity'],['red','yellow','green','blue'],true);
             if ($index!==false) $counts[$index]++;
+            if ($facts['package']!==null && $facts['severity']!=='green') $counts[2]++;
         }
         return $counts;
     }
@@ -77,6 +78,7 @@ final class ObjectFacts
         $booking=$bookings[0] ?? null;
         $id=(int)$object['id'];
         $work=$eligible?($read?$read->work($id):(ObjectReadModel::pendingWork($id)[$id] ?? [])):[];
+        $package=$eligible?($read?$read->package($id):(RecentContractPackages::byObject(DB::pdo(),$today,$id)[$id]??null)):null;
         $days=self::idleDays($object,$free,$today);
         if ($read) $previous=$read->previous((int)$object['id']);
         else {
@@ -99,10 +101,8 @@ final class ObjectFacts
                     if ($since<=$today && ($event===null || $since>$event)) $event=$since;
                 }
             }
-            if ($event && $event<=$today) {
-                $age=(int)(new \DateTimeImmutable($event))->diff(new \DateTimeImmutable($today))->days;
-                if ($age<14) { $severity='green'; $recent=['date'=>$event,'days'=>$age]; }
-            }
+            $age=RecentContractPackages::age($event,$today);
+            if ($age!==null) { $severity='green'; $recent=['date'=>$event,'days'=>$age]; }
         }
         $deadline=null;
         if ($eligible && $lease && $lease['end_date']) {
@@ -125,7 +125,9 @@ final class ObjectFacts
                 }
             }
         }
-        return compact('eligible','free','status','lease','document','booking','bookings','days','previous','severity','recent','deadline','idleUnknown','work');
+        $rowSeverity=$package!==null?'green':$severity;
+        return compact('eligible','free','status','lease','document','booking','bookings','days','previous',
+            'severity','rowSeverity','recent','package','deadline','idleUnknown','work');
     }
 
     public static function reviewedUnknownHistory(array $object,bool $free,?int $days,?string $previous): ?string

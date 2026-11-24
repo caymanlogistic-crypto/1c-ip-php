@@ -15,11 +15,12 @@ try {
  $p->prepare("INSERT INTO contracts(id,number,party_id,document_date,start_date,end_date,amount,status,signed,source_json) VALUES(?,?,?,CURRENT_DATE,?,?,'123.45','active',1,'{}')")->execute([$cid,'LOCAL-BASE-'.bin2hex(random_bytes(6)),$party,$from,$until]);
  Modules\Rental\Occupancy::insert($p,'contract_objects',['contract_id'=>$cid,'object_id'=>$oid]);
  $p->prepare("INSERT INTO contract_terms(contract_id,object_id,start_date,end_date,amount,source_json) VALUES(?,?,?,?,'123.45','{}')")->execute([$cid,$oid,$from,$until]);
- $before=Service::get($p,'contracts',$cid);$_GET=['contract_id'=>$cid];$html=AddendumController::editor();
- verify(str_contains($html,'К договору №'.$before['number']),'Missing base contract context');
+ $before=Service::get($p,'contracts',$cid);$_GET=['contract_id'=>$cid,'object_scope'=>'change'];$html=AddendumController::editor();
+ verify(str_contains($html,'ДС №1 к договору №'.$before['number'].' от '.date('d.m.Y')),'Missing base contract context and suggested number in heading');
+ verify(!str_contains($html,'К договору №'.$before['number'].' от '.date('d.m.Y').' · '),'Duplicate base contract context');
  $doc=new DOMDocument();@$doc->loadHTML('<?xml encoding="UTF-8">'.$html);$xpath=new DOMXPath($doc);$pairs=[];
  foreach($xpath->query('//form[@id="rental-addendum-form"]//input[@name][not(ancestor::template)]') as $input)$pairs[]=urlencode($input->getAttribute('name')).'='.urlencode($input->getAttribute('value'));
- parse_str(implode('&',$pairs),$in);unset($in['_csrf']);$in['number']='LOCAL-'.bin2hex(random_bytes(6));$in['intent']='draft';
+ parse_str(implode('&',$pairs),$in);unset($in['_csrf'],$in['object_scope']);$in['number']='LOCAL-'.bin2hex(random_bytes(6));$in['intent']='draft';
  $expected=[];foreach($in['objects'] as $oid)$expected[$oid]=[$in['term_start'][$oid],$in['term_end'][$oid],$in['term_amount'][$oid]];
  $result=Service::command('document.create',$in);$id=(int)$result['id'];
  foreach($p->query('SELECT object_id,start_date,end_date,amount FROM document_terms WHERE document_id='.$id) as $row)verify($expected[$row['object_id']]===[$row['start_date'],$row['end_date'],$row['amount']],'Changed original per-room terms');

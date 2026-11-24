@@ -22,17 +22,70 @@ foreach ($defaults['entries'] as $source) {
     $catalog[$source['id']] = $entry;
 }
 
+foreach (['task-received','operation-failed'] as $key) {
+    checkTopAdmin(!str_contains($catalog[$key]['body_text'], '{section}'), 'Default upper popup exposes routing key: '.$key);
+}
+$catalog['task-received']['body_text'].=' Раздел: {section}.';
+
 $event = ['event_id' => 1100, 'entity_kind' => 'contract', 'record_number' => '173',
     'actor_name' => 'Анна', 'party_name' => 'ООО «Пример»', 'entity_version' => 3,
     'event_kind' => 'submit', 'reason' => 'Проверить файл', 'text' => 'Передано на проверку'];
 $task = ['id' => 173, 'key' => 'review', 'severity' => 'red', 'text' => 'Проверьте документ', 'page' => 'approvals'];
 $notice = WorkflowNotices::task($task, $event, $catalog);
 checkTopAdmin($notice['severity'] === 'red', 'Text template changed actual task severity');
-checkTopAdmin($notice['event_key'] === 'task-received' && str_contains($notice['text'], 'Проверьте документ'), 'Actual task template not rendered');
+checkTopAdmin($notice['event_key'] === 'task-received'
+    && $notice['title'] === 'Договор №173. ООО «Пример»'
+    && $notice['text'] === 'Согласовать и подготовить пакет', 'Recipient notice did not identify the approval');
+foreach (['№173', 'Договор №173'] as $number) {
+    $prefixed=WorkflowNotices::task($task,array_replace($event,['record_number'=>$number]),$catalog);
+    checkTopAdmin($prefixed['title']==='Договор №173. ООО «Пример»','Duplicate contract number prefix');
+}
+foreach (['','№','Договор №'] as $number) {
+    $missing=WorkflowNotices::task($task,array_replace($event,['record_number'=>$number]),$catalog);
+    checkTopAdmin($missing['title']==='Договор. ООО «Пример»','Empty contract number displayed');
+}
+checkTopAdmin($notice['dedupe_text'] === 'Договор №173. Проверьте документ Раздел: approvals.', 'Former fingerprint input changed');
+
+$accountantEvent = array_replace($event, ['event_kind'=>'legalApprove', 'text'=>'Договор №173: legal → accounting']);
+$accountantTask = WorkflowNotices::task($task, $accountantEvent, $catalog);
+checkTopAdmin($accountantTask['text'] === 'Проверьте и подтвердите комплект.', 'Accountant saw a generic task');
+$lawyerSender = WorkflowNotices::sender($accountantEvent, $catalog);
+checkTopAdmin($lawyerSender['text'] === 'Согласовано юристом и передано бухгалтеру.', 'Lawyer saw raw transition text');
+
+$return = array_replace($event, ['entity_kind'=>'document', 'record_number'=>'ДС№2', 'contract_number'=>'Договор №173',
+    'event_kind'=>'accountantReturn', 'reason'=>'Уточните дату оплаты.']);
+$lawyerTask = WorkflowNotices::task($task, $return, $catalog);
+checkTopAdmin($lawyerTask['title'] === 'ДС №2 к договору №173. ООО «Пример»'
+    && $lawyerTask['text'] === 'Доработайте документ по замечанию бухгалтерии. Уточните дату оплаты.', 'Return reason or addendum reference lost');
+$accountantSender = WorkflowNotices::sender($return, $catalog);
+checkTopAdmin($accountantSender['text'] === 'Возвращено юристу на доработку. Уточните дату оплаты.', 'Sender return reason lost');
+
+$lateTask = WorkflowNotices::task($task + ['legal_sla'=>['state'=>'KNOWN', 'working_seconds'=>21600]], $event, $catalog);
+checkTopAdmin(str_contains($lateTask['text'],'Истекли 6 рабочих часов'), 'Legal due warning lost');
+$elsewhere = WorkflowNotices::task(array_replace($task,['page'=>'reconciliation']), $event, $catalog);
+checkTopAdmin(!isset($elsewhere['dedupe_text']) && $elsewhere['title']==='Новая задача или уведомление',
+    'A notice outside approvals changed');
+$signed=WorkflowNotices::task(array_replace($task,['page'=>'contracts-active','severity'=>'blue','text'=>'Подписано, ожидает применения']),
+    array_replace($return,['event_kind'=>'signed']),$catalog);
+checkTopAdmin($signed['title']==='ДС №2 к договору №173. ООО «Пример»'
+    && $signed['text']==='Допсоглашение подписано и ожидает применения' && $signed['severity']==='blue',
+    'Signed addendum update did not use approval format');
+$failed=WorkflowNotices::task(array_replace($task,['text'=>'Допсоглашение: Не удалось доставить пакет.', 'reason'=>'Не удалось доставить пакет.']),
+    array_replace($return,['event_kind'=>'handed']),$catalog);
+checkTopAdmin($failed['text']==='Проверьте отправку допсоглашения. Не удалось доставить пакет.'
+    && $failed['severity']==='red','Delivery failure reason lost');
+$invoiceEvent = array_replace($event,['event_kind'=>'firstInvoice']);
+checkTopAdmin(!isset(WorkflowNotices::task($task,$invoiceEvent,$catalog)['dedupe_text']), 'Unrelated event changed');
 $catalog['document-submitted']['tone'] = 'danger';
 $sender = WorkflowNotices::sender($event, $catalog);
 checkTopAdmin($sender !== null && $sender['severity'] === 'green', 'Catalog tone recolored sender success');
-checkTopAdmin(Admin::usage($catalog['task-received'])['active'], 'Active workflow template not identified');
+$generic=Admin::usage($catalog['task-received']);
+checkTopAdmin($generic['active'] && str_contains($generic['text'],'общих задач'), 'Generic template usage not identified');
+foreach (['document-submitted','agreement-submitted','document-approved','document-returned','packet-confirmed'] as $key) {
+    $usage=Admin::usage($catalog[$key]);
+    checkTopAdmin(!$usage['active'] && str_contains($usage['text'],'системные тексты'), 'Fixed approval usage mislabeled: '.$key);
+}
+checkTopAdmin(str_contains(Admin::help(),'формируются по этапу'), 'Fixed approval formatting missing from help');
 checkTopAdmin(!Admin::usage($catalog['booking-created'])['active'], 'Unwired booking template presented as active');
 
 $fields = Admin::fields(['title' => '"><script>alert(1)</script>', 'body_text' => '</textarea><script>alert(1)</script>']);

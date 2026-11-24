@@ -8,16 +8,32 @@ use RuntimeException;
 
 final class OccupiedBillingCard
 {
-    public static function fields(?string $object,array $row=[]): string
+    public static function fields(?string $object,array $row=[],?string $inlineObject=null): string
     {
         $name=static fn(string $key): string=>$object===null?$key:'billing_exception['.$object.']['.$key.']';
         $checked=($row['enabled'] ?? ($row ? '1' : '0'))==='1';
+        $label=OccupiedBilling::LABEL.($inlineObject!==null?' · '.$inlineObject:'');
         return '<div data-occupied-billing><label class="registry-ui-checkbox"><input type="checkbox" data-occupied-billing-check name="'
-            .View::e($name('enabled')).'" value="1"'.($checked?' checked':'').'><span>'.OccupiedBilling::LABEL.'</span></label>'
+            .View::e($name('enabled')).'" value="1"'.($checked?' checked':'').'><span>'.View::e($label).'</span></label>'
             .'<div data-occupied-billing-fields'.($checked?'':' hidden').'><div class="registry-ui-modal-grid">'
             .Controller::input($name('reason'),'Согласованное основание',(string)($row['reason'] ?? ''),'text',false)
             .Controller::input($name('until'),'Окончание по условию объекта',(string)($row['until'] ?? ''),'date',false)
-            .'</div></div></div>';
+            .'</div>'.($inlineObject!==null?'<div class="demo-row"><button type="submit" class="btn btn-primary">Сохранить исключение</button></div>':'')
+            .'</div></div>';
+    }
+
+    public static function inlineEditor(array $contract,array $objects): string
+    {
+        if (!OccupiedBilling::canEdit($contract)) return '';
+        $exceptions=OccupiedBilling::exceptions($contract);
+        $body='';
+        foreach ($objects as $object) {
+            $fields=PremisesActsCard::hidden('object_id',(int)$object['id'])
+                .self::fields(null,$exceptions[$object['id']] ?? ['enabled'=>'0','until'=>$object['end_date']],$object['name']);
+            [$form]=DirectoryUi::form(OccupiedBilling::SAVE,$contract,$fields);
+            $body.=$form;
+        }
+        return $body;
     }
 
     public static function summary(array $contract,array $objects): string

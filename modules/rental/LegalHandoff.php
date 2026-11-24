@@ -11,10 +11,11 @@ final class LegalHandoff
 {
     public const PARTY='contract.legal-party';
     public const TERMS='contract.legal-terms';
+    public const SECURITY_MULTIPLE='contract.legal-security-multiple';
     public const BLOCK='contract.legal-block';
     public const UPLOAD='contract.legal-upload';
     public const REMOVE='contract.legal-remove';
-    public const ACTIONS=[self::PARTY,self::TERMS,self::BLOCK,self::UPLOAD,self::REMOVE];
+    public const ACTIONS=[self::PARTY,self::TERMS,self::SECURITY_MULTIPLE,self::BLOCK,self::UPLOAD,self::REMOVE];
     private const DRAFT='legal_handoff_draft';
     private const SENT='legal_handoff_sent';
     private const PARTY_PROOF='contract-party-v2:';
@@ -158,12 +159,13 @@ final class LegalHandoff
             $draft['party']=$basis;
             $message='Работа с контрагентом разрешена.';
         } elseif ($action===self::TERMS) {
-            if (($input['multiple']??'')!=='' || trim((string)($input['reason']??''))!=='') {
-                InitialInvoice::execute($db,$actor,InitialInvoice::TERMS,$contract,
-                    $input+['confirmed'=>'1']);
-            }
             $draft['terms']=self::termsBasis($db,$contract);
             $message='Условия договора подтверждены.';
+        } elseif ($action===self::SECURITY_MULTIPLE) {
+            $termsConfirmed=self::checks($db,$contract)['terms'];
+            InitialInvoice::confirmLegalSecurityMultiple($db,$actor,$contract,$input);
+            if ($termsConfirmed) $draft['terms']=self::termsBasis($db,$contract);
+            $message='Кратность обеспечения согласована.';
         } else {
             if (!self::ready($db,$contract)) throw new RuntimeException('Сначала подтвердите контрагента и условия.',409);
             if ($action===self::UPLOAD) {
@@ -209,6 +211,11 @@ final class LegalHandoff
     public static function seal(PDO $db,array $actor,array $contract,array $input): array
     {
         if (!self::ready($db,$contract)) throw new RuntimeException('Сначала подтвердите контрагента и условия.',409);
+        $multiple=InitialInvoice::legalSecurityMultiple($db,$contract);
+        if ($multiple===null) throw new RuntimeException('Согласуйте кратность обеспечения по текущим условиям договора.',409);
+        if (filter_var($input['security_multiple']??null,FILTER_VALIDATE_INT)!==$multiple) {
+            throw new RuntimeException('Кратность обеспечения изменилась. Откройте договор заново.',409);
+        }
         self::assertCounterparty($db,$contract);
         $id=(int)$contract['id'];
         $draft=self::draft($db,$contract);
@@ -217,10 +224,12 @@ final class LegalHandoff
         $expected=(string)($input['packet_fingerprint']??'');
         if (!hash_equals(self::fingerprint($files),$expected)) throw new RuntimeException('Комплект изменился. Проверьте файлы повторно.',409);
         $validated=self::verifyFiles($db,$id,$files);
+        $security=WordSecurityTerms::current($db,$contract);
+        foreach ($validated as $file) WordSecurityTerms::verifyFile($db,$contract,$file,$security);
         $party=Service::get($db,'parties',(int)$contract['party_id']);
         $source=PartyLegalReview::contractSource($db,$party,PartyLegalReview::state($db,(int)$party['id']));
         $bundle=['contract_id'=>$id,'version'=>(int)$contract['version'],'files'=>$files,'actor'=>$actor['name'],
-            'party_proof'=>$draft['party'],'terms_proof'=>$draft['terms'],
+            'party_proof'=>$draft['party'],'terms_proof'=>$draft['terms'],'security_multiple'=>$multiple,
             'party_source'=>$source ? array_intersect_key($source,array_flip(['id','filename','sha256'])) : null,
             'sent_at'=>date('Y-m-d H:i:s')];
         self::store($db,self::SENT,$id.':'.$contract['version'],$bundle);
@@ -256,10 +265,27 @@ final class LegalHandoff
         return $bundle['files'];
     }
 
-    public static function history(PDO $db,int $id): array
+    public static function securityMultipleChange(PDO $db,array $contract): ?array
     {
-        $query=$db->prepare("SELECT fact_json FROM rental_facts WHERE namespace='legal_handoff_sent'
-            AND source_key LIKE ? ORDER BY id DESC");
+        $id=(int)$contract['id'];
+        $version=(int)$contract['version'];
+        $bundles=self::history($db,$id,2);
+        if (count($bundles)!==2 || $contract['amount']===null) return null;
+        [$current,$previous]=$bundles;
+        if (($current['contract_id']??null)!==$id || ($current['version']??null)!==$version
+            || ($previous['contract_id']??null)!==$id || !is_int($previous['version']??null) || $previous['version']>=$version) {
+            return null;
+        }
+        $before=$previous['security_multiple']??null;
+        $after=$current['security_multiple']??null;
+        if (!is_int($before) || !is_int($after) || $before<0 || $after<0 || $before===$after) return null;
+        return ['previous'=>$before,'current'=>$after,'amount'=>InitialInvoice::securityAmount((string)$contract['amount'],$after)];
+    }
+
+    public static function history(PDO $db,int $id,?int $limit=null): array
+    {
+        $sql="SELECT fact_json FROM rental_facts WHERE namespace='legal_handoff_sent' AND source_key LIKE ? ORDER BY id DESC";
+        $query=$db->prepare($sql.($limit===null?'':' LIMIT '.max(0,$limit)));
         $query->execute([$id.':%']);
         return array_map([Importer::class,'decodeExact'],$query->fetchAll(PDO::FETCH_COLUMN));
     }

@@ -63,10 +63,10 @@ final class Service {
     private const BLOCK_PROJECT_STATUSES=['draft','legal','accounting','returned','approved','sent'];
 
     public static function blockedPartyForNew(PDO $p,array $party):bool {
-        if(!empty($party['blocked']))return true;
+        if(!empty($party['blocked']) || WorkspaceReset::hidden($party))return true;
         $inn=preg_replace('/\D/','',(string)($party['inn']??''));
         if($inn==='')return false; // Empty identities never merge unrelated counterparties.
-        $q=$p->prepare('SELECT id,inn FROM parties WHERE blocked=1 ORDER BY id FOR UPDATE');$q->execute();
+        $q=$p->prepare('SELECT id,inn FROM parties p WHERE blocked=1 AND '.WorkspaceReset::visibleSql('p').' ORDER BY id FOR UPDATE');$q->execute();
         foreach($q->fetchAll(PDO::FETCH_ASSOC) as $blocked)
             if(preg_replace('/\D/','',(string)($blocked['inn']??''))===$inn)return true;
         return false;
@@ -103,7 +103,7 @@ final class Service {
             return in_array($action,[RentalServices::CONFIRM,RentalServices::BOOK],true)?'finance.write':'rental.write';
         }
         return match ($action) {
-            'contract.legal', 'contract.forward', 'template.edit', 'document.legal', 'reconcile.legal' => 'rental.approve.legal', 'contract.packet', 'contract.send', 'contract.close', 'document.packet', 'document.apply', 'payment.allocate', 'payment.create', 'invoice.issue', InvoiceBatch::SAVE, InvoiceCycle::SAVE, 'organization.save', 'organization.bank.save', 'reconcile.finance' => 'finance.write', 'template.approve', 'party.unblock' => 'rental.approve.executive', default => match ($actor['role']) {
+            'contract.legal', 'contract.forward', 'template.edit', OwnerWordTemplates::REPLACE, 'document.legal', 'reconcile.legal' => 'rental.approve.legal', 'contract.packet', 'contract.send', 'contract.close', 'document.packet', 'document.apply', 'payment.allocate', 'payment.create', 'invoice.issue', InvoiceBatch::SAVE, InvoiceCycle::SAVE, 'organization.save', 'organization.bank.save', 'reconcile.finance' => 'finance.write', 'template.approve', 'party.unblock' => 'rental.approve.executive', default => match ($actor['role']) {
                 'lawyer' => 'rental.approve.legal', 'accountant' => 'finance.write', 'director' => 'rental.approve.executive', default => 'rental.write'
             }
         };
@@ -163,6 +163,9 @@ final class Service {
             $eventContext = WorkflowEvents::before($p, $action, $in);
             $objectContext = ObjectActivity::before($p,$action,$in);
             $validatedPacket = NativePacket::validateBeforeB($p, $u, $action, $in);
+            if ($action === 'contract.packet' && $eventContext !== null && $validatedPacket !== null) {
+                $eventContext['accountant_confirmation_summary'] = $validatedPacket['view']['accountant_confirmation_summary'];
+            }
             $r = self::execute($p, $u, $action, $in, materials:$materials,createdFiles:$createdFiles);
             $p->prepare('INSERT INTO rental_commands(command_key,action,fingerprint,result_json) VALUES(?,?,?,?)')->execute([
                 $key,
@@ -208,19 +211,21 @@ final class Service {
                 $except ?? 0
             ]);
             if ($q->fetchColumn())throw new RuntimeException('Ожидается акт возврата исключённого помещения.');
-            $q = $p->prepare("SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id WHERE ".\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease()." AND co.object_id=? AND c.status='active' AND ".Occupancy::boundary('start_date')."<=? AND ".Occupancy::boundary('end_date').">=? AND c.id<>? LIMIT 1 FOR UPDATE");
+            $q = $p->prepare('SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id'.Occupancy::REQUESTED_PERIOD
+                .' WHERE '.\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease()
+                ." AND co.object_id=? AND c.status='active' AND ".Occupancy::overlapsRequestedPeriod().' AND c.id<>? LIMIT 1 FOR UPDATE');
             $q->execute([
                 $start,
-                $id,
                 $end,
                 $start,
+                $id,
                 $except ?? 0
             ]);
             if ($q->fetchColumn())throw new RuntimeException('Объект занят договором на выбранный период.');
-            $q=$p->prepare('SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id
-                WHERE '.\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease().' AND co.object_id=? AND c.id<>? AND c.id<>? AND '
-                .Occupancy::expiredWithoutReturn(Occupancy::boundary('end_date'),'LEAST(CURRENT_DATE,?)','?').' LIMIT 1 FOR UPDATE');
-            $q->execute([$start,$id,$except ?? 0,$predecessor ?? 0,$end,$start]);
+            $q=$p->prepare('SELECT c.id FROM contract_objects co JOIN contracts c ON c.id=co.contract_id'.Occupancy::REQUESTED_PERIOD
+                .' WHERE '.\App\ContractOccupancy::contractPredicate('co').' AND '.Occupancy::beforeOwnerRelease().' AND co.object_id=? AND c.id<>? AND c.id<>? AND '
+                .Occupancy::expiredWithoutReturn(Occupancy::boundary('end_date','co','c',Occupancy::RETURN_CHECK_DATE),Occupancy::RETURN_CHECK_DATE,'requested_period.starts_on').' LIMIT 1 FOR UPDATE');
+            $q->execute([$start,$end,$start,$id,$except ?? 0,$predecessor ?? 0]);
             if ($q->fetchColumn()) throw new RuntimeException('Срок прежней аренды истёк. Сначала подтвердите возврат или связанное продолжение.',409);
             $q = $p->prepare("SELECT id,party_id,document_id FROM reservations r WHERE ".Occupancy::reservationPredicate('r')." AND object_id=? AND status='active' AND (contract_id IS NULL OR contract_id<>?) AND ((document_id IS NULL AND until_date>=CURRENT_DATE) OR (document_id IS NOT NULL AND start_date<=? AND end_date>=?)) FOR UPDATE");
             $q->execute([
@@ -302,6 +307,7 @@ final class Service {
         if ($action === DebtFollowUp::SAVE) return DebtFollowUp::write($p,$u,$in);
         if (in_array($action,RentalServices::ACTIONS,true)) return RentalServices::execute($p,$action,$in);
         if(in_array($action,['workspace.reset','workspace.undo','workspace.remove-test-object'],true))return WorkspaceReset::execute($p,$u,$action,$in);
+        if ($action===LocalTestCycleReset::ACTION) return LocalTestCycleReset::execute($p,$u,$in);
         if ($action===TermEndCorrection::ACTION) return TermEndCorrection::execute($p,$u,$in);
         if ($action===ArchivedRentCorrection::ACTION) return ArchivedRentCorrection::execute($p,$u,$in);
         if ($action===SavedReceipt408::ACTION) return SavedReceipt408::execute($p,$u,$in);
@@ -398,11 +404,7 @@ final class Service {
                 if (!$ids && bccomp($partTotal, '0', 2) <= 0)throw new RuntimeException('Выберите объекты.');
                 $types=[];
                 foreach ($ids as $oid)$types[]=self::get($p,'rental_objects',(int)$oid)['type'];
-                $parkingTypes=TemplateAssets::PARKING_TYPES;
-                if (array_intersect($types,$parkingTypes) && array_diff($types,$parkingTypes)
-                    && (!$old || TemplateAssets::objectKind($p,(int)$old['id'])!=='mixed')) {
-                    throw new RuntimeException('Оформите помещения и машино-места отдельными договорами.',422);
-                }
+                ContractDraft::assertObjectTypes($types);
                 $partEdit = $partRows !== null && $old
                     ? \App\BillingPartTerms::beginEdit($p, 'contract', $id, (int)$old['version']) : null;
                 $priorRelations=$old?Occupancy::relations($p,$id):[];
@@ -469,8 +471,7 @@ final class Service {
                     \App\BillingPartTerms::finish($p, $partEdit);
                 }
                 $date = !empty($in['document_date'])?self::date($in['document_date']):($old['document_date'] ?? null);
-                $template = array_intersect($types,$parkingTypes)
-                    ? (array_diff($types,$parkingTypes)?'mixed':'parking') : 'office';
+                $template = array_intersect($types,TemplateAssets::PARKING_TYPES)?'parking':'office';
                 $p->prepare('UPDATE contracts SET document_date=?,template_type=? WHERE id=?')->execute([
                     $date,
                     $template,
@@ -498,6 +499,7 @@ final class Service {
             if(ContractDraft::deleted($c))throw new RuntimeException('Договор не найден.',404);
             self::version($c, $in);
             if (in_array($action,InitialInvoice::ACTIONS,true)) return InitialInvoice::execute($p,$u,$action,$c,$in,$createdFiles);
+            if ($action===AccountantPacketReversal::ACTION) return AccountantPacketReversal::execute($p,$u,$c,$in);
             if ($action===LeasePaymentTerms::SAVE) return LeasePaymentTerms::execute($p,$u,$c,$in);
             if ($action===ContractRevision::ACTION) return ContractRevision::submit($p,$u,$c,$in);
             if($action==='contract.delete'){self::roles(['manager']);return ContractDraft::delete($p,$c,$u,(string)$in['command_key']);}
@@ -543,6 +545,9 @@ final class Service {
                 if (($draft = ContractDraft::input($c)) !== null) {
                     return self::execute($p, $u, 'contract.edit', array_merge($draft, ['id'=>$id,'version'=>$c['version'],'number'=>$c['number'],'command_key'=>$in['command_key'],'intent'=>'submit']), 'contract.submit',$materials);
                 }
+                $typeQuery=$p->prepare('SELECT o.type FROM contract_objects co JOIN rental_objects o ON o.id=co.object_id WHERE co.contract_id=?');
+                $typeQuery->execute([$id]);
+                ContractDraft::assertObjectTypes($typeQuery->fetchAll(PDO::FETCH_COLUMN));
                 $q = $p->prepare('SELECT object_id FROM contract_objects WHERE '.\App\ContractOccupancy::contractPredicate('contract_objects').' AND contract_id=?');
                 $q->execute([
                     $id
@@ -606,6 +611,13 @@ final class Service {
                     'accountant'
                 ]);
                 if (!in_array($status,['accounting','approved'],true))throw new RuntimeException('Договор не у бухгалтера.');
+                if ($status==='approved') {
+                    $q=$p->prepare("SELECT 1 FROM rental_packet_confirmations WHERE record_kind='contract' AND record_id=?
+                        UNION ALL SELECT 1 FROM rental_delivery_intents WHERE entity_type='contract' AND entity_id=? AND operation='contract-packet'
+                        LIMIT 1");
+                    $q->execute([$id,$id]);
+                    if ($q->fetchColumn()) throw new RuntimeException('Пакет уже подтверждён или по нему начата отправка. Продолжите работу с существующим пакетом.',409);
+                }
                 LegalHandoff::assertCounterparty($p,$c);
                 if (empty($in['packet_confirmed']))
                     throw new RuntimeException('Откройте и проверьте актуальный пакет договора.',409);
@@ -620,7 +632,10 @@ final class Service {
                 ]);
                 $legal = $q->fetch();
                 if (!$legal || $legal['baseline_hash'] !== Evidence::approvalSignature($p, $id, $legal['file_id']))throw new RuntimeException('Юрист должен подтвердить актуальный файл и условия.');
-                $next = 'approved';
+                if ($c['end_date'] && $c['end_date']<date('Y-m-d'))
+                    throw new RuntimeException('Срок аренды уже истёк. Проверьте даты договора перед подтверждением пакета.',409);
+                CustomerBookings::checkActivation($p,$c);
+                $next = 'active';
                 break;
                 case 'contract.sign':self::roles([
                     'manager'
@@ -799,6 +814,7 @@ final class Service {
                 'accountant'
             ]);
             $party = self::get($p, 'parties', (int)$in['party_id']);
+            if (WorkspaceReset::hidden($party))throw new RuntimeException('Контрагент не найден.',404);
             $a = self::money($in['amount']);
             $date = self::date($in['payment_date']);
             $id = \App\BusinessIds::next($p,'payments',9000000,false);
@@ -832,6 +848,7 @@ final class Service {
                 'director'
             ]);
             $x = self::get($p, 'parties', $id);
+            if (WorkspaceReset::hidden($x))throw new RuntimeException('Контрагент не найден.',404);
             self::version($x, $in);
             $reason = trim($in['reason'] ?? '');
             if (!$reason)throw new RuntimeException('Укажите причину.');

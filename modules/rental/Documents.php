@@ -23,7 +23,7 @@ final class Documents {
         if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir))throw new RuntimeException('Не удалось создать хранилище документов.');
         return $dir;
     }
-    public static function buildDocx(array $values, string $type, string $target, ?string $approvedSource=null):void {
+    public static function buildDocx(array $values, string $type, string $target, ?string $approvedSource=null,array $phrases=[]):void {
         if (!in_array($type, [
             'office',
             'parking',
@@ -34,7 +34,7 @@ final class Documents {
         . '/templates/'
         . $type
         . '.docx';
-        DocxTemplate::build($approvedSource ?? $source,$values,$type,$target);
+        DocxTemplate::build($approvedSource ?? $source,$values,$type,$target,phrases:$phrases);
     }
     public static function renderPdf(string $html):string {
         if (!class_exists(\Dompdf\Dompdf::class))throw new RuntimeException('PDF renderer недоступен.');
@@ -487,12 +487,23 @@ final class Documents {
             'custom_clauses' => $template['body'] ?? '',
             'template_version' => (string)$template['version']
         ];
+        $security=$entity==='contract'?WordSecurityTerms::current($p,$c):null;
+        $phrases=[];
+        if ($security!==null) {
+            $source=$template['asset']+['kind'=>$templateType,'fields'=>DocxTemplate::fields($template['asset']['path'])];
+            if (!WordSecurityTerms::compatible($source)) {
+                throw new RuntimeException('Нужен утверждённый Word-шаблон с условием об обеспечительном платеже. Готовый договор можно приложить вручную.',422);
+            }
+            $wording=WordSecurityTerms::wording($source,$security);
+            $values+=$wording['values'];
+            $phrases=$wording['phrases'];
+        }
         $fid = bin2hex(random_bytes(16));
         $path = self::directory()
         . '/'
         . $fid
         . '.docx';
-        self::buildDocx($values, $templateType, $path,$template['asset']['path']);
+        self::buildDocx($values, $templateType, $path,$template['asset']['path'],$phrases);
         $filename = ($entity === 'document'?'ДС ':'Договор ')
         . $record['number']
         . ' v'
@@ -515,6 +526,7 @@ final class Documents {
             $id
         ]);
         FileOrder::assign($p, $fid);
+        WordSecurityTerms::remember($p,$c,$hash,$security);
         Audit::record('document.generate', $entity, $id, null, [
             'file' => $fid,
             'template' => $template['id'],

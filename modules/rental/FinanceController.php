@@ -99,11 +99,7 @@ final class FinanceController {
         }
         $view=InvoiceFacts::view($r,$severity);
         $debt = $view['remaining'];
-        $body = '';
-        if (isset($_SESSION['rental_notice'])) {
-            $body.=RentalUI::alert($_SESSION['rental_notice']);
-            unset($_SESSION['rental_notice']);
-        }
+        $body=RentalUI::notice();
         $body.=RentalUI::alert($view['state'],$view['explanation'],match($severity){'red'=>'error','yellow'=>'warning',default=>'info'})
         . RentalUI::pairs([
             [
@@ -304,8 +300,8 @@ final class FinanceController {
         $id = (int)($_GET['id'] ?? 0);
         if(!$id){
             self::requirePaymentWrite();
-            $fields=self::standaloneFields(Controller::query('SELECT id,name FROM parties ORDER BY name,id'));
-            if(isset($_SESSION['rental_notice'])){$fields=RentalUI::alert($_SESSION['rental_notice']).$fields;unset($_SESSION['rental_notice']);}
+            $fields=self::standaloneFields(Controller::query('SELECT id,name FROM parties p WHERE '.WorkspaceReset::visibleSql('p').' ORDER BY name,id'));
+            $fields=RentalUI::notice().$fields;
             [$body,$actions]=self::form('payment.create',[],$fields,'Сохранить приход');
             return RentalUI::modal('Внести отдельный приход',$body,$actions,'invoices');
         }

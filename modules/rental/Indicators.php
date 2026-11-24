@@ -215,7 +215,8 @@ final class Indicators {
                     if(($sla['state']??null)==='UNKNOWN')$task['text'].=' · Срок проверки не подтверждён';
                     if(($sla['working_seconds']??0)>=21600)$task['text'].=' · Истекли 6 рабочих часов юридической проверки';
                 }
-                $add('document',(int)$d['id'],$task['role'],$task['severity'],'approvals',$task['text'],(int)$d['contract_id'],['version'=>(int)$d['version'],'legal_sla'=>$sla]);
+                $add('document',(int)$d['id'],$task['role'],$task['severity'],'approvals',$task['text'],(int)$d['contract_id'],
+                    ['version'=>(int)$d['version'],'legal_sla'=>$sla,'reason'=>$d['reason']]);
             }
         }
         if ($allow('approvals') && ($actor=\App\Auth::user())) foreach (PartyLegalReview::work($actor) as $party) {

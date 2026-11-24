@@ -21,7 +21,7 @@ final class AddendumController {
         $c = $id?Access::contract($id):null;
         $rows = [
         ];
-        foreach (Controller::query('SELECT d.*,c.number base_number FROM rental_documents d JOIN contracts c ON c.id=d.contract_id WHERE (?=0 OR d.contract_id=?) ORDER BY d.id DESC', [
+        foreach (Controller::query('SELECT d.*,c.number base_number FROM rental_documents d JOIN contracts c ON c.id=d.contract_id WHERE (?=0 OR d.contract_id=?) AND '.WorkspaceReset::visibleSql('d').' ORDER BY d.id DESC', [
             $id,
             $id
         ]) as $d) {
@@ -59,6 +59,28 @@ final class AddendumController {
             'Вступает в силу'
         ], $rows), $actions, 'contracts-active');
     }
+    public static function indexation(): never
+    {
+        Auth::requirePermission('rental.write');
+        Service::roles(['manager']);
+        \App\PagePolicy::requireCommand('document.create');
+        $contract = Access::contract((int)($_GET['contract_id'] ?? 0));
+        if ($contract['status'] !== 'active') throw new RuntimeException('Выберите действующий договор.',422);
+        try {
+            $percent = AddendumIndexation::percent($_GET['index_percent'] ?? '');
+            header('Cache-Control: no-store');
+            $quote = AddendumIndexation::quote(DB::pdo(),$contract,(string)($_GET['effective_date'] ?? ''),$percent);
+            $quote['basis_label'] = Documents::dateText($quote['basis']);
+            foreach ($quote['rates'] as &$rate) {
+                $rate['display_base'] = Controller::money($rate['base']);
+            }
+            unset($rate);
+            Http::json($quote);
+        } catch (RuntimeException $error) {
+            if ($error instanceof \PDOException) throw $error;
+            Http::json(['message'=>$error->getMessage()],422);
+        }
+    }
     public static function editor():string {
         Auth::requirePermission('rental.read');
         Auth::requirePermission('rental.write');
@@ -76,52 +98,93 @@ final class AddendumController {
             'returned'
         ], true) || ($d['status'] === 'returned' && $d['return_to'] !== 'manager'))))throw new RuntimeException('Редактирование ДС не назначено менеджеру.', 403);
         if ($d && $d['base_hash'] !== Evidence::documentBase(DB::pdo(), $cid))throw new RuntimeException('Исходные условия договора изменились.', 409);
+        if (!$d && !$continuation && !isset($_GET['object_scope'])) return DocumentCreator::render($c);
+        $selection = AddendumIndexation::selection($continuation ? [] : $_GET,$d);
+        $fixed = $selection['scope'] === 'same';
+        $indexed = $selection['percent'] !== null;
+        $effective = $d['effective_date'] ?? $continuation['offer']['new_start'] ?? date('Y-m-d');
+        $indexError = '';
+        $quote = null;
+        if ($indexed) {
+            try {
+                $quote = AddendumIndexation::quote(DB::pdo(),$c,$effective,$selection['percent']);
+            } catch (RuntimeException $error) {
+                if ($error instanceof \PDOException) throw $error;
+                $indexError = $error->getMessage();
+            }
+        }
         $q = $d?'SELECT t.*,o.name,o.type,o.area FROM document_terms t JOIN rental_objects o ON o.id=t.object_id WHERE t.document_id=? ORDER BY o.id':'SELECT o.id object_id,o.name,o.type,o.area,COALESCE(t.start_date,c.start_date) start_date,COALESCE(t.end_date,c.end_date) end_date,t.amount FROM contract_objects co JOIN contracts c ON c.id=co.contract_id JOIN rental_objects o ON o.id=co.object_id LEFT JOIN contract_terms t ON t.id=(SELECT MAX(t2.id) FROM contract_terms t2 WHERE t2.contract_id=co.contract_id AND t2.object_id=co.object_id) WHERE co.contract_id=? ORDER BY o.id';
         $terms = Controller::query($q, [
             $d['id'] ?? $cid
         ]);
         if ($continuation && !$d) $terms=array_map(static fn($row)=>$row+['object_id'=>$row['id']],ExpiryContinuation::rows($continuation,'addendum'));
+        if ($indexed) {
+            foreach ($terms as &$term) {
+                $rate=$quote['rates'][$term['object_id']] ?? [];
+                $term['indexation_base']=$rate['base'] ?? null;
+                $term['amount']=$rate['amount'] ?? ($d ? $term['amount'] : null);
+            }
+            unset($term);
+        }
         $start=$d['start_date'] ?? $c['start_date'] ?? '';
         $end=$d['end_date'] ?? $continuation['offer']['new_end'] ?? $c['end_date'] ?? '';
         $previewStart=$start ?: date('Y-m-d');$previewEnd=$end ?: $previewStart;
         if ($previewEnd<$previewStart)$previewEnd=$previewStart;
         $party=Controller::query('SELECT name FROM parties WHERE id=?',[$c['party_id']])[0]['name'];
+        $number=$d['number'] ?? AddendumNumber::forNew(DB::pdo(),$c);
+        $numberLabel=AddendumNumber::token($number);
+        $baseLabel='к договору №'.$c['number'].($c['document_date']?' от '.Documents::dateText($c['document_date']):'');
+        $title=($numberLabel!==''?'ДС №'.$numberLabel:'Допсоглашение').' '.$baseLabel;
         $form = 'rental-addendum-form';
         $body = '<form id="'.$form.'" class="registry-ui-modal-grid" data-rental-contract-form data-rental-addendum-form'
+            .' data-rental-addendum-base="'.View::e($baseLabel).'"'
             .' data-rental-period-start="'.View::e($start).'" data-rental-period-end="'.View::e($end).'"'
-            .' data-rental-availability-url="/rental/availability?mode=contract&amp;contract_id='.$cid.'" method="post" action="/rental/action">'
+            .(!$fixed?' data-rental-availability-url="/rental/availability?mode=contract&amp;contract_id='.$cid.'"':'')
+            .($indexed?' data-rental-indexation-url="/rental/addendum-indexation?contract_id='.$cid.'" data-indexation-ready="'.($quote?'true':'false').'"':'')
+            .' method="post" action="/rental/action">'
             .'<input type="hidden" name="_csrf" value="'.View::e(Http::csrf()).'">'
             .'<input type="hidden" name="command_key" value="'.bin2hex(random_bytes(16)).'">'
             .'<input type="hidden" name="action" value="'.($d?'document.edit':'document.create').'">'
             .'<input type="hidden" name="id" value="'.$id.'"><input type="hidden" name="version" value="'.($d['version'] ?? 0).'">'
             .'<input type="hidden" name="contract_id" value="'.$cid.'"><input type="hidden" name="base_version" value="'.$c['version'].'">'
             .'<input type="hidden" name="kind" value="renewal">'
+            .($selection['scope']!==''?'<input type="hidden" name="object_scope" value="'.$selection['scope'].'">':'')
+            .($indexed?'<input type="hidden" name="indexation" value="1">':'')
             .($continuation?ExpiryContinuation::fields($continuation).ExpiryContinuation::editorNote($continuation):'')
-            .'<span class="registry-ui-modal-help">'.View::e('К договору №'.$c['number'].' от '.Documents::dateText($c['document_date']).' · '.$party).'</span>'
             .Controller::input('base_party','Контрагент',$party,'text',false);
         $body=str_replace('name="base_party"','name="base_party" readonly aria-readonly="true"',$body);
         $body.='<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
-            .Controller::input('number','Номер допсоглашения',$d['number'] ?? '','text',true)
+            .Controller::input('number','Номер допсоглашения',$number,'text',true)
             .Controller::input('document_date','Дата допсоглашения',$d['document_date'] ?? date('Y-m-d'),'date',true)
             .Controller::input('start_date','Начало аренды',$start,'date',true)
             .Controller::input('end_date','Окончание аренды',$end,'date',true)
             .Controller::input('base_date','Дата базового договора',$d['base_date'] ?? $c['document_date'],'date',false)
-            .Controller::input('effective_date','Дата вступления в силу',$d['effective_date'] ?? $continuation['offer']['new_start'] ?? date('Y-m-d'),'date',true).'</div>';
+            .Controller::input('effective_date','Дата вступления в силу',$effective,'date',true).'</div>';
+        if ($indexed) {
+            $body .= RentalUI::reviewSection('Индексация',DocumentCreator::percentField($selection['percent'])
+                .'<p data-rental-indexation-status class="field-msg'.($indexError!==''?' is-error':'').'" role="status">'
+                .View::e($quote?'Исходные ставки на '.Documents::dateText($quote['basis']).'.':$indexError).'</p>');
+        }
         $vat=Controller::query('SELECT vat FROM organization WHERE id=1')[0]['vat'] ?? null;
         $body.='<span class="registry-ui-modal-help">НДС нашей организации: '.View::e($vat===null?'не задан':rtrim(rtrim($vat,'0'),'.').'%').'. Суммы включают НДС.</span>';
-        $total='0.00';
-        foreach (\App\BillingParts::terms(DB::pdo(),$d?'document':'contract',(int)($d['id'] ?? $cid)) as $part) if($part['amount']!==null)$total=bcadd($total,$part['amount'],2);
-        foreach($terms as $term)if($term['amount']!==null)$total=bcadd($total,$term['amount'],2);
-        $body.=ContractObjectEditor::render($terms,Availability::options(Availability::items($previewStart,$previewEnd,$cid,null,true)),$total,['start'=>$start,'end'=>$end])
+        $partTotal='0.00';
+        foreach (\App\BillingParts::terms(DB::pdo(),$d?'document':'contract',(int)($d['id'] ?? $cid)) as $part) {
+            if ($part['amount']!==null) $partTotal=bcadd($partTotal,$part['amount'],2);
+        }
+        $total=$partTotal;
+        foreach ($terms as $term) if ($term['amount']!==null) $total=bcadd($total,$term['amount'],2);
+        $options=$fixed?'':Availability::options(Availability::items($previewStart,$previewEnd,$cid,null,true));
+        $body.=($fixed?'<input type="hidden" data-rental-fixed-extra-total value="'.View::e($partTotal).'">':'')
+            .ContractObjectEditor::render($terms,$options,$total,['start'=>$start,'end'=>$end],fixed:$fixed,indexed:$indexed)
             .'<span class="registry-ui-modal-help">Новые условия применяются после подписания с даты вступления ДС в силу. Индивидуальные сроки помещений сохранены.</span>'
-            .PartTerms::render(DB::pdo(),$d?'document':'contract',(int)($d['id'] ?? $cid),$start,$end).'</form>';
+            .($fixed?'':PartTerms::render(DB::pdo(),$d?'document':'contract',(int)($d['id'] ?? $cid),$start,$end)).'</form>';
         $actions = (!$d || $d['status'] === 'draft'?'<button class="btn btn-secondary" type="submit" form="'
         . $form
         . '" name="intent" value="draft">Сохранить в черновиках</button>':'')
         . '<button class="btn btn-primary" type="submit" form="'
         . $form
         . '" name="intent" value="submit">Отправить на согласование</button>';
-        return RentalUI::modal($d?'Изменить допсоглашение':'Допсоглашение', $body, $actions, 'contracts-active', true);
+        return RentalUI::modal($title, $body, $actions, 'contracts-active', true);
     }
     public static function card():string {
         Auth::requirePermission('rental.read');
@@ -137,10 +200,7 @@ final class AddendumController {
         $body = '';
         $delivery=Delivery::presentation(\App\DB::pdo(),'document',$id);
         if ($delivery && $delivery['message']!=='') $body.=RentalUI::alert('Документы и доставка',$delivery['message'],$delivery['error']?'error':'info');
-        if (isset($_SESSION['rental_notice'])) {
-            $body.=RentalUI::alert($_SESSION['rental_notice']);
-            unset($_SESSION['rental_notice']);
-        }
+        $body.=RentalUI::notice();
         $body.=RentalUI::alert($d['status'] === 'cancelled'?'Проект аннулирован':($d['status'] === 'returned'?'Возврат на доработку':($d['status'] === 'signed'?'Соглашение подписано':'Согласование допсоглашения')), $d['reason']?:($d['status'] === 'draft'?'Черновик допсоглашения. Согласование ещё не начато.':'Текущий исполнитель: '
         . $target), in_array($d['status'], [
             'returned',
@@ -167,6 +227,7 @@ final class AddendumController {
                 'Полный срок до',
                 Documents::dateText($d['end_date'])
             ],
+            ...RenewalIndexation::facts(DB::pdo(),$d,'addendum'),
             [
                 'Месячная аренда с НДС',
                 Controller::money($d['amount'])
@@ -211,14 +272,14 @@ final class AddendumController {
         . $c['id'])
         . '</div>';
         $actions = '';
-        $add = function(string $label, string $action, bool $primary = false)use(&$actions, $id) {
+        $add = function(string $label, string $action, bool $primary = false, bool $danger = false)use(&$actions, $id) {
             $user=Auth::user();
             $grant=match($user['role']) {'lawyer'=>'rental.approve.legal','accountant'=>'finance.write','director'=>'rental.approve.executive',default=>'rental.write'};
             if (!Auth::can($grant) || \App\PagePolicy::level(\App\PagePolicy::commandPage($action),$user)<2) return;
             $actions.=RentalUI::button($label, '/rental/addendum-action?id='
             . $id
             . '&action='
-            . $action, $primary);
+            . $action, $primary, $danger);
         };
         if (($role === $target || $role === 'admin') && !$d['applied'] && !in_array($d['status'], [
             'cancelled'
@@ -232,10 +293,10 @@ final class AddendumController {
                 'legal',
                 'accounting'
             ], true)) {
-                $add('Вернуть на доработку', 'document.return');
+                $add('Вернуть на доработку','document.return',danger:in_array($role,['lawyer','accountant'],true));
                 $add('Согласовано', $d['status'] === 'legal'?'document.legal':'document.packet', true);
             }
-            if ($d['status'] === 'returned' && $target === 'lawyer')$add('Передать менеджеру', 'document.forward', true);
+            if ($d['status'] === 'returned' && $target === 'lawyer')$add('Передать менеджеру','document.forward',primary:true,danger:$role==='lawyer');
             if ($d['status'] === 'approved')$add('Отправить ДС и счета', 'document.send', true);
             if ($delivery && $delivery['error'] && in_array($role,['admin','manager','accountant'],true)) $add('Документы переданы клиенту','document.handed');
             if ($d['status'] === 'sent')$add('Загрузить подписанное соглашение', 'document.sign', true);
@@ -277,13 +338,12 @@ final class AddendumController {
         $d = self::record($id);
         $action = (string)($_GET['action'] ?? '');
         \App\PagePolicy::requireCommand($action);
+        if (in_array($action,['document.return','document.forward'],true)) return ApprovalDecision::returnForRevision($d,$action);
         if ($action==='document.send' && $d['status']==='approved' && PacketForm::requiresConfirmation('document',$id)) $action='document.packet';
         $allowed = [
             'document.submit',
             'document.legal',
             'document.packet',
-            'document.return',
-            'document.forward',
             'document.handed',
             'document.send',
             'document.sign',
@@ -301,11 +361,7 @@ final class AddendumController {
             ]
         ]);
         $extra = '';
-        if (in_array($action, [
-            'document.return',
-            'document.forward',
-            'document.cancel'
-        ], true))$fields.=Controller::input('reason', 'Причина', $action === 'document.forward'?$d['reason']:'', 'text', true);
+        if ($action==='document.cancel')$fields.=Controller::input('reason','Причина','','text',true);
         if ($action === 'document.handed')$fields.='<label class="registry-ui-checkbox">'
         . '<input type="checkbox" name="confirmed" value="1" required>'
         . '<span>Документы переданы клиенту лично; это не подтверждение транспорта</span>'

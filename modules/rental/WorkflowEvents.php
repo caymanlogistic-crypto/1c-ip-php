@@ -24,12 +24,29 @@ final class WorkflowEvents
         $id=(int)($input['id']??0);
         $row=null;
         if($parts[1]!=='create')$row=Service::get($db,$party?'parties':($kind==='contract'?'contracts':'rental_documents'),$id);
+        $accountantActivation=$action==='contract.sign' && ($row['status']??null)==='active'
+            && empty($row['signed']) && self::activatedByAccountant($db,$row);
         return ['kind'=>$kind,'before'=>$row,'staff_before'=>$staff?StaffHandoff::before($db,$action,$id,$row):[],
-            'event_floor'=>(int)$db->query('SELECT COALESCE(MAX(id),0) FROM rental_events')->fetchColumn()];
+            'event_floor'=>(int)$db->query('SELECT COALESCE(MAX(id),0) FROM rental_events')->fetchColumn(),
+            'accountant_activation'=>$accountantActivation];
+    }
+
+    private static function activatedByAccountant(PDO $db,array $contract): bool
+    {
+        $q=$db->prepare("SELECT id,source_json,created_at FROM rental_events WHERE contract_id=? AND action='contract.packet'
+            AND JSON_UNQUOTE(JSON_EXTRACT(source_json,'$.epoch'))=(SELECT epoch FROM rental_runtime_context WHERE id=1)
+            ORDER BY id DESC LIMIT 1");
+        $q->execute([$contract['id']]);
+        $row=$q->fetch(PDO::FETCH_ASSOC);
+        $event=$row?self::decode($row):null;
+        return ($event['event_kind']??null)==='package' && ($event['to_status']??null)==='active'
+            && ($event['contract_id']??null)===(int)$contract['id'] && ($event['actor_role']??null)==='accountant'
+            && ($event['entity_version']??PHP_INT_MAX)<=(int)$contract['version']
+            && ($event['accountant_packet_confirmation']['external_operations']??null)===AccountantPacketSummary::EXTERNAL_DISABLED;
     }
 
     /** Pure selector: an attempted/failed command, draft save or replay is not an event. */
-    public static function transition(string $action,array $input,?array $before,array $after): ?array
+    public static function transition(string $action,array $input,?array $before,array $after,bool $accountantActivation=false): ?array
     {
         $op=explode('.',$action)[1]??'';$from=$before['status']??null;$to=$after['status']??null;
         $kind=null;$target=null;
@@ -42,9 +59,12 @@ final class WorkflowEvents
         }elseif($op==='legal'&&$to==='accounting'){$kind='legalApprove';$target='accountant';}
         elseif(in_array($op,['return','legal-block'],true)&&$to==='returned'){$kind=$from==='accounting'?'accountantReturn':'lawyerReturn';$target=$after['return_to']??null;}
         elseif($op==='forward'&&$to==='returned'&&($after['return_to']??null)==='manager'){$kind='lawyerReturn';$target='manager';}
-        elseif($op==='packet'&&$to==='approved'&&!empty($input['packet_confirmed'])){$kind='package';$target='manager';}
+        elseif($action==='contract.packet'&&in_array($from,['accounting','approved'],true)&&$to==='active'&&!empty($input['packet_confirmed'])){$kind='package';$target='manager';}
+        elseif($action==='document.packet'&&$to==='approved'&&!empty($input['packet_confirmed'])){$kind='package';$target='manager';}
         elseif($op==='handed'&&$from==='approved'&&$to==='sent'){$kind='handed';$target='manager';}
-        elseif($op==='sign'&&$from==='sent'&&in_array($to,['active','signed'],true)){$kind='signed';$target='manager';}
+        elseif($op==='sign'&&($from==='sent'&&in_array($to,['active','signed'],true)
+            || $action==='contract.sign'&&$accountantActivation&&$from==='active'&&$to==='active'
+                && empty($before['signed'])&&!empty($after['signed']))){$kind='signed';$target='manager';}
         elseif($op==='apply'&&empty($before['applied'])&&!empty($after['applied'])){$kind='activated';$target='manager';}
         return $kind===null?null:['event_kind'=>$kind,'target_role'=>$target,'resubmitted'=>$kind==='resubmit'];
     }
@@ -55,7 +75,7 @@ final class WorkflowEvents
         if(!$db->inTransaction())throw new RuntimeException('Workflow event must share its command transaction.');
         $kind=$context['kind'];$party=$kind==='party';$id=(int)($result['id']??$context['before']['id']??0);
         $after=Service::get($db,$party?'parties':($kind==='contract'?'contracts':'rental_documents'),$id);
-        $transition=self::transition($action,$input,$context['before'],$after);
+        $transition=self::transition($action,$input,$context['before'],$after,$context['accountant_activation']??false);
         if ($action===InitialInvoice::ISSUE && !empty($result['newly_issued'])) {
             $transition=['event_kind'=>'firstInvoice','target_role'=>'manager','resubmitted'=>false];
         }
@@ -88,7 +108,16 @@ final class WorkflowEvents
             'actor_id'=>(int)$actor['id'],'role_id'=>$actor['role_id']??$actor['role'],'actor_role'=>$actor['role'],
             'auth_version'=>(int)$actor['auth_version'],'actor_name'=>$actor['name'],'epoch'=>(string)$epoch,
             'text'=>(string)$events[0]['description'],'reason'=>(string)($party?($after['block_reason']??''):($after['reason']??''))]+$transition;
+        if ($action==='contract.legal' && $transition['event_kind']==='legalApprove' && RegistryState::managed($context['before'])) {
+            $change=LegalHandoff::securityMultipleChange($db,$context['before']);
+            if ($change!==null) $body['security_multiple_change']=$change;
+        }
         if ($action===InitialInvoice::ISSUE) $body['invoice_ids']=$result['invoice_ids'];
+        if ($action==='contract.packet' && $transition['event_kind']==='package') {
+            $summary=$context['accountant_confirmation_summary']??null;
+            if (!is_array($summary)) throw new RuntimeException('ACCOUNTANT_PACKET_SUMMARY_REQUIRED');
+            $body['accountant_packet_confirmation']=$summary+['external_operations'=>AccountantPacketSummary::EXTERNAL_DISABLED];
+        }
         if (StaffHandoff::managed($action)) $body['staff_handoff']=$staff;
         if ($action==='contract.submit' && $staff && ($named=\Modules\Integrations\StaffHandoffProbe::assign($db,$body))) {
             $body['staff_handoff']['targets']=[$named];

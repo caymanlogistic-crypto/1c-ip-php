@@ -192,6 +192,7 @@ final class ServerWorkflowMax
         $proof=(new CurrentContractMaxProof($this->db))->plan($eventId,$scope['group_id'],$scope['revision'],$version,$this->staff);
         $planned=['event_id'=>$eventId,'command_key'=>$commandKey,'actor_id'=>$event['actor_id'],'text'=>$proof['catalog']['body'],
             'proof_sha256'=>$proof['sha256'],'request_key'=>$proof['request_key']];
+        $planned['route']=$this->staff?MaxWorkingDestination::original($scope):MaxWorkingDestination::route($this->db,$scope,$eventId);
         if (($this->staff || in_array($event['event_kind'],[...self::KINDS,'firstInvoice'],true)) && $proof['catalog']['format']==='html') $planned['format']='html';
         return $planned;
     }
@@ -248,19 +249,21 @@ final class ServerWorkflowMax
         if ($proof!==$event||$event['event_id']<=$scope['event_floor']) throw new RuntimeException('WORKFLOW_MAX_EVENT_REJECTED');
         $sequence=$this->staff && $scope['scope']===self::STAFF_SEQUENCE;
         $probe=$this->staff && isset($scope['isolated_probe']);
+        $route=$event['route'];
         $lock=$this->db->prepare("SELECT GET_LOCK('ipphp-provider:max',?)");
         $lock->execute([$sequence?5:0]);
         if ((int)$lock->fetchColumn()!==1) throw new RuntimeException('WORKFLOW_MAX_BUSY');
         try {
             if (!$probe) $this->assertSlot($event);
-            if ($sequence) $this->waitForTarget($scope['chat_id'],$event['request_key']);
+            if ($sequence) $this->waitForTarget($route['chat_id'],$event['request_key']);
             if ($this->context()!==$scope || $this->plan($event['event_id'],$event['command_key'],Auth::user() ?? [])!==$event)
                 throw new RuntimeException('WORKFLOW_MAX_EVENT_REJECTED');
             if ($probe) $this->claimProbe($scope,$event);
             $this->scope=$scope;$this->event=$event;$this->sent=0;$this->pending=null;
-            $transport=fn($p,$o,$c,$s,$t,$r,$id,$g)=>(new MessageTransport(null,null,null,$this))->execute($p,$o,$c,$s,$t,$r,$id,$g);
+            $transport=fn($p,$o,$c,$s,$t,$r,$id,$g)=>(new MessageTransport(null,null,null,$this))->execute(
+                $p,$o,$c,MaxWorkingDestination::recipientSecret($s,$t,$route,$g),$t,$r,$id,[$t]);
             return (new Messaging($this->db,Config::store(),$transport))->dispatch(
-                'max',$event['actor_id'],$event['request_key'],'send',[$scope['group_id']],$event['text'],maxFormat:$event['format'] ?? null);
+                'max',$event['actor_id'],$event['request_key'],'send',[$route['group_id']],$event['text'],maxFormat:$event['format'] ?? null);
         } finally {$this->event=null;$this->scope=null;$this->pending=null;$this->db->query("SELECT RELEASE_LOCK('ipphp-provider:max')");}
     }
 
@@ -296,7 +299,7 @@ final class ServerWorkflowMax
     public function assertOperation(string $provider,string $operation,string $target,string $raw,array $groups): void
     {
         if (!$this->event||!$this->scope||$this->context()!==$this->scope||$provider!=='max'||$operation!=='send'
-            ||$target!==$this->scope['chat_id']||$groups!==[$target]
+            ||$target!==$this->event['route']['chat_id']||$groups!==[$target]
             ||$raw!==MessageTransport::maxPayload($this->event['text'],$this->event['format'] ?? null)) throw new RuntimeException('WORKFLOW_MAX_REQUEST_REJECTED');
         $proof=$this->plan($this->event['event_id'],$this->event['command_key'],Auth::user() ?? []);
         if ($proof!==$this->event) throw new RuntimeException('WORKFLOW_MAX_EVENT_REJECTED');
@@ -318,8 +321,9 @@ final class ServerWorkflowMax
     private function assertHttpScope(string $method,string $url,?string $body): void
     {
         if (!$this->event||!$this->scope) throw new RuntimeException('WORKFLOW_MAX_SCOPE_REJECTED');
-        self::assertPath($this->sent,$method,$url,$body,$this->scope['chat_id'],$this->event['text'],$this->event['format'] ?? null);
-        $this->assertOperation('max','send',$this->scope['chat_id'],(string)$body,[$this->scope['chat_id']]);
+        $chat=$this->event['route']['chat_id'];
+        self::assertPath($this->sent,$method,$url,$body,$chat,$this->event['text'],$this->event['format'] ?? null);
+        $this->assertOperation('max','send',$chat,(string)$body,[$chat]);
     }
     public function assertHttpRequest(string $method,string $url,?string $body): void
     {

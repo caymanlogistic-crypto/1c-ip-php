@@ -8,9 +8,9 @@ if (PHP_SAPI!=='cli' || getenv('APP_CONTRACT_DRAFT_TEST')!=='1' || !preg_match('
 function ok(bool $yes,string $message):void { if(!$yes)throw new RuntimeException($message); }
 function actor(string $role):void { $p=DB::pdo();$q=$p->prepare('SELECT id,auth_version FROM users WHERE role=? AND active=1 ORDER BY id LIMIT 1');$q->execute([$role]);$u=$q->fetch();ok((bool)$u,'Test actor missing');$_SESSION=['user_id'=>$u['id'],'auth_version'=>$u['auth_version']]; }
 function keyForTest():string{return bin2hex(random_bytes(16));}
-function reject(callable $call,int $status):void {
+function reject(callable $call,int $status,string $message=''):void {
  try {$call();throw new LogicException('Unexpected success');}
- catch (RuntimeException $error) {if ($error instanceof LogicException) throw $error; ok($error->getCode()===$status,'Unexpected rejection: '.$error->getMessage());}
+ catch (RuntimeException $error) {if ($error instanceof LogicException) throw $error; ok($error->getCode()===$status && ($message==='' || $error->getMessage()===$message),'Unexpected rejection: '.$error->getMessage());}
 }
 function record(int $id):array{return Service::get(DB::pdo(),'contracts',$id);}
 $p->beginTransaction();
@@ -61,6 +61,47 @@ try {
  try { Service::command('contract.edit',array_replace($partial,['command_key'=>keyForTest()]));throw new LogicException('Stale version accepted'); } catch(RuntimeException $e) {if($e instanceof LogicException)throw $e;ok($e->getCode()===409,'Stale version did not fail with conflict');}
  actor('accountant');try{Service::command('contract.create',['command_key'=>keyForTest(),'intent'=>'draft']);throw new LogicException('Forbidden actor saved draft');}catch(RuntimeException $e){if($e instanceof LogicException)throw $e;ok($e->getCode()===403,'Forbidden actor not denied');}actor('manager');
  $party=(int)$p->query('SELECT id FROM parties WHERE blocked=0 ORDER BY id LIMIT 1')->fetchColumn();
+ $office=(int)$p->query("SELECT id FROM rental_objects WHERE type='Офис' ORDER BY id LIMIT 1")->fetchColumn();
+ $parking=(int)$p->query("SELECT id FROM rental_objects WHERE type='Машиноместо' ORDER BY id LIMIT 1")->fetchColumn();
+ ok($office>0 && $parking>0,'Office and parking types are required');
+ ContractDraft::assertObjectTypes(['Машиноместо','Машино-место']);
+ $mixed=['party_id'=>$party,'document_date'=>$from,'start_date'=>$from,'end_date'=>$until,
+     'amount'=>'300.00','objects'=>[$office,$parking],'term_amount'=>[$office=>'100.00',$parking=>'200.00']];
+ foreach (['draft','submit'] as $intent) {
+  reject(fn()=>Service::command('contract.create',['command_key'=>keyForTest(),'intent'=>$intent]+$mixed),422,ContractDraft::OBJECT_TYPE_ERROR);
+ }
+ ok((int)$p->query('SELECT COUNT(*) FROM contracts')->fetchColumn()===$before+1,'A mixed offer created a contract');
+
+ $p->exec('SAVEPOINT historical_mixed');
+ $p->prepare('UPDATE contracts SET source_json=? WHERE id=?')->execute([
+    Modules\Rental\Importer::json(['draft_input'=>$mixed]),$id,
+ ]);
+ $_GET=['id'=>$id];
+ $legacy=ContractForm::render();
+ foreach ([$office,$parking] as $object) {
+  ok(str_contains($legacy,'name="objects[]" value="'.$object.'"'),'Existing mixed draft must remain editable');
+ }
+ $storedMixed=record($id);
+ $p->exec('SAVEPOINT reject_mixed_submit');
+ reject(fn()=>Service::command('contract.submit',['id'=>$id,'version'=>$c['version'],'command_key'=>keyForTest()]),422,ContractDraft::OBJECT_TYPE_ERROR);
+ $p->exec('ROLLBACK TO SAVEPOINT reject_mixed_submit');
+ $p->exec('SAVEPOINT reject_mixed_edit');
+ reject(fn()=>Service::command('contract.edit',['id'=>$id,'version'=>$c['version'],'intent'=>'draft','number'=>$c['number'],'command_key'=>keyForTest()]+$mixed),422,ContractDraft::OBJECT_TYPE_ERROR);
+ $p->exec('ROLLBACK TO SAVEPOINT reject_mixed_edit');
+ ok(record($id)===$storedMixed,'Rejecting the mixed draft changed the record');
+ $completeMixed=array_replace($mixed,['objects'=>[$office],'term_amount'=>[$office=>'100.00']]);
+ Service::command('contract.edit',['id'=>$id,'version'=>$c['version'],'intent'=>'draft','number'=>$c['number'],'command_key'=>keyForTest()]+$completeMixed);
+ ok(ContractDraft::input(record($id))['objects']===[$office],'Removing the extra type did not unblock draft save');
+ $p->exec('ROLLBACK TO SAVEPOINT historical_mixed');
+
+ $p->exec('SAVEPOINT old_object_relation');
+ $p->prepare("UPDATE contracts SET source_json='{}' WHERE id=?")->execute([$id]);
+ foreach ([$office,$parking] as $object) {
+  $p->prepare('INSERT INTO contract_objects(contract_id,object_id) VALUES(?,?)')->execute([$id,$object]);
+ }
+ reject(fn()=>Service::command('contract.submit',['id'=>$id,'version'=>$c['version'],'command_key'=>keyForTest()]),422,ContractDraft::OBJECT_TYPE_ERROR);
+ ok(record($id)['status']==='draft','Direct submit advanced a stored mixed draft');
+ $p->exec('ROLLBACK TO SAVEPOINT old_object_relation');
  $complete=['id'=>$id,'version'=>$c['version'],'number'=>$c['number'],'command_key'=>keyForTest(),'intent'=>'submit','party_id'=>$party,'document_date'=>$from,'start_date'=>$from,'end_date'=>$until,'amount'=>'123.45','objects'=>[$oid],'term_amount'=>[$oid=>'123.45']];
  Service::command('contract.edit',array_replace($complete,['intent'=>'draft']));$c=record($id);
  Service::command('contract.submit',['id'=>$id,'version'=>$c['version'],'command_key'=>keyForTest()]);$c=record($id);
@@ -70,9 +111,9 @@ try {
  $entry=$p->query("SELECT title,body_text,version FROM integration_template_catalog WHERE channel='top' AND source_key='document-submitted'")->fetch();
  $notice=Modules\Rental\WorkflowNotices::sender($event,['document-submitted'=>$entry]);
  $partyName=$p->query('SELECT name FROM parties WHERE id='.$party)->fetchColumn();
- ok($notice['severity']==='green'&&str_contains($notice['text'],$partyName)&&!str_contains($notice['text'],'Сохранён договор'),'Submit notice missing counterparty/repeats save');
+ ok($notice['severity']==='green'&&str_contains($notice['title'],$partyName)&&!str_contains($notice['text'],'Сохранён договор'),'Submit notice missing counterparty/repeats save');
 
- echo "PASS: rates required in new and edited drafts, partial metadata, reopen/card/registry, replay, version, forbidden role, incomplete refusal, complete submission, exact money; transaction rolled back.\n";
+ echo "PASS: uniform object types on draft/edit/submission and rates required in new and edited drafts, partial metadata, reopen/card/registry, replay, version, forbidden role, incomplete refusal, complete submission, exact money; transaction rolled back.\n";
 } catch (Throwable $failure) { fwrite(STDERR,get_class($failure).': '.$failure->getMessage().' at '.$failure->getFile().':'.$failure->getLine().PHP_EOL); $failed=true; } finally {if($p->inTransaction())$p->rollBack();}
 
 if (!empty($failed)) exit(1);

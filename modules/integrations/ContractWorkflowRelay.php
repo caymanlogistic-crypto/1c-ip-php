@@ -109,6 +109,7 @@ final class ContractWorkflowRelay
         if ($extended && $field!==null && isset($proof['catalog']['values'][$field])) {
             $plan['values'][$field]=$proof['catalog']['values'][$field];
         }
+        if (MaxWorkingDestination::localChoice($this->db,'contract',$scope['source'],$id)) $plan['destination']=MaxWorkingDestination::WORK;
         self::validatePlan($plan,$scope,time());
         return $plan;
     }
@@ -214,6 +215,7 @@ final class ContractWorkflowRelay
     private static function validatePlan(array $plan,array $scope,int $now): void
     {
         $fields=['source','epoch','event_id','recorded_at','contract_id','actor_id','action','kind','version','values'];
+        if (($plan['destination']??null)===MaxWorkingDestination::WORK) $fields[]='destination';
         if (count($plan)!==count($fields) || array_diff($fields,array_keys($plan))) throw new RuntimeException('CONTRACT_RELAY_PAYLOAD',400);
         foreach (['event_id','recorded_at','contract_id','actor_id','version'] as $field) {
             if (!is_int($plan[$field]) || $plan[$field]<1) throw new RuntimeException('CONTRACT_RELAY_PAYLOAD',400);

@@ -50,7 +50,7 @@ final class PacketForm
         $hidden .= '<input type="hidden" name="expected_packet_hash" value="'
             .View::e($packet['expected_packet_hash']).'">'
             .'<input type="hidden" name="packet_confirmed" value="1">';
-        $notice = $previous === null ? '' : RentalUI::alert($changedMessage, implode(' · ', $changed), 'warning');
+        $notice = $previous === null ? '' : RentalUI::alert($changedMessage, implode(' · ', $changed), 'warning',transient:true);
         return ['fields'=>$hidden,'notice'=>$notice];
     }
 
@@ -112,7 +112,7 @@ final class PacketForm
             }
             $body .= '</div>';
         }
-        if (isset($context['legal_handoff'])) $body.=LegalHandoffCard::accountantDocuments($id,$context['legal_handoff']);
+        if (isset($context['legal_handoff'])) $body.=LegalHandoffCard::accountantDocuments($context['legal_handoff']);
         elseif(isset($context['word_pack']))$body.=WordPack::links($context['word_pack']);
         return $body.$confirmation['fields'];
     }

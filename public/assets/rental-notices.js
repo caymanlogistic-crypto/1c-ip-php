@@ -5,7 +5,7 @@
   else root.RentalNotices=api;
 })(typeof window==='object'?window:globalThis,()=>{
   const tones={red:'danger',yellow:'warning',green:'success',blue:'info'};
-  const fingerprint=event=>JSON.stringify([String(event.id),tones[event.severity]||'',String(event.where),String(event.text),event.version??null]);
+  const fingerprint=event=>JSON.stringify([String(event.id),tones[event.severity]||'',String(event.where),String(event.dedupe_text??event.text),event.version??null]);
   function create({storage,component}){
     let catalog={};
     component?.setTemplateResolver(({eventKey,variables})=>{
@@ -30,7 +30,12 @@
         known.add(identity);
         // Only the fixed rollout preimage is baseline. A new handoff is visible on first login.
         if(!Number.isSafeInteger(event.event_id)||event.event_id<=dto.bootstrap_event_id)return;
-        component?.show({tone:tones[event.severity],title:event.title,message:event.text,eventKey:event.event_key,variables:event.variables});
+        const text={tone:tones[event.severity],title:event.title,message:event.text};
+        if(typeof event.dedupe_text!=='string'){
+          text.eventKey=event.event_key;
+          text.variables=event.variables;
+        }
+        component?.show(text);
         shown.push(event);
       };
       for(const event of dto.events)show(event);

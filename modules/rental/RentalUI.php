@@ -17,9 +17,11 @@ final class RentalUI
         return '<button type="button" class="btn '.($danger?'btn-danger':($primary?'btn-primary':'btn-secondary')).'" data-rental-open="'.View::e($url).'">'.View::e($label).'</button>';
     }
 
-    public static function alert(string $title,string $sub='',string $tone='info',bool $filled=false): string
+    public static function alert(string $title,string $sub='',string $tone='info',bool $filled=false,bool $transient=false): string
     {
-        return '<div class="form-alert alert-'.$tone.($filled?' form-alert--filled':'').'" role="'.($tone==='error'?'alert':'status').'"><span class="alert-mark" aria-hidden="true">'.($tone==='error'?'×':($tone==='warning'?'!':'i')).'</span><div class="alert-body"><div class="alert-body-title">'.View::e($title).'</div>'.($sub?'<div class="alert-body-sub">'.View::e($sub).'</div>':'').'</div></div>';
+        return '<div class="form-alert alert-'.$tone.($filled?' form-alert--filled':'').'" role="'.($tone==='error'?'alert':'status').'"'
+            .($transient?' data-rental-transient-notice="'.($tone==='error'?'danger':$tone).'"':'')
+            .'><span class="alert-mark" aria-hidden="true">'.($tone==='error'?'×':($tone==='warning'?'!':'i')).'</span><div class="alert-body"><div class="alert-body-title">'.View::e($title).'</div>'.($sub?'<div class="alert-body-sub">'.View::e($sub).'</div>':'').'</div></div>';
     }
 
     public static function notice(): string
@@ -27,7 +29,7 @@ final class RentalUI
         if (!isset($_SESSION['rental_notice'])) return '';
         $message=(string)$_SESSION['rental_notice'];
         unset($_SESSION['rental_notice']);
-        return self::alert($message);
+        return self::alert($message,transient:true);
     }
 
     public static function reviewTermsTable(array $terms,?string $total): string
@@ -54,7 +56,7 @@ final class RentalUI
             .$body.'</section>';
     }
 
-    public static function modal(string $title,string $body,string $actions='',string $active='contracts',bool $wide=false,string $leadingActions='',string $closeLabel='Закрыть',bool $extractForms=true,bool $canvas=false,bool $tableOnly=false, string $design="",bool $tall=false):string
+    public static function modal(string $title,string $body,string $actions='',string $active='contracts',bool $wide=false,string $leadingActions='',string $closeLabel='Закрыть',bool $extractForms=true,bool $canvas=false,bool $tableOnly=false, string $design="",bool $tall=false,bool $confirmation=false):string
     {
         if ($actions==='' && $extractForms)
             $body=preg_replace_callback('~<form\b[^>]*>.*?</form>~s',function($match) use(&$actions) {
@@ -72,7 +74,7 @@ final class RentalUI
         $titleId='rental-modal-title-'.bin2hex(random_bytes(6));
         $h='<dialog data-rental-dialog aria-labelledby="'.$titleId.'" data-rental-return="/rental/'.View::e($active).'"'
             .(!$fetch?' data-rental-autopen':'').($design!==''?\App\InterfaceDesign::attributes($design):'').' class="modal registry-ui-modal '
-            .($wide?'registry-ui-modal--probe':'registry-ui-modal--reading').($canvas?' registry-ui-modal--form-canvas':'').($tableOnly?' registry-ui-modal--table':'')
+            .($confirmation?'registry-ui-modal--confirmation registry-ui-modal--compact-confirmation':($wide?'registry-ui-modal--probe':'registry-ui-modal--reading')).($canvas?' registry-ui-modal--form-canvas':'').($tableOnly?' registry-ui-modal--table':'')
             .($tall?' registry-ui-modal--tall':'')
             .' demo-dialog"><div class="registry-ui-modal-form"><div class="modal-head"><h2 class="modal-title" id="'.$titleId.'">'
             .View::e($title)

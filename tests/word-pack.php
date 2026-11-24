@@ -2,7 +2,7 @@
 declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 use App\DB;
-use Modules\Rental\{Service,WordPack,WordGenerationData,OriginalDocuments,TemplateAssets,Importer,Evidence,DirectoryDetails,Documents,LegalHandoff};
+use Modules\Rental\{Service,WordPack,WordGenerationData,OriginalDocuments,TemplateAssets,Importer,Evidence,DirectoryDetails,Documents,FileOrder,InitialInvoice,LegalHandoff,OwnerWordTemplates,WordDerivative,WordSecurityTerms};
 set_exception_handler(static function(Throwable $e):void{fwrite(STDERR,$e->getMessage().' @ '.$e->getFile().':'.$e->getLine().PHP_EOL);exit(1);});
 $db=DB::pdo();$receipt=json_decode(file_get_contents(APP_ROOT.'/.local/copy-verification.json'),true,512,JSON_THROW_ON_ERROR);
 if($db->query('SELECT DATABASE()')->fetchColumn()!==$receipt['database']||!str_starts_with($receipt['database'],'ipphp_task_')||realpath($receipt['app_root'])!==APP_ROOT||!$receipt['isolated_test_data'])throw new RuntimeException('Isolated verified data required');
@@ -10,7 +10,8 @@ function ok(bool $v,string $m):void{if(!$v)throw new RuntimeException($m);}
 function actor(string $role):void{$q=DB::pdo()->prepare('SELECT u.id,u.auth_version FROM users u JOIN role_profiles p ON p.role_id=u.role WHERE p.kind=? AND u.active=1 ORDER BY u.id LIMIT 1');$q->execute([$role]);$u=$q->fetch();ok((bool)$u,'Role exists '.$role);$_SESSION=['user_id'=>$u['id'],'auth_version'=>$u['auth_version']];}
 function reject(callable $f,string $part):void{try{$f();}catch(RuntimeException $e){ok(str_contains($e->getMessage(),$part),'Unexpected rejection: '.$e->getMessage());return;}throw new RuntimeException('Expected rejection '.$part);}
 function command(string $action,array $input):array{return Service::command($action,$input+['command_key'=>bin2hex(random_bytes(16))]);}
-function fixture(string $type,bool $withPlan=true,array $rates=['10500.01'],string $partyType='company',array $planFormats=[]):int{
+function fixture(string $type,bool $withPlan=true,array $rates=['10500.01'],string $partyType='company',array $planFormats=[],
+    bool $confirmSecurity=true,?string $documentDate=null):int{
     $db=DB::pdo();actor('manager');
     $pid=(int)$db->query('SELECT MAX(id)+1 FROM parties')->fetchColumn();
     $oid=(int)$db->query('SELECT MAX(id)+1 FROM rental_objects')->fetchColumn();
@@ -44,14 +45,18 @@ function fixture(string $type,bool $withPlan=true,array $rates=['10500.01'],stri
         $cid++;
         $sum=bcadd($sum,$rate,2);
     }
-    $r=command('contract.create',['party_id'=>$pid,'start_date'=>'2026-12-01','end_date'=>'2027-11-30','amount'=>$sum,'objects'=>array_keys($objects),'term_amount'=>$objects,'intent'=>'submit']);
-    $id=(int)$r['id'];actor('lawyer');confirmChecks(Service::get($db,'contracts',$id));return $id;
+    $r=command('contract.create',['party_id'=>$pid,'start_date'=>'2026-12-01','end_date'=>'2027-11-30','amount'=>$sum,
+        'objects'=>array_keys($objects),'term_amount'=>$objects,'intent'=>'submit']
+        +($documentDate===null?[]:['document_date'=>$documentDate]));
+    $id=(int)$r['id'];actor('lawyer');confirmChecks(Service::get($db,'contracts',$id),$confirmSecurity);return $id;
 }
-function confirmChecks(array $record): void {
+function confirmChecks(array $record,bool $confirmSecurity=true): void {
     foreach ([LegalHandoff::PARTY,LegalHandoff::TERMS] as $check) {
         command($check,['id'=>$record['id'],'version'=>$record['version'],
             'party_basis'=>LegalHandoff::partyBasis(DB::pdo(),$record)]);
     }
+    if ($confirmSecurity) command(LegalHandoff::SECURITY_MULTIPLE,
+        ['id'=>$record['id'],'version'=>$record['version'],'multiple'=>'1']);
 }
 function inputFor(array $plan):array{
     $sample=['party_postal_address'=>'Москва, ул. Примерная, д. 1','party_email'=>'lawyer@example.test','party_kpp'=>'770101001','party_ogrn'=>'1027700123456',
@@ -92,8 +97,186 @@ function checkOfficeAct(string $text,string $unit): void {
     ok(!str_contains($text,'показания')&&!str_contains($text,'брелок'),
         'Office deed omits meter readings and parking accessories');
 }
+function stageGeneratedWord(PDO $db,array $contract,array $pack,array &$created,bool $zip): array {
+    $draft=LegalHandoff::files($db,$contract);
+    ok($draft===[],'Use a fresh synthetic contract attachment list');
+    $query=$db->prepare('SELECT * FROM rental_files WHERE id=?');
+    $query->execute([$pack['primary']]);
+    $source=$query->fetch();
+    $id=bin2hex(random_bytes(16));
+    $path=Documents::directory().'/'.$id.($zip?'.zip':'.docx');
+    $created[$id]=$path;
+    if ($zip) {
+        $archive=new ZipArchive();
+        ok($archive->open($path,ZipArchive::CREATE)===true,'Create synthetic ZIP');
+        ok($archive->addFile(Documents::directory().'/'.$source['path'],$source['filename']),'Use the generated primary as the first ZIP entry');
+        ok($archive->close(),'Write synthetic ZIP');
+    } else {
+        ok(copy(Documents::directory().'/'.$source['path'],$path),'Copy generated Word to the lawyer attachment');
+    }
+    $filename=$zip?'Синтетический комплект.zip':$source['filename'];
+    $sha256=hash_file('sha256',$path);
+    $db->prepare("INSERT INTO rental_files(id,entity_type,entity_id,version,kind,filename,path,sha256,mime)
+        VALUES(?,'contract',?,?,'lawyer-file',?,?,?,?)")
+        ->execute([$id,$contract['id'],$contract['version'],$filename,basename($path),$sha256,$zip?'application/zip':$source['mime']]);
+    FileOrder::assign($db,$id);
+    $files=[compact('id','filename','sha256')];
+    $db->prepare("UPDATE rental_facts SET fact_json=JSON_SET(fact_json,'$.files',CAST(? AS JSON))
+        WHERE namespace='legal_handoff_draft' AND source_key=?")->execute([Importer::json($files),$contract['id']]);
+    return ['id'=>$contract['id'],'version'=>$contract['version'],'packet_fingerprint'=>LegalHandoff::fingerprint($files)];
+}
+
+function assertWordSecurity(PDO $db,array &$created): void {
+    foreach (['office'=>'Офис','parking'=>'Машиноместо'] as $kind=>$type) {
+        $partyType=$kind==='office'?'company':'entrepreneur';
+        $id=fixture($type,partyType:$partyType,confirmSecurity:false,documentDate:date('Y-m-d'));
+        $contract=Service::get($db,'contracts',$id);
+        $version=(int)$contract['version'];
+        $selection=[$kind=>0];
+        $input=['id'=>$id,'version'=>$version];
+        reject(fn()=>WordPack::plan($db,'contract',$id,$version,$selection),'Сначала согласуйте кратность');
+        reject(fn()=>Documents::export($db,'contract',$id,$version,'docx'),'Сначала согласуйте кратность');
+        $priorRequest=null;
+        foreach ([1,0,2] as $multiple) {
+            command(LegalHandoff::SECURITY_MULTIPLE,$input+['multiple'=>(string)$multiple]);
+            $plan=WordPack::plan($db,'contract',$id,$version,$selection);
+            $data=inputFor($plan);
+            $hashes=hashes($plan);
+            if ($priorRequest!==null) {
+                reject(fn()=>WordPack::produce($db,'contract',$id,$version,$selection,$data,$hashes,$priorRequest,$created),
+                    'Ключ формы уже использован');
+            }
+            reject(fn()=>WordPack::produce($db,'contract',$id,$version,$selection,
+                $data+['security_clause'=>'Подставная сумма'],$hashes,bin2hex(random_bytes(16)),$created),
+                'Нельзя подменять');
+            $request=bin2hex(random_bytes(16));
+            $pack=WordPack::produce($db,'contract',$id,$version,$selection,$data,$hashes,$request,$created);
+            ok($pack['primary']===WordPack::produce($db,'contract',$id,$version,$selection,$data,$hashes,$request,$created)['primary'],
+                'Same calculation and request reuse the original generated file');
+            $doc=wordText($db,$pack['files'][0]);
+            $calc=InitialInvoice::preview($db,$contract,date('Y-m-d'));
+            $amount=InitialInvoice::securityAmount('10500.01',$multiple);
+            $security=array_values(array_filter($calc['rows'],static fn(array $row): bool =>
+                $row['kind']==='Обеспечительный платёж'));
+            ok(WordSecurityTerms::matches(['multiple'=>$multiple,'amount'=>$amount],$pack['security']),
+                'Pack records effective security');
+            ok(!str_contains($doc,'{{vat}}') && !str_contains($doc,'арендной платы за один месяц аренды'),
+                'Replaced approved clause has no placeholder or hard-coded original amount');
+            if ($multiple===0) {
+                ok(!$security && str_contains($doc,'Обеспечительный платёж по настоящему Договору не предусмотрен.')
+                    && str_contains($doc,'Условия Договора об обеспечительном платеже не применяются.'),
+                    'Zero has no security invoice and neutralizes payment obligations in the contract');
+            } else {
+                $expected=preg_replace('/[\p{Z}\s]+/u',' ',Documents::amountText($amount));
+                ok(count($security)===1 && $security[0]['amount']===$amount
+                    && str_contains($doc,$expected.' руб. с НДС (кратность к месячной арендной плате — '.$multiple.')'),
+                    'Word and first calculation report the same exact gross amount');
+                ok(str_contains($doc,$kind==='office'?'в течение 2 (двух) рабочих дней с момента подписания настоящего Договора':
+                    'одновременно с первым платежом вносит обеспечительный платёж'), 'Keep the original payment deadline');
+            }
+            if ($multiple===1) {
+                $oldPack=$pack;
+                $attach=stageGeneratedWord($db,$contract,$oldPack,$created,$kind==='parking');
+            }
+            $priorRequest=$request;
+        }
+
+        reject(fn()=>command('contract.legal',$attach+['security_multiple'=>2]),'Сформируйте договор заново');
+        if ($kind==='office') {
+            $old=LegalHandoff::files($db,$contract)[0];
+            reject(fn()=>WordDerivative::produce($db,$old['id']),'Сформируйте договор заново');
+        }
+        $db->prepare("UPDATE rental_facts SET fact_json=JSON_SET(fact_json,'$.files',JSON_ARRAY())
+            WHERE namespace='legal_handoff_draft' AND source_key=?")->execute([$id]);
+        $attach=stageGeneratedWord($db,$contract,$pack,$created,$kind==='parking');
+        ok(command('contract.legal',$attach+['security_multiple'=>2])['status']==='accounting',
+            'Current generated Word and ZIP pass the normal handoff');
+    }
+}
+
+function ownerSourceBytes(string $kind,string $label,array &$created): string {
+    $temp=tempnam(APP_ROOT.'/runtime','owner-template-test-');
+    $created[]=$temp;
+    copy(OriginalDocuments::source($kind)['path'],$temp);
+    $zip=new ZipArchive();
+    ok($zip->open($temp)===true,'Open fixture DOCX');
+    $doc=new DOMDocument();
+    $doc->loadXML($zip->getFromName('word/document.xml'));
+    $ns='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    $body=$doc->getElementsByTagNameNS($ns,'body')->item(0);
+    $paragraph=$doc->createElementNS($ns,'w:p');
+    $paragraph->appendChild($doc->createElementNS($ns,'w:r'))->appendChild($doc->createElementNS($ns,'w:t'))->textContent=$label;
+    $body->insertBefore($paragraph,$body->firstChild);
+    $zip->addFromString('word/document.xml',$doc->saveXML());
+    $zip->close();
+    return file_get_contents($temp);
+}
+
+function assertOwnerTemplates(PDO $db,array &$created): void {
+    $proofs=[];
+    foreach (['office','parking','mixed','addendum'] as $kind) $proofs[$kind]=TemplateAssets::signature(TemplateAssets::active($db,$kind));
+    $id=fixture('Офис',documentDate:date('Y-m-d'));
+    $version=(int)Service::get($db,'contracts',$id)['version'];
+    $before=WordPack::plan($db,'contract',$id,$version);
+    $requestKey=bin2hex(random_bytes(16));
+    $inputs=inputFor($before);
+    $hashes=hashes($before);
+    $old=WordPack::produce($db,'contract',$id,$version,[],$inputs,$hashes,$requestKey,$created);
+    $beforeEvidence=Evidence::approvalSignature($db,$id,$old['primary']);
+    $expected=OwnerWordTemplates::digest($db,'office');
+    $replacement=ownerSourceBytes('office','Учебная проверка исходника А',$created);
+    $newHash=hash('sha256',$replacement);
+    $upload=['kind'=>'office','content'=>base64_encode($replacement),'expected_sha256'=>$expected,'command_key'=>bin2hex(random_bytes(16))];
+    actor('director');
+    reject(fn()=>Service::command(OwnerWordTemplates::REPLACE,$upload),'прав');
+    actor('lawyer');
+    $result=Service::command(OwnerWordTemplates::REPLACE,$upload);
+    ok(Service::command(OwnerWordTemplates::REPLACE,$upload)===$result,'Exact upload replay is idempotent');
+    ok(OriginalDocuments::source('office',$db)['bytes']===$replacement
+        && OriginalDocuments::resolve($db,'office',0)['sha256']===$newHash,'Download and generation use exact replacement');
+    reject(fn()=>WordPack::produce($db,'contract',$id,$version,[],$inputs,$hashes,$requestKey,$created),'Шаблоны изменились');
+    $plan=WordPack::plan($db,'contract',$id,$version);
+    $officePack=WordPack::produce($db,'contract',$id,$version,[],inputFor($plan),hashes($plan),bin2hex(random_bytes(16)),$created);
+    $main=wordText($db,$officePack['files'][0]);
+    ok(str_contains($main,'Учебная проверка исходника А') && str_contains($main,'кратность к месячной арендной плате — 1'),
+        'Edited owner original still renders the legal security clause');
+    ok(Importer::canonicalJson(WordPack::evidence($db,$old['primary'])['sources'])===Importer::canonicalJson($old['sources'])
+        && Evidence::approvalSignature($db,$id,$old['primary'])===$beforeEvidence,'Frozen original package/proof is unchanged');
+
+    $bad=ownerSourceBytes('office','{{unknown_task_field}}',$created);
+    reject(fn()=>command(OwnerWordTemplates::REPLACE,['kind'=>'office','expected_sha256'=>$newHash,'content'=>base64_encode($bad)]),
+        'Поля не поддерживаются');
+    $second=ownerSourceBytes('office','Учебная проверка исходника Б',$created);
+    reject(fn()=>command(OwnerWordTemplates::REPLACE,['kind'=>'office','expected_sha256'=>$expected,'content'=>base64_encode($second)]),
+        'Шаблон уже заменили');
+    ok(OwnerWordTemplates::digest($db,'office')===$newHash,'Rejected upload leaves the active bytes');
+    command(OwnerWordTemplates::REPLACE,['kind'=>'office','expected_sha256'=>$newHash,'content'=>base64_encode($second)]);
+    ok((int)$db->query("SELECT COUNT(*) FROM rental_facts WHERE namespace='owner_word_template' AND source_key='office'")->fetchColumn()===1
+        && OriginalDocuments::source('office',$db)['bytes']===$second,'Second replacement overwrites the only stored source');
+
+    $act=ownerSourceBytes('handover','Учебная проверка исходника акта',$created);
+    command(OwnerWordTemplates::REPLACE,['kind'=>'handover','expected_sha256'=>OwnerWordTemplates::digest($db,'handover'),
+        'content'=>base64_encode($act)]);
+    $plan=WordPack::plan($db,'contract',$id,$version);
+    $actPack=WordPack::produce($db,'contract',$id,$version,[],inputFor($plan),hashes($plan),bin2hex(random_bytes(16)),$created);
+    ok(str_contains(wordText($db,$actPack['files'][1]),'Учебная проверка исходника акта'),'Generated act reads the replacement slot');
+    foreach ($proofs as $kind=>$proof) {
+        ok(TemplateAssets::signature(TemplateAssets::active($db,$kind))===$proof,'Legacy source signature unchanged: '.$kind);
+    }
+}
+
 $created=[];$db->beginTransaction();
 try{
+    if (in_array('--owner-template-only',$argv,true)) {
+        assertOwnerTemplates($db,$created);
+        echo "PASS: owner replacement, permissions, replay, single slot, stale Word request, new act, frozen generated evidence and legacy signatures\n";
+        return;
+    }
+    assertWordSecurity($db,$created);
+    if (in_array('--security-only',$argv,true)) {
+        echo "PASS: confirmed 0/1/2, exact first-invoice amounts, office/parking deadlines, regenerated Word, stale direct DOCX/ZIP/PDF and current handoff\n";
+        return;
+    }
     ok(WordGenerationData::floorWords('-1')==='минус первом'&&WordGenerationData::floorWords('0')==='нулевом'
         &&WordGenerationData::floorWords('2')==='втором'&&WordGenerationData::floorWords('')==='','Floor numerals include the levels below ground');
     foreach(['Офис','Машиноместо'] as $type){
@@ -243,7 +426,7 @@ try{
         && str_contains($act,'Сидоров Сергей Сергеевич'),'Representative appears with their authority and signature');
 
     // An old contract has real persisted relations, independent of template_type.
-    $id=fixture('Офис');$c=Service::get($db,'contracts',$id);
+    $id=fixture('Офис',documentDate:'2026-11-21');$c=Service::get($db,'contracts',$id);
     $office=(int)$db->query("SELECT object_id FROM contract_objects WHERE contract_id=$id")->fetchColumn();
     $parking=(int)$db->query('SELECT MAX(id)+1 FROM rental_objects')->fetchColumn();
     $db->prepare("INSERT INTO rental_objects(id,name,type,area,cadastre_id,source_json) SELECT ?,'Парковка legacy','Машино-место',area,cadastre_id,'{}' FROM rental_objects WHERE id=?")->execute([$parking,$office]);
@@ -254,18 +437,12 @@ try{
     actor('lawyer');
     ok(TemplateAssets::contractKind($db,$c)==='mixed','An untyped legacy contract resolves to mixed from its real objects');
     ok(str_contains(WordPack::action($c),'Сформировать Word смешанного договора'),'Untyped legacy uses the mixed Word route');
-    command('contract.return',['id'=>$id,'version'=>(int)$c['version'],'reason'=>'Уточнить редакцию']);
-    $c=Service::get($db,'contracts',$id);
     $update=['party_id'=>$c['party_id'],'document_date'=>'2026-11-21','start_date'=>$c['start_date'],'end_date'=>$c['end_date'],
         'amount'=>'15500.01','objects'=>[$office,$parking],'term_amount'=>[$office=>'10500.01',$parking=>'5000.00']];
     actor('manager');
-    command('contract.edit',['id'=>$id,'version'=>(int)$c['version'],'number'=>$c['number'],'intent'=>'submit']+$update);
-    $c=Service::get($db,'contracts',$id);
-    ok($c['status']==='legal' && $c['template_type']==='mixed','The edited legacy mixed contract returns to legal review');
-    reject(fn()=>command('contract.create',['intent'=>'submit']+$update),'отдельными договорами');
-    $draftId=(int)command('contract.create',['intent'=>'draft']+$update)['id'];
-    $draft=Service::get($db,'contracts',$draftId);
-    reject(fn()=>command('contract.edit',['id'=>$draftId,'version'=>(int)$draft['version'],'number'=>$draft['number'],'intent'=>'submit']+$update),'отдельными договорами');
+    foreach (['draft','submit'] as $intent) {
+        reject(fn()=>command('contract.create',['intent'=>$intent]+$update),Modules\Rental\ContractDraft::OBJECT_TYPE_ERROR);
+    }
     actor('lawyer');
     confirmChecks($c);
     reject(fn()=>WordPack::plan($db,'contract',$id,(int)$c['version'],automatic:true),'Парковка legacy» — этаж');
@@ -296,7 +473,8 @@ try{
     $files=[array_intersect_key($file,['id'=>true,'filename'=>true,'sha256'=>true])];
     $db->prepare("UPDATE rental_facts SET fact_json=JSON_SET(fact_json,'$.files',CAST(? AS JSON))
         WHERE namespace='legal_handoff_draft' AND source_key=?")->execute([Importer::json($files),$id]);
-    command('contract.legal',['id'=>$id,'version'=>(int)$c['version'],'packet_fingerprint'=>LegalHandoff::fingerprint($files)]);
+    command(LegalHandoff::SECURITY_MULTIPLE,['id'=>$id,'version'=>(int)$c['version'],'multiple'=>'1']);
+    command('contract.legal',['id'=>$id,'version'=>(int)$c['version'],'security_multiple'=>1,'packet_fingerprint'=>LegalHandoff::fingerprint($files)]);
     ok(Service::get($db,'contracts',$id)['status']==='accounting','Legacy mixed Word can be approved again');
 
     $missing=fixture('Офис',false);$c=Service::get($db,'contracts',$missing);actor('lawyer');
@@ -306,52 +484,16 @@ try{
 
     // An approved, intact legacy source stays in the template library.
     $id=fixture('Офис');$c=Service::get($db,'contracts',$id);actor('lawyer');
-    $previousChoice=WordPack::plan($db,'contract',$id,(int)$c['version'])['sources']['office']['template_id'];
     $oldId=901099;
     $oldAsset=TemplateAssets::store($db,$oldId,1,dirname(__DIR__).'/modules/rental/templates/office.docx','Архивный офис.docx');
     if ($oldAsset['created']) $created[]=$oldAsset['path'];
     command('template.edit',['id'=>$oldId,'new_template'=>1,'version'=>1,'name'=>'Архивный офис','generation_kind'=>'office','word_file_id'=>$oldAsset['id']]);
-    actor('director');command('template.approve',['id'=>$oldId,'version'=>2]);
-    actor('lawyer');
+    actor('director');command('template.approve',['id'=>$oldId,'version'=>2]);actor('lawyer');
     $plan=WordPack::plan($db,'contract',$id,(int)$c['version'],[],true);
-    ok($plan['sources']['office']['template_id']===$previousChoice && isset($plan['excluded'][$oldId]),'Incompatible upload leaves the existing compatible default intact');
-    $builtin=WordPack::plan($db,'contract',$id,(int)$c['version'],['office'=>0],true);
-    ok($builtin['sources']['office']['template_id']===0,'The compatible bundled source remains selectable');
-
-    // A new uploaded source is unavailable while pending, then selected after director approval.
-    actor('lawyer');$templateId=900999;$custom=tempnam(APP_ROOT.'/runtime','word-template-');$created[]=$custom;
-    copy(OriginalDocuments::source('office')['path'],$custom);$zip=new ZipArchive();$zip->open($custom);
-    $zip->addFromString('word/document.xml',str_replace('{{party_postal_address}}','{{purpose}}',$zip->getFromName('word/document.xml')));$zip->close();
-    $stored=TemplateAssets::store($db,$templateId,1,$custom,'Новое оформление.docx');$created[]=$stored['path'];
-    command('template.edit',['id'=>$templateId,'new_template'=>1,'version'=>1,'name'=>'Word QA','generation_kind'=>'office','word_file_id'=>$stored['id']]);
-    ok(!isset(OriginalDocuments::choices($db,'office')[$templateId]),'Pending source cannot generate');
-    actor('director');command('template.approve',['id'=>$templateId,'version'=>2]);
-    $db->prepare('UPDATE rental_templates SET approved_at=CURRENT_DATE + INTERVAL 1 DAY WHERE id=?')->execute([$templateId]);
-    $db->prepare('UPDATE rental_templates SET approved_at=CURRENT_DATE + INTERVAL 2 DAY WHERE id=?')->execute([$oldId]);
-    ok(isset(OriginalDocuments::choices($db,'office')[$templateId]),'Approved upload is selectable');
-    actor('lawyer');$source=OriginalDocuments::resolve($db,'office',$templateId);ok($source['sha256']===$stored['sha256'],'Uploaded source used exactly');
-    $id=fixture('Офис');actor('lawyer');$c=Service::get($db,'contracts',$id);$plan=WordPack::plan($db,'contract',$id,(int)$c['version']);
-    ok(array_key_first(OriginalDocuments::choices($db,'office'))===$oldId,'Fixture presents the incompatible template first');
-    ok($plan['sources']['office']['template_id']===$templateId && !isset($plan['choices'][$oldId]),'Newest compatible upload selected despite first incompatible template');
-    $stale=WordPack::plan($db,'contract',$id,(int)$c['version'],['office'=>$oldId],true);
-    ok($stale['sources']['office']['template_id']===$templateId,'A stale Word URL presents the compatible choice');
+    ok(array_keys($plan['choices'])===[0],'The owner slot is the only office candidate');
     reject(fn()=>WordPack::plan($db,'contract',$id,(int)$c['version'],['office'=>$oldId]),'совместимый');
-    ok(OriginalDocuments::resolve($db,'office',$oldId)['sha256']===$oldAsset['sha256'],'Legacy template bytes still available');
-    ok(isset(WordGenerationData::inputs($plan['fields'],$plan['values'])['purpose']),'New custom token is requested');
-    $pack=WordPack::produce($db,'contract',$id,(int)$c['version'],[],inputFor($plan),hashes($plan),bin2hex(random_bytes(16)),$created);
-    $q=$db->prepare('SELECT path FROM rental_files WHERE id=?');$q->execute([$pack['primary']]);$zip=new ZipArchive();$zip->open(APP_ROOT.'/.local/documents/'.$q->fetchColumn());
-    $text=$zip->getFromName('word/document.xml');$zip->close();ok(str_contains($text,'Размещение офиса')&&!str_contains($text,'{{purpose}}'),'Uploaded custom slot substituted');
-    $singleTemplate=900998;
-    copy(OriginalDocuments::source('office')['path'],$custom);$zip->open($custom);
-    $zip->addFromString('word/document.xml',str_replace('{{rent_object_rates}}','',$zip->getFromName('word/document.xml')));$zip->close();
-    $stored=TemplateAssets::store($db,$singleTemplate,1,$custom,'Шаблон с общей ставкой.docx');$created[]=$stored['path'];
-    command('template.edit',['id'=>$singleTemplate,'new_template'=>1,'version'=>1,'name'=>'Общая ставка','generation_kind'=>'office','word_file_id'=>$stored['id']]);
-    actor('director');command('template.approve',['id'=>$singleTemplate,'version'=>2]);actor('lawyer');
-    ok(WordPack::plan($db,'contract',$id,(int)$c['version'],['office'=>$singleTemplate])['sources']['office']['template_id']===$singleTemplate,
-        'Single object still accepts an approved template without a rate breakdown');
-    $multiple=fixture('Офис',true,['10000.00','12500.00']);$c=Service::get($db,'contracts',$multiple);
-    $plan=WordPack::plan($db,'contract',$multiple,(int)$c['version'],['office'=>$singleTemplate],true);
-    ok(isset($plan['excluded'][$singleTemplate])&&isset($plan['choices'][$templateId]),'Multi-object lease lists only templates that can print per-object rates');
-    reject(fn()=>WordPack::plan($db,'contract',$multiple,(int)$c['version'],['office'=>$singleTemplate]),'совместимый');
+    ok(TemplateAssets::file($db,$oldId,$oldAsset['id'])['sha256']===$oldAsset['sha256'],
+        'Previously approved file is retained for independent legacy evidence');
+
     echo "PASS: Word packages, object rates, IP signers, role/version guards, idempotency, exact money, plan integrity, compatible sources and legacy mixed review\n";
 }finally{if($db->inTransaction())$db->rollBack();foreach(array_unique($created) as $path)if(is_file($path))unlink($path);}

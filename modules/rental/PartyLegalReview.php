@@ -28,7 +28,7 @@ final class PartyLegalReview
             ."JSON_UNQUOTE(JSON_EXTRACT(d.fact_json,'$.reason')) reason FROM rental_facts d "
             ."JOIN parties p ON d.source_key=CAST(p.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci "
             ."WHERE d.namespace='directory_party_legal_review' AND d.operative=1 AND p.blocked=0 "
-            ."AND JSON_UNQUOTE(JSON_EXTRACT(d.fact_json,'$.status')) IN ('pending','returned') ORDER BY p.name,p.id") as $party) {
+            .'AND '.WorkspaceReset::visibleSql('p')." AND JSON_UNQUOTE(JSON_EXTRACT(d.fact_json,'$.status')) IN ('pending','returned') ORDER BY p.name,p.id") as $party) {
             $pending=$party['status']==='pending';
             $owner=$pending?'lawyer':'manager';
             $rows[]=$party+[
@@ -74,7 +74,7 @@ final class PartyLegalReview
 
     public static function checkUpload(array $party): void
     {
-        if ($party['blocked'] || (self::state(DB::pdo(),(int)$party['id'])['status'] ?? '')==='pending')
+        if ($party['blocked'] || WorkspaceReset::hidden($party) || (self::state(DB::pdo(),(int)$party['id'])['status'] ?? '')==='pending')
             throw new RuntimeException('Исходная карточка сейчас недоступна для замены.',409);
     }
 
@@ -121,6 +121,7 @@ final class PartyLegalReview
         $id=(int)($input['id'] ?? 0);
         $party=Service::get($db,'parties',$id);
         Service::version($party,$input);
+        if (WorkspaceReset::hidden($party)) throw new RuntimeException('Контрагент не найден.',404);
         if ($party['blocked']) throw new RuntimeException('Работа с контрагентом заблокирована.',409);
         $before=self::state($db,$id);
         $signature=self::signature($db,$party);
@@ -159,23 +160,25 @@ final class PartyLegalReview
         return ['id'=>$id,'message'=>$text];
     }
 
-    public static function presentation(array $party): string
+    public static function presentation(array $party,bool $structured=false): string
     {
         $db=DB::pdo();$id=(int)$party['id'];$review=self::state($db,$id);
+        $accepted=!$party['blocked'] && ($review['status'] ?? '')==='accepted'
+            && hash_equals($review['signature'],self::signature($db,$party));
         $status=$party['blocked']?'Работа запрещена':match ($review['status'] ?? '') {
             'pending'=>'У юриста',
             'returned'=>'На исправлении у менеджера',
-            'accepted'=>hash_equals($review['signature'],self::signature($db,$party))?'Клиент согласован':'Реквизиты изменились · нужна повторная проверка',
+            'accepted'=>$accepted?'Клиент согласован':'Реквизиты изменились · нужна повторная проверка',
             'draft'=>'Готовится менеджером',
             default=>'Отдельная проверка не начата'
         };
-        $body='<span class="registry-ui-modal-summary">Проверка клиента юристом</span>'.RentalUI::pairs([
-            ['Решение',$status],['Участник',$review['actor_name'] ?? '—'],
-            ['Причина возврата',$review['reason'] ?? '—'],['Индивидуальное обеспечение',$review['deposit_note'] ?? '—'],
-        ]);
+        $rows=[['Участник',$review['actor_name'] ?? '—'],
+            ['Причина возврата',$review['reason'] ?? '—'],['Индивидуальное обеспечение',$review['deposit_note'] ?? '—']];
+        $body=RentalUI::pairs($structured?$rows:[['Решение',$status],...$rows]);
         $file=isset($review['file_id'])?self::findFile($db,$id,$review['file_id']):null;
         if ($file) $body.=self::link($file);
-        return $body;
+        return $structured?RentalUI::reviewSection('Проверка контрагента',$body,$status,$accepted)
+            :'<span class="registry-ui-modal-summary">Проверка клиента юристом</span>'.$body;
     }
 
     private static function link(array $file): string
@@ -187,6 +190,7 @@ final class PartyLegalReview
     {
         Access::pages(['parties'],2);
         $party=Service::get(DB::pdo(),'parties',(int)($_GET['id'] ?? 0));
+        if (WorkspaceReset::hidden($party)) throw new RuntimeException('Контрагент не найден.',404);
         if ($party['blocked']) throw new RuntimeException('Работа с контрагентом заблокирована.',409);
         $action=(string)($_GET['action'] ?? self::SUBMIT);
         if (!in_array($action,[self::SUBMIT,self::ACCEPT,self::RETURN],true)) throw new RuntimeException('Действие не найдено.',404);

@@ -2,7 +2,11 @@
 (() => {
   const party=document.getElementById('party-composition-example');
   window.RentalPartyUI?.enhance(document);
-  document.querySelector('[data-open-party-example]').addEventListener('click',()=>party.showModal());
+  const partyTitle=party.querySelector('#party-composition-title');
+  document.querySelector('[data-open-party-example]').addEventListener('click',()=>{
+    partyTitle.textContent='Новый контрагент';
+    party.showModal();
+  });
   party.querySelectorAll('[data-close-party-example]').forEach(button=>button.addEventListener('click',()=>party.close()));
   party.querySelector('[data-demo-bank-reference]').addEventListener('click',()=>{
     const error=party.querySelector('#demo-party-bik-error');
@@ -23,8 +27,37 @@
     panel.open=false;
     document.querySelector('[aria-controls="'+panel.id+'"]')?.focus();
   }));
+  const securityForm=reviewTerms.querySelector('[data-demo-security-multiple]');
+  const securityState=reviewTerms.querySelector('[data-demo-security-state]');
+  const transfer=reviewTerms.querySelector('[data-demo-legal-transfer]');
+  const saveSecurity=securityForm.querySelector('button[type="submit"]');
+  let confirmedMultiple=null, fileMultiple='1';
+  securityForm.addEventListener('input',()=>{
+    const field=securityForm.elements.multiple;
+    const matches=field.value===confirmedMultiple;
+    saveSecurity.disabled=matches||!field.validity.valid||!/^(?:0|[1-9][0-9]*)$/.test(field.value);
+    transfer.disabled=!matches;
+  });
+  securityForm.addEventListener('submit',event=>{
+    event.preventDefault();
+    confirmedMultiple=securityForm.elements.multiple.value;
+    securityState.textContent='Согласована';
+    securityState.setAttribute('data-complete','');
+    saveSecurity.disabled=true;
+    transfer.disabled=false;
+    window.PlanexNotifications?.show({tone:'info',message:'Кратность обеспечения согласована.',scope:reviewTerms});
+  });
+  transfer.addEventListener('click',()=>{
+    if(fileMultiple===confirmedMultiple){
+      reviewTerms.close();
+      return;
+    }
+    window.PlanexNotifications?.show({tone:'danger',scope:reviewTerms,
+      message:'Кратность обеспечения изменилась. Сформируйте договор заново и замените прежний файл в комплекте.'});
+  });
   const reviewStatus=reviewTerms.querySelector('[data-demo-review-files-status]');
   reviewTerms.querySelector('[data-demo-review-files]').addEventListener('change',event=>{
+    if(event.target.files.length)fileMultiple=confirmedMultiple;
     reviewStatus.textContent=[...event.target.files].map(file=>file.name).join(', ');
   });
   reviewTerms.querySelectorAll('[data-demo-review-zip]').forEach(link=>link.addEventListener('click',event=>{
@@ -47,15 +80,45 @@
     event.target.closest('dialog').close();
     accountantReview.close();
   });
-  document.querySelector('[data-accountant-return-form]').addEventListener('submit',event=>{
+  const reviewDecision=document.getElementById('review-decision-example');
+  const reasonForm=reviewDecision.querySelector('form');
+  const redActions={
+    block:['Новые договоры с этим контрагентом будут заблокированы. Текущий договор вернётся менеджеру.','Причина блокировки','Заблокировать и вернуть'],
+    'party-block':['Учебная компания','Причина','Заблокировать'],
+    documents:['Договор вернётся менеджеру с указанным списком.','Какие документы нужны','Отправить запрос'],
+    terms:['Договор вернётся менеджеру с указанными замечаниями.','Какие условия нужно исправить','Вернуть на доработку'],
+    accounting:['Договор вернётся юристу с указанной причиной.','Причина возврата','Вернуть']
+  };
+  let reviewDecisionParent=null;
+  document.querySelectorAll('[data-demo-review-decision]').forEach(button=>button.addEventListener('click',()=>{
+    const [effect,label,submit]=redActions[button.dataset.demoReviewDecision];
+    reviewDecisionParent=button.closest('dialog');
+    reviewDecision.querySelector('.modal-title').textContent=button.textContent;
+    reviewDecision.querySelector('[data-review-decision-effect]').textContent=effect;
+    reviewDecision.querySelector('[data-review-decision-reason]').textContent=label;
+    reviewDecision.querySelector('[type=submit]').textContent=submit;
+    reasonForm.reset();
+    reviewDecision.showModal();
+  }));
+  reviewDecision.querySelectorAll('[data-close-review-decision]').forEach(button=>button.addEventListener('click',()=>reviewDecision.close()));
+  reasonForm.addEventListener('submit',event=>{
     event.preventDefault();
-    event.target.reset();
-    event.target.closest('dialog').close();
-    accountantReview.close();
+    reviewDecision.close();
+    reviewDecisionParent?.close();
   });
   const reviewParty=document.getElementById('review-party-example');
   document.querySelectorAll('[data-open-review-party]').forEach(button=>button.addEventListener('click',()=>reviewParty.showModal()));
   reviewParty.querySelectorAll('[data-close-review-party]').forEach(button=>button.addEventListener('click',()=>reviewParty.close()));
+  const structuredParty=document.getElementById('structured-party-example');
+  document.querySelector('[data-open-structured-party]').addEventListener('click',()=>structuredParty.showModal());
+  structuredParty.querySelectorAll('[data-close-structured-party]').forEach(button=>button.addEventListener('click',()=>structuredParty.close()));
+  structuredParty.querySelector('[data-edit-structured-party]').addEventListener('click',()=>{
+    partyTitle.textContent='Редактировать контрагента';
+    party.showModal();
+  });
+  structuredParty.querySelectorAll('[data-demo-party-contract]').forEach(button=>button.addEventListener('click',()=>{
+    document.getElementById(button.dataset.demoPartyContract).showModal();
+  }));
   const dialog=document.getElementById('compact-popup-example');
   document.querySelector('[data-open-compact-example]').addEventListener('click',()=>dialog.showModal());
   dialog.querySelectorAll('[data-close-compact-example]').forEach(button=>button.addEventListener('click',()=>dialog.close()));

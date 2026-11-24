@@ -74,10 +74,10 @@ final class DirectoryUi
         return [$body,'<button class="btn btn-primary" type="submit" form="'.$id.'">'.View::e($label).'</button>',$id];
     }
 
-    public static function registry(string $id,array $headers,array $rows,array $columns,string $controls='',string $summary='',string $after='',bool $filterForm=false, ?DesignTable $design=null): string
+    public static function registry(string $id,array $headers,array $rows,array $columns,string $controls='',string $summary='',string $after='',bool $filterForm=false, ?DesignTable $design=null,bool $inferRowLinks=true): string
     {
         $toolbar=$filterForm?'form':'div';
-        $table = $design===null ? Controller::table($headers,$rows,$columns) : $design->start();
+        $table = $design===null ? Controller::table($headers,$rows,$columns,inferRowLinks:$inferRowLinks) : $design->start();
         if ($design!==null) {
             foreach ($rows as $row) {
                 $attributes=$row['_attrs'] ?? '';

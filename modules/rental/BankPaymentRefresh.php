@@ -169,7 +169,7 @@ final class BankPaymentRefresh
         if ($query->fetchColumn()) throw new RuntimeException('PAYMENT_IDENTITY_CHANGED');
         $party = null;
         if (preg_match('/^(?:\d{10}|\d{12})$/D',$row['inn'])) {
-            $query = $p->prepare('SELECT id FROM parties WHERE inn=? ORDER BY id LIMIT 2');
+            $query = $p->prepare('SELECT id FROM parties p WHERE inn=? AND '.WorkspaceReset::visibleSql('p').' ORDER BY id LIMIT 2');
             $query->execute([$row['inn']]);
             $matches = $query->fetchAll(PDO::FETCH_COLUMN);
             if (count($matches) === 1) $party = (int)$matches[0];

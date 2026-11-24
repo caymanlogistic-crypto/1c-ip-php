@@ -34,6 +34,7 @@ final class WordDerivative
         $editing=$legalStage && in_array(Auth::user()['role'],['admin','lawyer'],true) && (int)$file['version']===(int)$record['version'];
         if (!$approved && !$editing) throw new RuntimeException('Word не подтверждён для текущих условий документа.',409);
         Evidence::integrity($file);
+        if ($editing && $entity==='contract') WordSecurityTerms::verifyFile($db,$record,$file);
         return [$file,$record];
     }
 
@@ -63,6 +64,7 @@ final class WordDerivative
                 "INSERT INTO rental_files(id,entity_type,entity_id,version,kind,filename,path,sha256,mime,baseline_hash) VALUES(?,?,?,?,'word-pdf',?,?,?,'application/pdf',?)"
             )->execute([$id,$file['entity_type'],$file['entity_id'],$record['version'],pathinfo($file['filename'],PATHINFO_FILENAME).'.pdf',basename($path),$rendered['sha256'],$file['sha256']]);
             FileOrder::assign($db,$id);
+            if ($file['entity_type']==='contract') WordSecurityTerms::rememberDerivative($db,$record,$file['sha256'],$rendered['sha256']);
             Audit::record('document.word-pdf',$file['entity_type'],$file['entity_id'],null,[
                 'source_file_id'=>$fileId,'source_sha256'=>$file['sha256'],'record_version'=>(int)$record['version'],
                 'file_id'=>$id,'sha256'=>$rendered['sha256'],'renderer_receipt'=>$rendered['receipt_path'],
