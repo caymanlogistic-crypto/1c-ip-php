@@ -183,6 +183,7 @@ final class AccountantReviewCard
         $facts=[
             ['Дата договора',Documents::dateText($contract['document_date'])],
             ['Период аренды',Documents::dateText($contract['start_date']).' — '.Documents::dateText($contract['end_date'])],
+            ...RenewalIndexation::facts($db,$contract,'contract'),
         ];
         $vat=$context['organization']['vat']??null;
         if ($vat!==null) $facts[]=['НДС',(string)(float)$vat.' %'];

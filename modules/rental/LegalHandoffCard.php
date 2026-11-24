@@ -91,6 +91,7 @@ final class LegalHandoffCard
         $facts=RentalUI::pairs([
             ['Договор','№'.$contract['number'].' от '.Documents::dateText($contract['document_date'])],
             ['Период аренды',Documents::dateText($contract['start_date']).' — '.Documents::dateText($contract['end_date'])],
+            ...RenewalIndexation::facts($db,$contract,'contract'),
             ['Аренда за месяц с НДС',Controller::money($contract['amount'])],
         ]);
         if ($rows) {

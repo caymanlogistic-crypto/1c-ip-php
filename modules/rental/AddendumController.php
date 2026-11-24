@@ -230,6 +230,7 @@ final class AddendumController {
                 'Полный срок до',
                 Documents::dateText($d['end_date'])
             ],
+            ...RenewalIndexation::facts(DB::pdo(),$d,'addendum'),
             [
                 'Месячная аренда с НДС',
                 Controller::money($d['amount'])

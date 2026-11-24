@@ -105,10 +105,12 @@ final class ContractApprovalPreview
 
     private static function terms(array $contract): string
     {
-        $terms=BillableTerms::forContract(DB::pdo(),(int)$contract['id']);
+        $db=DB::pdo();
+        $terms=BillableTerms::forContract($db,(int)$contract['id']);
         $body=RentalUI::pairs([
             ['Дата договора',RegistryState::date($contract['document_date'])],
             ['Период аренды',RegistryState::date($contract['start_date']).' — '.RegistryState::date($contract['end_date'])],
+            ...RenewalIndexation::facts($db,$contract,'contract'),
         ]);
         return $body.RentalUI::reviewTermsTable($terms,$contract['amount']);
     }

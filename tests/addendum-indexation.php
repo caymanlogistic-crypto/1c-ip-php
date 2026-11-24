@@ -4,7 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 
 use App\DB;
-use Modules\Rental\{AddendumController,AddendumIndexation,Availability,DocumentCreator,Occupancy,Service};
+use Modules\Rental\{AddendumController,AddendumIndexation,Availability,DocumentCreator,ExpiryContinuation,ExpiryNotice,Importer,Occupancy,RenewalIndexation,Service};
 
 $db=DB::pdo();
 if (PHP_SAPI!=='cli' || getenv('APP_CONTRACT_DRAFT_TEST')!=='1'
@@ -94,6 +94,8 @@ try {
     $_GET=['id'=>$id];
     $saved=payload(AddendumController::editor());
     check($saved['index_percent']==='13.5' && $saved['term_amount']===$edited['term_amount'],'New percent must use the original rates');
+    $written=Service::get($db,'rental_documents',$id);
+    check(RenewalIndexation::facts($db,$written,'addendum')===[['Индексация','13,5 %']],'Approval uses the saved addendum percent');
 
     Service::command('document.cancel',['id'=>$id,'version'=>$saved['version'],'reason'=>'Тест','command_key'=>bin2hex(random_bytes(16))]);
     $_GET=['documentType'=>'addendum','baseContract'=>$cid,'object_scope'=>'same'];
@@ -102,6 +104,7 @@ try {
     $result=Service::command('document.create',$unindexed);
     $regular=Service::get($db,'rental_documents',(int)$result['id']);
     check($regular['amount']===$unindexed['amount'],'Regular renewal must save its submitted prices');
+    check(RenewalIndexation::facts($db,$regular,'addendum')===[],'Regular renewal shows no indexation');
     Service::command('document.cancel',['id'=>$regular['id'],'version'=>$regular['version'],'reason'=>'Тест','command_key'=>bin2hex(random_bytes(16))]);
 
     $_GET=['documentType'=>'addendum','baseContract'=>$cid,'object_scope'=>'change'];
@@ -115,6 +118,19 @@ try {
     $draft=Service::get($db,'rental_documents',(int)$result['id']);
     check($draft['amount']==='350.00','Changed composition must save its submitted prices');
     check(Service::get($db,'contracts',$cid)===$base,'Creating or editing a draft must leave the active contract unchanged');
+
+    $key=ExpiryNotice::key($cid,$until);
+    $linked=['id'=>$cid+1,'source_json'=>Importer::json(['expiry_origin'=>['contract_id'=>$cid,'end'=>$until]])];
+    $notice=['state'=>'replied','response'=>['decision'=>'contract'],'offer'=>['price_mode'=>'percent','percent'=>'13.5001']];
+    $put=$db->prepare('INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES(?,?,?,1)
+        ON DUPLICATE KEY UPDATE fact_json=VALUES(fact_json)');
+    $put->execute([ExpiryContinuation::NS,$key,Importer::json(['kind'=>'contract','id'=>$linked['id']])]);
+    $put->execute([ExpiryNotice::NS,$key,Importer::json($notice)]);
+    check(RenewalIndexation::facts($db,$linked,'contract')===[['Индексация','13,5001 %']],'Linked renewal uses the exact confirmed offer');
+    check(RenewalIndexation::facts($db,['id'=>$cid+2]+$linked,'contract')===[],'Unrelated record cannot inherit an offer');
+    $notice['offer']['price_mode']='amount';
+    $put->execute([ExpiryNotice::NS,$key,Importer::json($notice)]);
+    check(RenewalIndexation::facts($db,$linked,'contract')===[],'A changed amount does not imply a percentage');
     echo "PASS: 10%, 13.5%, rounding, dates, same/change scope, tampering, reopen and idempotency.\n";
 } catch (Throwable $error) {
     fwrite(STDERR,$error->getMessage().' at '.$error->getLine().PHP_EOL);
