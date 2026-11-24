@@ -37,7 +37,7 @@
     if(form.hasAttribute('data-form-error-notification')){
       window.PlanexNotifications?.show({tone:'danger',title:'Проверьте поля',message,scope:form});
     }else{
-      window.PlanexNotifications?.show({tone:'danger',title:'Заполните обязательные поля',message:'Они выделены красным в форме.'});
+      window.PlanexNotifications?.show({tone:'danger',title:'Заполните обязательные поля',message:'Они выделены красным в форме.',scope:form});
     }
   },true);
   function changed(event){const form=markedForm(event.target);if(form?.dataset.validationAttempted)validate(form);}

@@ -65,8 +65,8 @@
     return url;
   };
   const parse=text=>new DOMParser().parseFromString(text,'text/html');
-  const notify=message=>window.PlanexNotifications?.show({
-    tone:'danger',message
+  const notify=(message,scope)=>window.PlanexNotifications?.show({
+    tone:'danger',message,scope
   });
   let lastFocus=null,activeRental=null;
   const rentalStack=[],availabilityRequests=new WeakMap();
@@ -416,16 +416,16 @@
     const picker=form.querySelector('[data-rental-object-picker]'),option=picker?.selectedOptions[0],template=form.querySelector('template[data-rental-term-template]'),body=form.querySelector('[data-rental-terms]');
     if(!option||!template||!body||!/^\d+$/.test(option.value))return;
     if(window.RentalPickers?.allowsObjectType(form,option.dataset.type)===false){
-      notify(form.dataset.rentalObjectTypeError);
+      notify(form.dataset.rentalObjectTypeError,form);
       return;
     }
     if(option.disabled){
-      notify('Помещение недоступно для выбранного периода.');
+      notify('Помещение недоступно для выбранного периода.',form);
       return;
     }
     const id=option.value;
     if([...body.querySelectorAll('[name="objects[]"]')].some(input=>input.value===id)){
-      notify('Объект уже добавлен.');
+      notify('Объект уже добавлен.',form);
       return;
     }
     const fragment=template.content.cloneNode(true);

@@ -320,7 +320,7 @@
     event.target.scrollIntoView({block: 'nearest'});
     const message = event.target.name === 'party_type' && event.target.validity.valueMissing
       ? 'Выберите тип клиента.' : event.target.validationMessage;
-    window.PlanexNotifications?.show({tone: 'danger', message});
+    window.PlanexNotifications?.show({tone: 'danger', message, scope:form});
   }, true);
 
   document.addEventListener('click', event => {

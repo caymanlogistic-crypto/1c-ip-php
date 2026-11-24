@@ -18,7 +18,7 @@
   }
   let stack = null, stackHost = null, hostObserver = null;
   let templateResolver = null;
-  const scopedNotices = new WeakMap();
+  const scopedNotices = new Map();
 
   function resolveText(original, eventKey, variables) {
     if (!templateResolver) return original;
@@ -45,8 +45,14 @@
     const dialogs = Array.from(document.querySelectorAll?.('dialog[open]') || []);
     return dialogs.at(-1) || document.body;
   }
+  function scopeIsOpen(scope) {
+    return scope.isConnected && (scope.closest('dialog')?.open ?? true);
+  }
   function placeStack() {
     if (!stack) return;
+    for (const [scope, notice] of scopedNotices) {
+      if (!scopeIsOpen(scope)) notice.close();
+    }
     const host = notificationHost();
     if (stack.parentNode === host) return;
     const focus = document.activeElement && stack.contains?.(document.activeElement) ? document.activeElement : null;
@@ -75,7 +81,7 @@
     return stack;
   }
 
-  function present(entry) {
+  function present(entry, scope) {
     const toast = document.createElement('div');
     toast.className = `toast toast--system is-${entry.tone}`;
     toast.setAttribute('role', entry.tone === 'danger' ? 'alert' : 'status');
@@ -140,17 +146,22 @@
       if (!paused.delete(reason)) return;
       if (!paused.size && !closed) startTimer();
     }
-    function dismiss(manual) {
+    function remove() {
+      closed = true;
+      toast.remove();
+      if (scope) scopedNotices.delete(scope);
+    }
+    function dismiss(manual, restore = manual) {
       if (closed || (removing && !manual)) return;
       if (!manual && hasFocus()) { pause('focus'); return; }
-      const restoreFocus = manual && hasFocus();
+      const restoreFocus = restore && hasFocus();
       const siblings = Array.from(stack.children);
       const index = siblings.indexOf(toast);
       const neighbor = siblings[index + 1] || siblings[index - 1];
       window.clearTimeout(timer); timer = null;
       if (manual || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         window.clearTimeout(exitTimer);
-        closed = true; toast.remove();
+        remove();
         if (restoreFocus) {
           const target = neighbor?.querySelector('.toast-close');
           if (target?.isConnected) target.focus();
@@ -162,7 +173,7 @@
       toast.classList.add('is-removing');
       exitTimer = window.setTimeout(() => {
         if (hasFocus()) { pause('focus'); return; }
-        closed = true; toast.remove();
+        remove();
       }, 180);
     }
     toast.addEventListener('pointerenter', () => pause('hover'));
@@ -176,7 +187,7 @@
     return {
       entry,
       matches: next => !closed && !removing && entry.tone === next.tone && entry.title === next.title && entry.message === next.message,
-      close: () => dismiss(true)
+      close: () => dismiss(true, false)
     };
   }
 
@@ -188,20 +199,19 @@
     show({tone = 'success', title, message, eventKey, variables, scope} = {}) {
       if (!Object.hasOwn(labels, tone)) throw new TypeError('Unknown notification tone');
       const body = String(message ?? '').trim();
-      if (!body) return;
+      if (!body || (scope && !scopeIsOpen(scope))) return;
       const original = {tone, title: String(title ?? labels[tone].title), message: body};
       const resolved = resolveText(original, eventKey, variables);
       const current = scope && scopedNotices.get(scope);
       if (current?.matches(resolved)) return;
       current?.close();
-      const notice = present(resolved);
+      const notice = present(resolved, scope);
       if (scope) scopedNotices.set(scope, notice);
     },
     clear(scope, message) {
       const notice = scopedNotices.get(scope);
       if (!notice || (message !== undefined && notice.entry.message !== message)) return;
       notice.close();
-      scopedNotices.delete(scope);
     }
   });
 })();
