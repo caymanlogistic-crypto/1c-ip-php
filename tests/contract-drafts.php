@@ -111,7 +111,7 @@ try {
  $entry=$p->query("SELECT title,body_text,version FROM integration_template_catalog WHERE channel='top' AND source_key='document-submitted'")->fetch();
  $notice=Modules\Rental\WorkflowNotices::sender($event,['document-submitted'=>$entry]);
  $partyName=$p->query('SELECT name FROM parties WHERE id='.$party)->fetchColumn();
- ok($notice['severity']==='green'&&str_contains($notice['text'],$partyName)&&!str_contains($notice['text'],'Сохранён договор'),'Submit notice missing counterparty/repeats save');
+ ok($notice['severity']==='green'&&str_contains($notice['title'],$partyName)&&!str_contains($notice['text'],'Сохранён договор'),'Submit notice missing counterparty/repeats save');
 
  echo "PASS: uniform object types on draft/edit/submission and rates required in new and edited drafts, partial metadata, reopen/card/registry, replay, version, forbidden role, incomplete refusal, complete submission, exact money; transaction rolled back.\n";
 } catch (Throwable $failure) { fwrite(STDERR,get_class($failure).': '.$failure->getMessage().' at '.$failure->getFile().':'.$failure->getLine().PHP_EOL); $failed=true; } finally {if($p->inTransaction())$p->rollBack();}

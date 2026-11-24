@@ -229,7 +229,7 @@ function applyCapabilities(root){
 }
 navigate('objects');['objects','documents','operations'].forEach(renderRows);
 
-function toast(tone,message){window.PlanexNotifications?.show({tone,message});}
+function toast(tone,message,title){window.PlanexNotifications?.show({tone,title,message});}
 function formSnapshot(form){
  return JSON.stringify([...form.querySelectorAll('input,select,textarea')].filter(i=>i.type!=='file'&&!i.readOnly&&!i.closest('.ui-date-field,.ui-time-field')).map(i=>[i.name||i.id||i.type,i.type==='checkbox'||i.type==='radio'?[i.checked,!!i.indeterminate]:i.value]).concat([...form.querySelectorAll('.ui-date-field input:invalid,.ui-time-field input:invalid')].map(i=>['invalid-picker',i.value]),[...form.querySelectorAll('.ms-tag')].map(t=>['tag',t.firstChild?.textContent||'']),[...form.querySelectorAll('[data-file-name]')].map(t=>['file',t.dataset.fileName])));
 }
@@ -375,7 +375,7 @@ const roles={
 function showComponent(id){
  const config=roles[id];if(!config)return;
  document.querySelectorAll('dialog[open]').forEach(d=>d.close());state.mode='normal';navigate(config[1]);const exampleRoot=document.querySelector('[data-page="'+config[1]+'"]');exampleRoot?.querySelector('.registry-ui-reset')?.click();if(['objects','documents','operations'].includes(config[1]))renderRows(config[1]);
- if(config[2]==='toast'){document.documentElement.dataset.componentShown=id;document.documentElement.dataset.componentFound='true';toast('info','Новое задание. Раздел: Согласования. Ожидается проверка документа.');toast('success','Изменения сохранены.');toast('warning','Не все значения заполнены.');toast('danger','Не удалось выполнить действие.');return;}
+ if(config[2]==='toast'){document.documentElement.dataset.componentShown=id;document.documentElement.dataset.componentFound='true';toast('info','Бухгалтерия согласовала пакет. Ожидается отправка клиенту.','ДС №2 к договору №178. ООО «Пример»');toast('success','Согласовано юристом и передано бухгалтеру.','Договор №178. ООО «Пример»');toast('warning','Проверьте условия и согласуйте документ.','Договор №181. ООО «Пример»');toast('danger','Не удалось выполнить действие.');return;}
  if(config[2])openModal(config[2]);
  if(id==='registry.state'){const q=document.querySelector('[data-page=objects] [data-registry-field=query]');q.value='Объект';q.dispatchEvent(new Event('input',{bubbles:true}));}
  const selector=D.catalog.find(c=>c.id===id)?.selector;

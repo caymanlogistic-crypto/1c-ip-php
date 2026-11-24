@@ -28,7 +28,32 @@ $event = ['event_id' => 1100, 'entity_kind' => 'contract', 'record_number' => '1
 $task = ['id' => 173, 'key' => 'review', 'severity' => 'red', 'text' => 'Проверьте документ', 'page' => 'approvals'];
 $notice = WorkflowNotices::task($task, $event, $catalog);
 checkTopAdmin($notice['severity'] === 'red', 'Text template changed actual task severity');
-checkTopAdmin($notice['event_key'] === 'task-received' && str_contains($notice['text'], 'Проверьте документ'), 'Actual task template not rendered');
+checkTopAdmin($notice['event_key'] === 'task-received'
+    && $notice['title'] === 'Договор №173. ООО «Пример»'
+    && $notice['text'] === 'Проверьте условия и согласуйте документ.', 'Recipient notice did not identify the approval');
+checkTopAdmin($notice['dedupe_text'] === 'Договор №173. Проверьте документ Раздел: approvals.', 'Former fingerprint input changed');
+
+$accountantEvent = array_replace($event, ['event_kind'=>'legalApprove', 'text'=>'Договор №173: legal → accounting']);
+$accountantTask = WorkflowNotices::task($task, $accountantEvent, $catalog);
+checkTopAdmin($accountantTask['text'] === 'Проверьте и подтвердите комплект.', 'Accountant saw a generic task');
+$lawyerSender = WorkflowNotices::sender($accountantEvent, $catalog);
+checkTopAdmin($lawyerSender['text'] === 'Согласовано юристом и передано бухгалтеру.', 'Lawyer saw raw transition text');
+
+$return = array_replace($event, ['entity_kind'=>'document', 'record_number'=>'ДС№2', 'contract_number'=>'173',
+    'event_kind'=>'accountantReturn', 'reason'=>'Уточните дату оплаты.']);
+$lawyerTask = WorkflowNotices::task($task, $return, $catalog);
+checkTopAdmin($lawyerTask['title'] === 'ДС №2 к договору №173. ООО «Пример»'
+    && $lawyerTask['text'] === 'Доработайте документ по замечанию бухгалтерии. Уточните дату оплаты.', 'Return reason or addendum reference lost');
+$accountantSender = WorkflowNotices::sender($return, $catalog);
+checkTopAdmin($accountantSender['text'] === 'Возвращено юристу на доработку. Уточните дату оплаты.', 'Sender return reason lost');
+
+$lateTask = WorkflowNotices::task($task + ['legal_sla'=>['state'=>'KNOWN', 'working_seconds'=>21600]], $event, $catalog);
+checkTopAdmin(str_contains($lateTask['text'],'Истекли 6 рабочих часов'), 'Legal due warning lost');
+$elsewhere = WorkflowNotices::task(array_replace($task,['page'=>'reconciliation']), $event, $catalog);
+checkTopAdmin(!isset($elsewhere['dedupe_text']) && $elsewhere['title']==='Новая задача или уведомление',
+    'A notice outside approvals changed');
+$invoiceEvent = array_replace($event,['event_kind'=>'firstInvoice']);
+checkTopAdmin(!isset(WorkflowNotices::task($task,$invoiceEvent,$catalog)['dedupe_text']), 'Unrelated event changed');
 $catalog['document-submitted']['tone'] = 'danger';
 $sender = WorkflowNotices::sender($event, $catalog);
 checkTopAdmin($sender !== null && $sender['severity'] === 'green', 'Catalog tone recolored sender success');
