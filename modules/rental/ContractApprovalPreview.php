@@ -57,12 +57,25 @@ final class ContractApprovalPreview
             .RentalUI::reviewSection('Условия',self::terms($contract))
             .RentalUI::reviewSection('Документы',$files?:'<p class="registry-ui-modal-help">Документы ещё не переданы.</p>')
             .self::history($events,$prior);
-        if ($contract['status']!=='cancelled' && $actor['role']==='manager'
-            && Auth::can('rental.write') && PagePolicy::level(PagePolicy::commandPage('contract.cancel'),$actor)>=2) {
-            $body.=self::disclosure('Ещё',RentalUI::button('Аннулировать договор',
-                '/rental/action-form?id='.$id.'&action=contract.cancel',danger:true));
+        return RentalUI::modal('Договор №'.$contract['number'],$body,active:'approvals',
+            leadingActions:self::cancelAction($contract,$actor),extractForms:false);
+    }
+
+    private static function cancelAction(array $contract,array $actor): string
+    {
+        if (!in_array($actor['role'],['manager','lawyer','accountant'],true)) return '';
+
+        $label='Аннулировать договор';
+        $action='contract.cancel';
+        $cancelled=$contract['status']==='cancelled';
+        if (!$cancelled && $actor['role']==='manager' && Auth::can('rental.write')
+            && PagePolicy::level(PagePolicy::commandPage($action),$actor)>=2) {
+            return RentalUI::button($label,'/rental/action-form?id='.(int)$contract['id'].'&action='.$action,danger:true);
         }
-        return RentalUI::modal('Договор №'.$contract['number'],$body,active:'approvals',extractForms:false);
+
+        $reason=$cancelled?'Договор уже аннулирован.':'Аннулирование доступно менеджеру по аренде с правом изменения договора.';
+        return '<span title="'.View::e($reason).'"><button type="button" class="btn btn-danger" disabled aria-description="'
+            .View::e($reason).'">'.View::e($label).'</button></span>';
     }
 
     private static function stage(array $contract,array $event): string
