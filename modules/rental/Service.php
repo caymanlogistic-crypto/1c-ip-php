@@ -498,6 +498,7 @@ final class Service {
             if(ContractDraft::deleted($c))throw new RuntimeException('Договор не найден.',404);
             self::version($c, $in);
             if (in_array($action,InitialInvoice::ACTIONS,true)) return InitialInvoice::execute($p,$u,$action,$c,$in,$createdFiles);
+            if ($action===AccountantPacketReversal::ACTION) return AccountantPacketReversal::execute($p,$u,$c,$in);
             if ($action===LeasePaymentTerms::SAVE) return LeasePaymentTerms::execute($p,$u,$c,$in);
             if ($action===ContractRevision::ACTION) return ContractRevision::submit($p,$u,$c,$in);
             if($action==='contract.delete'){self::roles(['manager']);return ContractDraft::delete($p,$c,$u,(string)$in['command_key']);}
