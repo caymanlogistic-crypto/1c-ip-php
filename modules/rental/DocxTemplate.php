@@ -109,6 +109,38 @@ final class DocxTemplate
         return array_keys($fields);
     }
 
+    public static function ownerLayout(string $path,string $securityClause): array
+    {
+        $zip=new ZipArchive();
+        if ($zip->open($path,ZipArchive::RDONLY)!==true) throw new RuntimeException('Некорректный Word-шаблон.',422);
+        try {
+            $plans=0;
+            $invalidPlan=false;
+            $securityClauses=0;
+            $securityFields=0;
+            $securityOutside=false;
+            for ($index=0;$index<$zip->numFiles;$index++) {
+                $name=$zip->getNameIndex($index);
+                if (!str_starts_with($name,'word/') || !str_ends_with($name,'.xml')) continue;
+                $main=$name==='word/document.xml';
+                foreach (self::paragraphs(self::xml($zip->getFromIndex($index))) as [,$text,$paragraph]) {
+                    if (str_contains($text,'{{office_plan}}')) {
+                        $plans++;
+                        $invalidPlan=$invalidPlan || !$main || trim($text)!=='{{office_plan}}' || $paragraph->parentNode->localName!=='body';
+                    }
+                    if ($main && trim($text)===$securityClause) $securityClauses++;
+                    $slots=substr_count($text,'{{'.WordSecurityTerms::FIELD.'}}');
+                    if (!$main && $slots) $securityOutside=true;
+                    else $securityFields+=$slots;
+                }
+            }
+            return ['plan'=>$plans===1 && !$invalidPlan,'security_clauses'=>$securityClauses,
+                'security_fields'=>$securityFields,'security_outside_body'=>$securityOutside];
+        } finally {
+            $zip->close();
+        }
+    }
+
     /** Replace matched characters only, preserving the formatting of surrounding runs. */
     private static function fillParagraph(DOMDocument $document,array $texts,string $text,array $values,array $phrases=[]): bool
     {

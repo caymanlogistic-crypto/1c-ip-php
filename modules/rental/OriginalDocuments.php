@@ -30,8 +30,14 @@ final class OriginalDocuments
         return json_decode(file_get_contents(__DIR__.'/templates/original-templates.json'),true,512,JSON_THROW_ON_ERROR);
     }
 
-    public static function source(string $kind): array
+    public static function ownerKinds(): array
     {
+        return array_intersect_key(self::TITLES,self::catalog());
+    }
+
+    public static function source(string $kind,?PDO $db=null): array
+    {
+        if ($db!==null && ($current=OwnerWordTemplates::current($db,$kind))!==null) return $current;
         $definition=self::catalog()[$kind] ?? throw new RuntimeException('Неизвестный исходный шаблон.',422);
         $path=__DIR__.'/templates/'.$definition['filename'];
         if (!hash_equals($definition['sha256'],hash_file('sha256',$path)))throw new RuntimeException('Исходный Word-шаблон изменился.',409);
@@ -41,19 +47,20 @@ final class OriginalDocuments
     public static function choices(PDO $db,string $kind): array
     {
         if(!isset(self::TITLES[$kind]))throw new RuntimeException('Неизвестный исходный шаблон.',422);
+        if (isset(self::ownerKinds()[$kind])) return [0=>self::TITLES[$kind]];
         $result=[];
         foreach($db->query('SELECT * FROM rental_templates WHERE version>0 AND word_file_id IS NOT NULL ORDER BY approved_at DESC,id DESC') as $row) {
             $meta=json_decode($row['source_json'],true)?:[];
             if(($meta['generation_kind']??null)===$kind)$result[(int)$row['id']]=$row['name'].' · версия '.$row['version'];
         }
-        if(isset(self::catalog()[$kind]))$result[0]='Исходник владельца · '.self::TITLES[$kind];
         return $result;
     }
 
     public static function resolve(PDO $db,string $kind,int $templateId): array
     {
+        if (isset(self::ownerKinds()[$kind]) && $templateId!==0) throw new RuntimeException('Используйте текущий Word-шаблон.',422);
         if(!$templateId) {
-            $source=self::source($kind);
+            $source=self::source($kind,$db);
             return $source+['template_id'=>0,'template_version'=>$source['version']??1,'kind'=>$kind];
         }
         $q=$db->prepare('SELECT * FROM rental_templates WHERE id=?');$q->execute([$templateId]);$row=$q->fetch();
@@ -75,7 +82,8 @@ final class OriginalDocuments
         $values+=array_fill_keys(self::OPTIONAL_FIELDS,'');
         $required=array_values(array_diff($source['fields'],self::OPTIONAL_FIELDS,['office_plan']));
         foreach($required as $key)if(!is_string($values[$key]??null)||trim($values[$key])==='')throw new RuntimeException('Заполните: '.self::label($key),422);
-        DocxTemplate::build($source['path'],array_intersect_key($values,array_flip($source['fields'])),$source['kind'],$target,$required,$plans,phrases:$phrases);
+        OwnerWordTemplates::withFile($source,static fn(string $path)=>DocxTemplate::build($path,
+            array_intersect_key($values,array_flip($source['fields'])),$source['kind'],$target,$required,$plans,phrases:$phrases));
     }
 
     public static function missing(array $kinds,array $values): array

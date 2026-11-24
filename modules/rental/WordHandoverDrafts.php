@@ -12,12 +12,18 @@ final class WordHandoverDrafts
 
     public static function plan(PDO $db,array $terms): array
     {
-        $acts=[];
+        $acts=[];$sources=[];
         foreach (array_column($terms,null,'object_id') as $id=>$object) {
-            $kind=in_array($object['type'],TemplateAssets::PARKING_TYPES,true)?'parking-handover':'handover';
-            $acts[$id]=['object'=>$object,'source'=>OriginalDocuments::resolve($db,$kind,0)];
+            $kind=self::kind($object);
+            $sources[$kind]??=OriginalDocuments::resolve($db,$kind,0);
+            $acts[$id]=['object'=>$object,'source'=>$sources[$kind]];
         }
         return $acts;
+    }
+
+    public static function kind(array $object): string
+    {
+        return in_array($object['type'],TemplateAssets::PARKING_TYPES,true)?'parking-handover':'handover';
     }
 
     public static function commonFields(array $acts): array

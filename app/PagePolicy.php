@@ -243,7 +243,7 @@ final class PagePolicy {
                     'approvals'
                 ], 'party-status' => [
                     'parties'
-                ], 'template-editor', 'template-decision', 'template-save' => [
+                ], 'template-editor', 'template-save' => [
                     'templates'
                 ], default => [
                 ]
@@ -255,7 +255,6 @@ final class PagePolicy {
                     'document-creator',
                     'document-next',
                     'template-editor',
-                    'template-decision',
                     'template-save'
                 ], true)?2:1;
                 Auth::requirePermission('rental.read');

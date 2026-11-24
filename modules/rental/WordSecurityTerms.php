@@ -9,7 +9,7 @@ use ZipArchive;
 
 final class WordSecurityTerms
 {
-    private const FIELD='security_clause';
+    public const FIELD='security_clause';
     private const STAMP='word_security_generation';
     private const MESSAGE='Кратность обеспечения изменилась. Сформируйте договор заново и замените прежний файл в комплекте.';
     private const GENERIC='Обеспечительный платёж и аренда учитываются раздельно.';
@@ -26,15 +26,25 @@ final class WordSecurityTerms
         return ['multiple'=>$multiple,'amount'=>InitialInvoice::securityAmount($contract['amount'],$multiple)];
     }
 
+    public static function legacyClause(string $kind): ?string
+    {
+        return match($kind) {
+            'office'=>self::OFFICE,
+            'parking'=>self::PARKING,
+            default=>null,
+        };
+    }
+
     private static function sourceClause(array $source): ?string
     {
         $kind=$source['kind'];
         if (isset(TemplateAssets::KINDS[$kind]) && hash_equals(TemplateAssets::KINDS[$kind]['sha256'],$source['sha256'])) {
             return self::GENERIC;
         }
-        if (!in_array($kind,['office','parking'],true)) return null;
-        if (!hash_equals(OriginalDocuments::catalog()[$kind]['sha256'],$source['sha256'])) return null;
-        return $kind==='office'?self::OFFICE:self::PARKING;
+        $clause=self::legacyClause($kind);
+        if ($clause===null) return null;
+        if (!empty($source['owner_security_literal'])) return $clause;
+        return hash_equals(OriginalDocuments::catalog()[$kind]['sha256'],$source['sha256'])?$clause:null;
     }
 
     public static function compatible(array $source): bool

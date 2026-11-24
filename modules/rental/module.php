@@ -85,7 +85,6 @@ $routes['/rental/generate']=[Documents::class,'generate'];
 $routes['/rental/word-pdf']=[\Modules\Rental\WordDerivative::class,'endpoint'];
 $routes['/rental/template']=[\Modules\Rental\TemplateController::class,'card'];
 $routes['/rental/template-editor']=[\Modules\Rental\TemplateController::class,'editor'];
-$routes['/rental/template-decision']=[\Modules\Rental\TemplateController::class,'decision'];
 $routes['/rental/template-save']=[\Modules\Rental\TemplateController::class,'save'];
 $routes['/rental/template-base']=[\Modules\Rental\TemplateController::class,'base'];
 $routes['/rental/templates']=[\Modules\Rental\TemplateController::class,'listing'];

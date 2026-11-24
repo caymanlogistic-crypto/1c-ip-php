@@ -10,6 +10,7 @@ final class TemplateService
 {
     public static function execute(PDO $db,array $actor,string $action,array $input): array
     {
+        if ($action===OwnerWordTemplates::REPLACE) return OwnerWordTemplates::replace($db,$input);
         Access::pages(['templates'],2);
         $id=(int)($input['id'] ?? 0);
         $query=$db->prepare('SELECT * FROM rental_templates WHERE id=? FOR UPDATE');

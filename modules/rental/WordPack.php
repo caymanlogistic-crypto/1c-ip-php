@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Modules\Rental;
 
-use App\{Auth,DB,Http,View,Audit,PagePolicy};
+use App\{Auth,BillableTerms,DB,Http,View,Audit,PagePolicy};
 use PDO;
 use RuntimeException;
 
@@ -73,6 +73,9 @@ final class WordPack
             : ($resolved[$chosen]??OriginalDocuments::resolve($db,$kind,$chosen));
         if ($security!==null && !WordSecurityTerms::compatible($source)) {
             throw new RuntimeException('Нужен утверждённый Word-шаблон с условием об обеспечительном платеже. Готовый договор можно приложить вручную.',422);
+        }
+        if ($security===null && !$auxiliary && in_array(WordSecurityTerms::FIELD,$source['fields'],true)) {
+            throw new RuntimeException('Сначала согласуйте кратность обеспечения в карточке договора.',409);
         }
         $securityWording=WordSecurityTerms::wording($source,$security);
         $fields=array_values(array_diff($source['fields'],array_keys($source['template_values']??[])));
@@ -165,7 +168,7 @@ final class WordPack
         $common=self::hidden('entity_type',$entity).self::hidden('id',$id).self::hidden('version',$version);
         $body=RentalUI::pairs([['Договор',$plan['contract']['number']],['Арендатор',$plan['party']['name']],
             ['Помещения',$plan['values']['room_numbers']],['Аренда с НДС',Documents::amountText($plan['record']['amount']).' ₽'],
-            ['Выбранный шаблон Word',$plan['choices'][$source['template_id']]]]);
+            ['Шаблон Word',$plan['choices'][$source['template_id']]]]);
         if ($plan['missingPlans']) {
             $body.=RentalUI::alert('Добавьте план для приложения № 1',
                 'Менеджер может загрузить PDF, PNG или JPEG в карточке объекта через «Редактировать». Если договор уже согласован в Word или PDF, загрузите готовый файл ниже.','warning');
@@ -180,11 +183,13 @@ final class WordPack
         }
         if ($plan['excluded']) $body.=RentalUI::alert('Некоторые редакции пропущены',
             'Для этого пакета нужны поля плана, преамбулы ИП, ставок по объектам или условия об обеспечении. Исходники доступны в разделе «Шаблоны документов».');
-        $body.='<form class="registry-ui-modal-grid" method="get" action="'.($review?'/rental/contract':'/rental/word-form').'">'
-            .$common.($review?self::hidden('word',1):'');
-        if(isset($selection['mode']))$body.=self::hidden('mode',$selection['mode']);
-        $body.=DirectoryUi::select('template['.$kind.']',OriginalDocuments::TITLES[$kind],$plan['choices'],$source['template_id']);
-        $body.='<div class="demo-row"><button class="btn btn-secondary">Применить выбор шаблонов</button></div></form>';
+        if (count($plan['choices'])>1) {
+            $body.='<form class="registry-ui-modal-grid" method="get" action="'.($review?'/rental/contract':'/rental/word-form').'">'
+                .$common.($review?self::hidden('word',1):'');
+            if (isset($selection['mode'])) $body.=self::hidden('mode',$selection['mode']);
+            $body.=DirectoryUi::select('template['.$kind.']',OriginalDocuments::TITLES[$kind],$plan['choices'],$source['template_id']);
+            $body.='<div class="demo-row"><button class="btn btn-secondary">Применить выбор шаблонов</button></div></form>';
+        }
         $body.='<form class="registry-ui-modal-grid" id="'.$form.'" method="post" action="/rental/generate">'.$common.self::hidden('_csrf',Http::csrf())
             .self::hidden('original_pack',1).self::hidden('request_key',bin2hex(random_bytes(16)));
         foreach($plan['sources'] as $kind=>$source)$body.=self::hidden('template['.$kind.']',$source['template_id'])
@@ -213,7 +218,17 @@ final class WordPack
         if ($plan['security']!==null) $request[]=$plan['security'];
         $fingerprint=hash('sha256',Importer::canonicalJson($request));
         $q=$db->prepare("SELECT fact_json FROM rental_facts WHERE namespace='word_request' AND source_key=?");$q->execute([$requestKey]);$previous=$q->fetchColumn();
-        if($previous){$previous=json_decode($previous,true,512,JSON_THROW_ON_ERROR);if($previous['fingerprint']!==$fingerprint)throw new RuntimeException('Ключ формы уже использован.',409);return self::evidence($db,$previous['primary']);}
+        if ($previous) {
+            $previous=Importer::decodeExact($previous);
+            if ($previous['fingerprint']!==$fingerprint) throw new RuntimeException('Ключ формы уже использован.',409);
+            $pack=self::evidence($db,$previous['primary']);
+            $current=array_map(self::sourceProof(...),$plan['sources']);
+            foreach ($plan['acts'] as $objectId=>$act) $current['act-'.$objectId]=self::sourceProof($act['source']);
+            if (Importer::canonicalJson($current)!==Importer::canonicalJson($pack['sources']??[])) {
+                throw new RuntimeException('Шаблоны изменились. Откройте форму заново.',409);
+            }
+            return $pack;
+        }
         $inputs=WordGenerationData::inputs($plan['fields'],$plan['values'],$plan['partyType'],$automatic);
         if(array_diff_key($input,$inputs))throw new RuntimeException('Нельзя подменять данные договора или расчётные суммы.',422);
         $values=WordGenerationData::complete($plan['values'],$input,$plan['fields'],$plan['partyType'],$automatic);
@@ -244,7 +259,7 @@ final class WordPack
             self::attach($db,$fid,$entity,$id,$version,$fileKind,$filename,$path,$hash,'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
             WordSecurityTerms::remember($db,$plan['contract'],$hash,$plan['security']);
             $files[]=['id'=>$fid,'sha256'=>$hash,'filename'=>$filename,'kind'=>$kind];
-            $proof[$kind]=array_intersect_key($source,array_flip(['template_id','template_version','sha256']));
+            $proof[$kind]=self::sourceProof($source);
         }
         foreach ($plan['acts'] as $objectId=>$act) {
             $key='act-'.$objectId;
@@ -260,7 +275,7 @@ final class WordPack
             self::attach($db,$fileId,$entity,$id,$version,'word-handover',$filename,$path,$sha256,
                 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
             $files[]=['id'=>$fileId,'sha256'=>$sha256,'filename'=>$filename,'kind'=>$source['kind']];
-            $proof[$key]=array_intersect_key($source,array_flip(['template_id','template_version','sha256']));
+            $proof[$key]=self::sourceProof($source);
         }
         foreach ($plan['plans'] as $officePlan) {
             $extension=$officePlan['extension'];
@@ -282,6 +297,26 @@ final class WordPack
         $db->prepare("INSERT INTO rental_facts(namespace,source_key,fact_json,operative) VALUES('word_request',?,?,0)")->execute([$requestKey,Importer::json(['fingerprint'=>$fingerprint,'primary'=>$pack['primary']])]);
         Audit::record('document.generate-package',$entity,$id,null,['files'=>$files,'sources'=>$proof]);
         return $pack;
+    }
+
+    private static function sourceProof(array $source): array
+    {
+        return array_intersect_key($source,array_flip(['template_id','template_version','sha256']));
+    }
+
+    private static function ownerSourcesMatch(PDO $db,array $contract,array $pack): bool
+    {
+        if (!$pack) return false;
+        $kind=$pack['files'][0]['kind'];
+        $owners=OriginalDocuments::ownerKinds();
+        if (isset($owners[$kind]) && ($pack['sources'][$kind]['sha256']??null)!==OwnerWordTemplates::digest($db,$kind)) return false;
+        $digests=[];
+        foreach (array_column(BillableTerms::forContract($db,(int)$contract['id']),null,'object_id') as $id=>$object) {
+            $kind=WordHandoverDrafts::kind($object);
+            $digests[$kind]??=OwnerWordTemplates::digest($db,$kind);
+            if (($pack['sources']['act-'.$id]['sha256']??null)!==$digests[$kind]) return false;
+        }
+        return true;
     }
 
     private static function attach(PDO $db,string $fileId,string $entity,int $id,int $version,string $kind,string $filename,string $path,string $hash,string $mime): void
@@ -362,7 +397,8 @@ final class WordPack
                         && ($pack['values']['act_date_words']??'')===WordGenerationData::dateWords($contract['document_date']);
                     $oldLayout=in_array($pack['files'][0]['kind']??null,['office','parking','mixed'],true)
                         && ($pack['layout_version']??0)!==self::LAYOUT_VERSION;
-                    if (!$dated || $oldLayout || !WordSecurityTerms::matches($security,$pack['security']??null)) {
+                    if (!$dated || $oldLayout || !WordSecurityTerms::matches($security,$pack['security']??null)
+                        || !self::ownerSourcesMatch($db,$contract,$pack)) {
                         $pack=self::prepareArchive($db,$contract,(string)($_POST['request_key']??''),$created);
                     }
                     return [$contract,$pack];
@@ -377,6 +413,9 @@ final class WordPack
             $pack=self::evidence($db,self::currentDraft($db,$contract));
             if ($pack && !WordSecurityTerms::matches($security,$pack['security']??null)) {
                 throw new RuntimeException('Кратность обеспечения изменилась. Скачайте заполненные шаблоны заново из карточки договора.',409);
+            }
+            if ($pack && !self::ownerSourcesMatch($db,$contract,$pack)) {
+                throw new RuntimeException('Шаблоны изменились. Скачайте заполненные шаблоны заново из карточки договора.',409);
             }
         }
         if (!$pack || ($pack['entity']??null)!=='contract' || $pack['entity_id']!==(int)$contract['id']

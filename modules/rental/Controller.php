@@ -1175,6 +1175,7 @@ final class Controller {
         $in = $_POST;
         unset($in['_csrf']);
         $action = (string)($in['action'] ?? '');
+        if (str_starts_with($action,'template.')) throw new RuntimeException('Откройте раздел «Шаблоны документов».',404);
         $target = match (true) {
             in_array($action,OnecRequest::ACTIONS,true) => OnecRequest::route((int)($in['id']??0)),
             in_array($action,InitialInvoice::ACTIONS,true) => InitialInvoiceCard::route((int)($in['id']??0)),
