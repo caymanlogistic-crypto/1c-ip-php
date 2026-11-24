@@ -74,9 +74,9 @@ try {
 
     $legalApprove=static function(array $record)use($act,$stage,$id,$db): string {
         $act('lawyer');
-        foreach ([LegalHandoff::PARTY,LegalHandoff::TERMS] as $action) {
+        foreach ([LegalHandoff::PARTY,LegalHandoff::TERMS,LegalHandoff::SECURITY_MULTIPLE] as $action) {
             Service::command($action,['id'=>$id,'version'=>$record['version'],'command_key'=>bin2hex(random_bytes(16)),
-                'party_basis'=>LegalHandoff::partyBasis($db,$record)]);
+                'party_basis'=>LegalHandoff::partyBasis($db,$record),'multiple'=>'1']);
         }
         $fileId=$stage('lawyer-file',$record);
         $query=$db->prepare('SELECT id,filename,sha256 FROM rental_files WHERE id=?');
@@ -84,7 +84,7 @@ try {
         $db->prepare("UPDATE rental_facts SET fact_json=JSON_SET(fact_json,'$.files',CAST(? AS JSON))
             WHERE namespace='legal_handoff_draft' AND source_key=?")->execute([Importer::json($files),$id]);
         Service::command('contract.legal',['id'=>$id,'version'=>$record['version'],
-            'command_key'=>bin2hex(random_bytes(16)),'packet_fingerprint'=>LegalHandoff::fingerprint($files)]);
+            'command_key'=>bin2hex(random_bytes(16)),'security_multiple'=>1,'packet_fingerprint'=>LegalHandoff::fingerprint($files)]);
         return $fileId;
     };
     $secondFile=$legalApprove($current);

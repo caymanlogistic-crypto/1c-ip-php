@@ -23,6 +23,18 @@
     panel.open=false;
     document.querySelector('[aria-controls="'+panel.id+'"]')?.focus();
   }));
+  const securityForm=reviewTerms.querySelector('[data-demo-security-multiple]');
+  const transfer=reviewTerms.querySelector('[data-demo-legal-transfer]');
+  let confirmedMultiple=null;
+  securityForm.addEventListener('input',()=>{
+    transfer.disabled=securityForm.elements.multiple.value!==confirmedMultiple;
+  });
+  securityForm.addEventListener('submit',event=>{
+    event.preventDefault();
+    confirmedMultiple=securityForm.elements.multiple.value;
+    reviewTerms.querySelector('#demo-legal-security-multiple-help').textContent='Согласованная кратность: '+confirmedMultiple+'. 0 — без обеспечения.';
+    transfer.disabled=false;
+  });
   const reviewStatus=reviewTerms.querySelector('[data-demo-review-files-status]');
   reviewTerms.querySelector('[data-demo-review-files]').addEventListener('change',event=>{
     reviewStatus.textContent=[...event.target.files].map(file=>file.name).join(', ');

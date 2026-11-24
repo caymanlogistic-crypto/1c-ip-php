@@ -296,7 +296,8 @@ try{
     $files=[array_intersect_key($file,['id'=>true,'filename'=>true,'sha256'=>true])];
     $db->prepare("UPDATE rental_facts SET fact_json=JSON_SET(fact_json,'$.files',CAST(? AS JSON))
         WHERE namespace='legal_handoff_draft' AND source_key=?")->execute([Importer::json($files),$id]);
-    command('contract.legal',['id'=>$id,'version'=>(int)$c['version'],'packet_fingerprint'=>LegalHandoff::fingerprint($files)]);
+    command(LegalHandoff::SECURITY_MULTIPLE,['id'=>$id,'version'=>(int)$c['version'],'multiple'=>'1']);
+    command('contract.legal',['id'=>$id,'version'=>(int)$c['version'],'security_multiple'=>1,'packet_fingerprint'=>LegalHandoff::fingerprint($files)]);
     ok(Service::get($db,'contracts',$id)['status']==='accounting','Legacy mixed Word can be approved again');
 
     $missing=fixture('Офис',false);$c=Service::get($db,'contracts',$missing);actor('lawyer');

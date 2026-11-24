@@ -17,20 +17,23 @@ final class LegalHandoffCard
         $review=LegalHandoff::checks($db,$contract);
         $files=LegalHandoff::files($db,$contract);
         $ready=$review['party'] && $review['terms'];
+        $multiple=InitialInvoice::legalSecurityMultiple($db,$contract);
         $body=RentalUI::notice();
         if ($contract['status']==='returned') {
             $body.=RentalUI::alert('Бухгалтерия: отказ в согласовании',(string)$contract['reason'],'warning');
         }
         $body.='<div class="registry-ui-form-sections registry-ui-form-sections--compact">'
             .self::party($contract,$party,$details,$review['party'])
-            .self::terms($contract,$review['terms'])
+            .self::terms($contract,$review['terms'],$multiple)
             .self::documents($contract,$files,$ready).self::history($id,true).'</div>';
         $formId='legal-handoff';
+        $canTransfer=$ready && $files && $multiple!==null;
         $body.='<form id="'.$formId.'" method="post" action="/rental/action">'
             .self::fields($contract,'contract.legal')
+            .PremisesActsCard::hidden('security_multiple',$multiple??'')
             .PremisesActsCard::hidden('packet_fingerprint',LegalHandoff::fingerprint($files)).'</form>';
         $footer='<button class="btn btn-primary" type="submit" form="'.$formId.'"'
-            .($ready && $files?'':' disabled').'>Согласовать и передать бухгалтеру</button>';
+            .($canTransfer?' data-legal-transfer-ready':' disabled').'>Согласовать и передать бухгалтеру</button>';
         return RentalUI::modal('Договор №'.$contract['number'].' · проверка юристом',$body,$footer,'approvals',wide:true);
     }
 
@@ -79,7 +82,7 @@ final class LegalHandoffCard
             $checked?'Работа разрешена':($blocked?'Работа заблокирована':'Ожидает решения'),$checked);
     }
 
-    private static function terms(array $contract,bool $checked): string
+    private static function terms(array $contract,bool $checked,?int $multiple): string
     {
         $db=DB::pdo();
         $terms=BillableTerms::forContract($db,(int)$contract['id']);
@@ -99,46 +102,27 @@ final class LegalHandoffCard
                 .Controller::table(['Объект','Тип','Площадь','Аренда с НДС'],$rows,['text','text','short','money'])
                 .'</div>';
         }
-        $form=InitialInvoice::approvalTerms($db,(int)$contract['id']);
-        if ($form) {
-            $facts.=RentalUI::pairs([
-                ['Условия первого начисления',$form['reason']],
-                ['Кратность обеспечительного платежа',(string)$form['multiple']],
-            ]);
-        }
-        $initial=self::initialTerms($contract);
-        $facts.='<div class="registry-ui-review-actions"><div>'
-            .($initial?self::toggle('legal-initial-terms','Подтвердить условия первого начисления'):'')
-            .'</div><div class="demo-row">'
+        $facts.='<div class="registry-ui-review-actions"><div></div><div class="demo-row">'
             .self::toggle('review-terms-return','Условия неверны',true,true)
             .self::confirm($contract,LegalHandoff::TERMS,'Условия верны',$checked)
             .'</div></div>'
-            .$initial
             .self::reason($contract,'contract.return','review-terms-return','Условия неверны','Закрыть форму возврата',
-                'Укажите, каких данных не хватает или что нужно уточнить.','Вернуть на доработку');
+                'Укажите, каких данных не хватает или что нужно уточнить.','Вернуть на доработку')
+            .self::securityMultiple($contract,$multiple);
         return self::section('Проверка условий',$facts,$checked?'Условия подтверждены':'Ожидает решения',$checked);
     }
 
-    private static function initialTerms(array $contract): string
+    private static function securityMultiple(array $contract,?int $multiple): string
     {
-        $db=DB::pdo();
-        $id=(int)$contract['id'];
-        if (!InitialInvoice::can($contract,InitialInvoice::TERMS) || InitialInvoice::issuedFor($db,$id)
-            || InitialInvoice::receipt($db,$id)) return '';
-        $forms=LeasePaymentTerms::allowedForms($db,$contract);
-        if (!$forms) return '';
-        $labels=[];
-        foreach ($forms as $form=>$label) $labels[$form]=$form.' · '.$label;
-        $fields='<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
-            .DirectoryUi::select('lease_form','Согласованная форма',[''=>'Выберите форму']+$labels,'',true,alignedLabel:true)
-            .'<label class="field"><span class="field-label-row"><span class="field-label">Кратность обеспечения <span class="req">*</span></span></span>'
-            .'<input class="field-input" type="number" name="multiple" min="0" step="1" placeholder="0 — без обеспечения" required></label></div>'
-            .'<label class="field"><span class="field-label">Пункт договора о первом начислении и обеспечении <span class="req">*</span></span>'
-            .'<textarea class="field-textarea" name="reason" rows="2" maxlength="600" required></textarea></label>';
-        $form='<form class="registry-ui-form-section" method="post" action="/rental/action">'
-            .self::fields($contract,LegalHandoff::TERMS).$fields
-            .'<div class="demo-row"><button class="btn btn-success-solid" type="submit">Подтвердить первый расчёт</button></div></form>';
-        return self::panel('legal-initial-terms','Подтвердить условия первого начисления','Закрыть условия первого начисления',$form);
+        $issued=InitialInvoice::issuedSecurityMultiple(DB::pdo(),(int)$contract['id']);
+        $help=$multiple===null ? 'Перед передачей бухгалтеру согласуйте кратность.' : 'Согласованная кратность: '.$multiple.'.';
+        return '<form id="legal-security-multiple" class="registry-ui-form-section" method="post" action="/rental/action">'
+            .self::fields($contract,LegalHandoff::SECURITY_MULTIPLE)
+            .'<div class="form-grid-3"><label class="field"><span class="field-label">Кратность обеспечения</span>'
+            .'<input class="field-input" type="number" name="multiple" min="0" step="1" value="'.($multiple??$issued??1)
+            .'" aria-describedby="legal-security-multiple-help" required'.($issued!==null?' readonly':'').'></label></div>'
+            .'<p id="legal-security-multiple-help" class="registry-ui-modal-help">'.View::e($help.' 0 — без обеспечения.').'</p>'
+            .'<div class="demo-row"><button class="btn btn-success-solid" type="submit">Согласовать кратность</button></div></form>';
     }
 
     private static function documents(array $contract,array $files,bool $ready): string

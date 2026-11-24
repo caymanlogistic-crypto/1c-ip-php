@@ -589,6 +589,11 @@
     }
   }
   document.addEventListener('input',event=>{
+    if(event.target.matches('#legal-security-multiple input[name="multiple"]')){
+      const dialog=event.target.closest('dialog');
+      const transfer=dialog?.querySelector('[data-legal-transfer-ready]');
+      if(transfer)transfer.disabled=event.target.value!==transfer.form.elements.security_multiple.value;
+    }
     if(event.target.name==='number' && event.target.form?.hasAttribute('data-rental-addendum-base')){
       const number=event.target.value.trim().replace(/^(?:ДС(?=\s|№|\d)\s*)?№?\s*/iu,'');
       const title=event.target.closest('dialog')?.querySelector('.modal-head > .modal-title');

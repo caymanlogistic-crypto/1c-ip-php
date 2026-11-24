@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use App\{Auth, DB};
-use Modules\Rental\{Documents, InitialInvoice, InitialInvoiceCard, PartyLegalReview, Service, SourceCards};
+use Modules\Rental\{Documents, InitialInvoice, InitialInvoiceCard, LegalHandoff, PartyLegalReview, Service, SourceCards};
 
 require dirname(__DIR__).'/app/bootstrap.php';
 
@@ -142,7 +142,16 @@ try {
     check(!str_contains(InitialInvoiceCard::card(),'Зарегистрировать первый счёт'),'Hide registration after success');
     if (!$returned) {
         actor('lawyer');
-        check(!str_contains(SourceCards::show(),'id="legal-initial-terms"'),'Issued invoices prevent amendment through the legal confirmation form');
+        $beforeTerms=InitialInvoice::approvalTerms($db,$id);
+        $beforeReceipt=InitialInvoice::receipt($db,$id);
+        $multiple=$beforeReceipt['condition']['multiple'];
+        check(str_contains(SourceCards::show(),'name="multiple" min="0" step="1" value="'.$multiple.'"'),
+            'The legal form shows the registered multiplier');
+        expectDenied(fn()=>command(LegalHandoff::SECURITY_MULTIPLE,$contractInput()+['multiple'=>(string)($multiple+1)]),
+            'Укажите кратность из зарегистрированных первых счетов');
+        command(LegalHandoff::SECURITY_MULTIPLE,$contractInput()+['multiple'=>(string)$multiple]);
+        check(InitialInvoice::legalSecurityMultiple($db,$new)===$multiple && InitialInvoice::approvalTerms($db,$id)===$beforeTerms
+            && InitialInvoice::receipt($db,$id)===$beforeReceipt, 'Legal confirmation preserves the issued calculation and invoice receipt');
     }
     echo 'PASS accountant issue with legal approval, denied roles and stale evidence, PDF attachments, dates/security and idempotency',PHP_EOL;
 } finally {

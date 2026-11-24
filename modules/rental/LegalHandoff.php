@@ -11,10 +11,11 @@ final class LegalHandoff
 {
     public const PARTY='contract.legal-party';
     public const TERMS='contract.legal-terms';
+    public const SECURITY_MULTIPLE='contract.legal-security-multiple';
     public const BLOCK='contract.legal-block';
     public const UPLOAD='contract.legal-upload';
     public const REMOVE='contract.legal-remove';
-    public const ACTIONS=[self::PARTY,self::TERMS,self::BLOCK,self::UPLOAD,self::REMOVE];
+    public const ACTIONS=[self::PARTY,self::TERMS,self::SECURITY_MULTIPLE,self::BLOCK,self::UPLOAD,self::REMOVE];
     private const DRAFT='legal_handoff_draft';
     private const SENT='legal_handoff_sent';
     private const PARTY_PROOF='contract-party-v2:';
@@ -158,12 +159,13 @@ final class LegalHandoff
             $draft['party']=$basis;
             $message='Работа с контрагентом разрешена.';
         } elseif ($action===self::TERMS) {
-            if (($input['multiple']??'')!=='' || trim((string)($input['reason']??''))!=='') {
-                InitialInvoice::execute($db,$actor,InitialInvoice::TERMS,$contract,
-                    $input+['confirmed'=>'1']);
-            }
             $draft['terms']=self::termsBasis($db,$contract);
             $message='Условия договора подтверждены.';
+        } elseif ($action===self::SECURITY_MULTIPLE) {
+            $termsConfirmed=self::checks($db,$contract)['terms'];
+            InitialInvoice::confirmLegalSecurityMultiple($db,$actor,$contract,$input);
+            if ($termsConfirmed) $draft['terms']=self::termsBasis($db,$contract);
+            $message='Кратность обеспечения согласована.';
         } else {
             if (!self::ready($db,$contract)) throw new RuntimeException('Сначала подтвердите контрагента и условия.',409);
             if ($action===self::UPLOAD) {
@@ -209,6 +211,11 @@ final class LegalHandoff
     public static function seal(PDO $db,array $actor,array $contract,array $input): array
     {
         if (!self::ready($db,$contract)) throw new RuntimeException('Сначала подтвердите контрагента и условия.',409);
+        $multiple=InitialInvoice::legalSecurityMultiple($db,$contract);
+        if ($multiple===null) throw new RuntimeException('Согласуйте кратность обеспечения по текущим условиям договора.',409);
+        if (filter_var($input['security_multiple']??null,FILTER_VALIDATE_INT)!==$multiple) {
+            throw new RuntimeException('Кратность обеспечения изменилась. Откройте договор заново.',409);
+        }
         self::assertCounterparty($db,$contract);
         $id=(int)$contract['id'];
         $draft=self::draft($db,$contract);
@@ -220,7 +227,7 @@ final class LegalHandoff
         $party=Service::get($db,'parties',(int)$contract['party_id']);
         $source=PartyLegalReview::contractSource($db,$party,PartyLegalReview::state($db,(int)$party['id']));
         $bundle=['contract_id'=>$id,'version'=>(int)$contract['version'],'files'=>$files,'actor'=>$actor['name'],
-            'party_proof'=>$draft['party'],'terms_proof'=>$draft['terms'],
+            'party_proof'=>$draft['party'],'terms_proof'=>$draft['terms'],'security_multiple'=>$multiple,
             'party_source'=>$source ? array_intersect_key($source,array_flip(['id','filename','sha256'])) : null,
             'sent_at'=>date('Y-m-d H:i:s')];
         self::store($db,self::SENT,$id.':'.$contract['version'],$bundle);
