@@ -265,10 +265,27 @@ final class LegalHandoff
         return $bundle['files'];
     }
 
-    public static function history(PDO $db,int $id): array
+    public static function securityMultipleChange(PDO $db,array $contract): ?array
     {
-        $query=$db->prepare("SELECT fact_json FROM rental_facts WHERE namespace='legal_handoff_sent'
-            AND source_key LIKE ? ORDER BY id DESC");
+        $id=(int)$contract['id'];
+        $version=(int)$contract['version'];
+        $bundles=self::history($db,$id,2);
+        if (count($bundles)!==2 || $contract['amount']===null) return null;
+        [$current,$previous]=$bundles;
+        if (($current['contract_id']??null)!==$id || ($current['version']??null)!==$version
+            || ($previous['contract_id']??null)!==$id || !is_int($previous['version']??null) || $previous['version']>=$version) {
+            return null;
+        }
+        $before=$previous['security_multiple']??null;
+        $after=$current['security_multiple']??null;
+        if (!is_int($before) || !is_int($after) || $before<0 || $after<0 || $before===$after) return null;
+        return ['previous'=>$before,'current'=>$after,'amount'=>InitialInvoice::securityAmount((string)$contract['amount'],$after)];
+    }
+
+    public static function history(PDO $db,int $id,?int $limit=null): array
+    {
+        $sql="SELECT fact_json FROM rental_facts WHERE namespace='legal_handoff_sent' AND source_key LIKE ? ORDER BY id DESC";
+        $query=$db->prepare($sql.($limit===null?'':' LIMIT '.max(0,$limit)));
         $query->execute([$id.':%']);
         return array_map([Importer::class,'decodeExact'],$query->fetchAll(PDO::FETCH_COLUMN));
     }

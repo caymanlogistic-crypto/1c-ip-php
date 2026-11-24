@@ -88,6 +88,10 @@ final class WorkflowEvents
             'actor_id'=>(int)$actor['id'],'role_id'=>$actor['role_id']??$actor['role'],'actor_role'=>$actor['role'],
             'auth_version'=>(int)$actor['auth_version'],'actor_name'=>$actor['name'],'epoch'=>(string)$epoch,
             'text'=>(string)$events[0]['description'],'reason'=>(string)($party?($after['block_reason']??''):($after['reason']??''))]+$transition;
+        if ($action==='contract.legal' && $transition['event_kind']==='legalApprove' && RegistryState::managed($context['before'])) {
+            $change=LegalHandoff::securityMultipleChange($db,$context['before']);
+            if ($change!==null) $body['security_multiple_change']=$change;
+        }
         if ($action===InitialInvoice::ISSUE) $body['invoice_ids']=$result['invoice_ids'];
         if (StaffHandoff::managed($action)) $body['staff_handoff']=$staff;
         if ($action==='contract.submit' && $staff && ($named=\Modules\Integrations\StaffHandoffProbe::assign($db,$body))) {

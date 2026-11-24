@@ -124,6 +124,9 @@ try {
     $r=Service::command('contract.legal',$input);check($r['status']==='accounting','Legal handoff');
     $handoff=LegalHandoff::history($db,$id)[0];
     check($handoff['party_source']===null && $handoff['security_multiple']===1,'The legal bundle records the approved multiplier');
+    $firstHandoffEvent=WorkflowEvents::latest($db,'contract',$id);
+    check($firstHandoffEvent['event_kind']==='legalApprove' && !array_key_exists('security_multiple_change',$firstHandoffEvent),
+        'The first transfer has no previous multiplier');
     $billingInput=['id'=>$id,'version'=>record($id)['version'],'multiple'=>'0'];
     denied(fn()=>command(LegalHandoff::SECURITY_MULTIPLE,$billingInput),'Договор не у юриста',409);
     denied(fn()=>command(InitialInvoice::TERMS,$billingInput+['lease_form'=>'D17','reason'=>'Поздняя правка','confirmed'=>'1']),
@@ -177,7 +180,41 @@ try {
     $history=LegalHandoff::history($db,$id);
     check(count($history)===2 && count($history[0]['files'])===2 && count($history[1]['files'])===1,
         'Current and prior accounting handoffs are separate');
-    check(WorkflowEvents::latest($db,'contract',$id)['target_role']==='accountant','Accountant notification target');
+    $unchanged=WorkflowEvents::latest($db,'contract',$id);
+    check($unchanged['target_role']==='accountant' && !array_key_exists('security_multiple_change',$unchanged),
+        'A repeated transfer with the same multiplier has no change');
+    foreach ([
+        [2,['previous'=>1,'current'=>2,'amount'=>'20000.00']],
+        [0,['previous'=>2,'current'=>0,'amount'=>'0.00']],
+        [1,null],
+    ] as [$multiple,$expectedChange]) {
+        if ($expectedChange===null) {
+            $previous=LegalHandoff::history($db,$id,1)[0];
+            $db->prepare("UPDATE rental_facts SET fact_json=JSON_REMOVE(fact_json,'$.security_multiple')
+                WHERE namespace='legal_handoff_sent' AND source_key=?")->execute([$id.':'.$previous['version']]);
+        }
+        actor('accountant');
+        command('contract.return',['id'=>$id,'version'=>record($id)['version'],'reason'=>'Проверить обеспечение']);
+        $returnedEvent=WorkflowEvents::latest($db,'contract',$id);
+        check($returnedEvent['event_kind']==='accountantReturn' && !array_key_exists('security_multiple_change',$returnedEvent),
+            'The accountant return does not carry the multiplier change');
+        actor('lawyer');
+        $returned=record($id);
+        command(LegalHandoff::SECURITY_MULTIPLE,['id'=>$id,'version'=>$returned['version'],'multiple'=>(string)$multiple]);
+        check(WorkflowEvents::latest($db,'contract',$id)===$returnedEvent,
+            'Approving the multiplier alone does not create a committed workflow notice');
+        stageFiles($db,$returned,1,$files);
+        $handoffInput=approveInput($id)+['command_key'=>bin2hex(random_bytes(16))];
+        $handoffResult=Service::command('contract.legal',$handoffInput);
+        $event=WorkflowEvents::latest($db,'contract',$id);
+        check($event['event_kind']==='legalApprove' && ($expectedChange===null
+            ? !array_key_exists('security_multiple_change',$event)
+            : Importer::canonicalJson($event['security_multiple_change']??[])===Importer::canonicalJson($expectedChange)),
+            'A transfer compares the immediate previous bundle and preserves the exact new amount');
+        check(Service::command('contract.legal',$handoffInput)===$handoffResult
+            && WorkflowEvents::latest($db,'contract',$id)===$event,
+            'Replaying a handoff does not publish a second multiplier change');
+    }
     actor('accountant');command('contract.return',['id'=>$id,'version'=>record($id)['version'],'reason'=>'Нужна правка менеджера']);
     actor('lawyer');command('contract.forward',['id'=>$id,'version'=>record($id)['version'],'reason'=>'Уточнить срок']);
     denied(fn()=>command('contract.legal',approveInput($id)),'Договор не у юриста');
