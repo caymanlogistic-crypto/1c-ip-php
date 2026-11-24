@@ -123,7 +123,7 @@
     if(!rows.length)return '';
     const labels={security:'Обеспечительный платёж',rent:'Аренда за первый период',next:'Аренда за полный следующий месяц'};
     return [bold(issued?'Ранее выставленные первые счета':'Расчёт первых платежей'),
-     ...rows.map(row=>escape(labels[row.kind])+' — '+bold(money(row.amount)))].join('\n')+'\n';
+     ...rows.map(row=>'• '+escape(labels[row.kind])+' · '+bold(money(row.amount)))].join('\n')+'\n\n';
    }
    return escape(identifiers.has(key)?v[key]:formatMaxDates(v[key]));
   });

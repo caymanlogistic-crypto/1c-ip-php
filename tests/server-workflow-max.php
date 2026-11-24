@@ -139,10 +139,17 @@ $entry=['source_key'=>$packageKey,'format'=>'html','body_text'=>AccountantPackag
 $values=MaxTemplateAdmin::sampleValues($entry);
 $values[AccountantPackageMax::TOKEN]=AccountantPackageMax::fromEvent($packageEvent);
 $packetText=TemplateCatalog::preview('max',$entry,$values)['body'];
-if (!str_starts_with($packetText,"<b>Договор №178 · ООО «Учебный клиент»</b>\nПакет документов подтверждён бухгалтерией.")
-    || !str_contains($packetText,"<b>Расчёт первых платежей</b>\nОбеспечительный платёж — <b>40 000,00 ₽</b>\nАренда за первый период — <b>4 666,67 ₽</b>\nАренда за полный следующий месяц — <b>20 000,00 ₽</b>")
+if (!str_starts_with($packetText,"<b>Договор №178 · ООО «Учебный клиент»</b>\n\nПакет документов подтверждён бухгалтерией.")
+    || !str_contains($packetText,"\n\n<b>Расчёт первых платежей</b>\n• Обеспечительный платёж · <b>40 000,00 ₽</b>\n• Аренда за первый период · <b>4 666,67 ₽</b>\n• Аренда за полный следующий месяц · <b>20 000,00 ₽</b>\n\n")
     || !str_contains($packetText,'Создание контрагента в 1С, выставление счетов и отправка документов через ЭДО отключены.'))
     throw new RuntimeException('The accountant packet did not render the exact confirmation and calculated sums');
+$unsigned=['status'=>'active','signed'=>0];
+$signed=['status'=>'active','signed'=>1];
+if (WorkflowEvents::transition('contract.sign',[],$unsigned,$signed,true)['event_kind']!=='signed'
+    || WorkflowEvents::transition('contract.sign',[],$signed,$signed,true)!==null
+    || WorkflowEvents::transition('contract.sign',[],$unsigned,$signed)!==null) {
+    throw new RuntimeException('Only a newly signed contract activated by the accountant should notify on the active path');
+}
 $packageEvent['accountant_packet_confirmation']['planned']=[];
 $values[AccountantPackageMax::TOKEN]=AccountantPackageMax::fromEvent($packageEvent);
 if (str_contains(TemplateCatalog::preview('max',$entry,$values)['body'],'Расчёт первых платежей'))

@@ -92,8 +92,8 @@ final class AccountantPackageMax
         $bold = static fn (string $text): string => $open.$escape($text).$close;
         $lines = [$bold($summary['issued'] ? 'Ранее выставленные первые счета' : 'Расчёт первых платежей')];
         foreach ($rows as $row) {
-            $lines[] = $escape(InitialInvoice::DUE_PARTS[$row['kind']]).' — '.$bold(Controller::money($row['amount']));
+            $lines[] = '• '.$escape(InitialInvoice::DUE_PARTS[$row['kind']]).' · '.$bold(Controller::money($row['amount']));
         }
-        return implode("\n",$lines)."\n";
+        return implode("\n",$lines)."\n\n";
     }
 }
