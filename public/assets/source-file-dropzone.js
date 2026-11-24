@@ -25,6 +25,12 @@
     const zone = dropzone(event);
     if (zone && !zone.contains(event.relatedTarget)) zone.classList.remove('is-dragover');
   });
+  document.addEventListener('change', event => {
+    const input = event.target;
+    if (!input.matches?.('input[type="file"]')) return;
+    const selection = dropzone(event)?.querySelector('[data-file-dropzone-selection]');
+    if (selection) selection.textContent = input.files?.[0]?.name ?? '';
+  });
 
   document.addEventListener('drop', event => {
     const zone = dropzone(event);

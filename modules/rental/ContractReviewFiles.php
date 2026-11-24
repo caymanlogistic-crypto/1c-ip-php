@@ -44,7 +44,9 @@ final class ContractReviewFiles
             $size=$group['size'][$slot] ?? 0;
             if (($kind!==self::KIND && !isset(ContractRevision::KINDS[$kind])) || $error!==UPLOAD_ERR_OK || !is_string($path)
                 || !is_string($name) || $size<1 || $size>20*1024*1024 || !is_uploaded_file($path)) {
-                throw new RuntimeException('Выберите файлы Word или PDF размером до 20 МБ каждый.',422);
+                throw new RuntimeException($legal
+                    ? 'Выберите файлы Word, PDF или ZIP размером до 20 МБ каждый.'
+                    : 'Выберите файлы Word или PDF размером до 20 МБ каждый.',422);
             }
             $description=$legal?'Документ юриста':($kind===self::KIND
                 ? DirectoryDetails::text($descriptions,(string)$slot,self::DESCRIPTION_LIMIT)
@@ -59,8 +61,12 @@ final class ContractReviewFiles
                 'pdf'=>'application/pdf',
                 'docx'=>'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                 'doc'=>'application/msword',
-                default=>throw new RuntimeException('Материалы должны быть в формате PDF, DOC или DOCX.',422),
+                'zip'=>$legal?'application/zip':null,
+                default=>null,
             };
+            if ($mime===null) throw new RuntimeException($legal
+                ? 'Комплект должен содержать файлы PDF, DOC, DOCX или ZIP.'
+                : 'Материалы должны быть в формате PDF, DOC или DOCX.',422);
             Documents::validateFile($path,$extension);
             $sha=hash_file('sha256',$path);
             if ($sha===false) throw new RuntimeException('Не удалось прочитать материал к договору.',422);

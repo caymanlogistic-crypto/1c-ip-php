@@ -45,6 +45,18 @@
 </ul></section>
 </section>
 <div class="demo-row"><button type="button" class="btn btn-secondary" data-open-review-terms>Показать условия договора и файлы</button><button type="button" class="btn btn-secondary" data-open-accountant-review>Показать проверку бухгалтерией</button></div>
+<section id="signed-contract-upload-example" class="table-card registry-ui-card">
+<section class="panel-section registry-ui-form-section">
+<h2 class="section-title">Загрузка подписанного договора</h2>
+<label class="file-dropzone registry-ui-review-upload" data-file-dropzone>
+<span class="dz-title">Перетащите сюда подписанный договор</span>
+<span class="btn btn-secondary">Выбрать файл</span>
+<span class="dz-note">Word или PDF, до 20 МБ.</span>
+<span class="registry-ui-modal-text" data-file-dropzone-selection aria-live="polite"></span>
+<input type="file" accept=".doc,.docx,.pdf" aria-label="Подписанный файл">
+</label>
+<div class="demo-row"><button class="btn btn-secondary" type="button">Загрузить файл</button></div>
+</section></section>
 <dialog class="modal registry-ui-modal registry-ui-modal--probe" id="accountant-review-example" aria-labelledby="accountant-review-title">
 <div class="registry-ui-modal-form">
 <div class="modal-head"><h2 class="modal-title" id="accountant-review-title">Договор №174 · проверка бухгалтерией</h2><button type="button" class="modal-close" data-close-accountant-review aria-label="Закрыть">×</button></div>
@@ -117,9 +129,10 @@
 <label class="file-dropzone registry-ui-review-upload" data-file-dropzone>
 <span class="dz-title">Перетащите сюда итоговые файлы</span>
 <span class="btn btn-secondary">Выбрать файлы</span>
-<span class="dz-note" id="demo-legal-files-help">Word или PDF, до 20 МБ на файл. Загрузка начнётся сразу.</span>
-<input type="file" accept=".doc,.docx,.pdf" aria-label="Выбрать итоговые файлы" aria-describedby="demo-legal-files-help" multiple data-demo-review-files></label>
+<span class="dz-note" id="demo-legal-files-help">Word, PDF или ZIP, до 20 МБ на файл. Загрузка начнётся сразу.</span>
+<input type="file" accept=".doc,.docx,.pdf,.zip" aria-label="Выбрать итоговые файлы" aria-describedby="demo-legal-files-help" multiple data-demo-review-files></label>
 <p class="registry-ui-modal-help" data-demo-review-files-status aria-live="polite"></p>
+<ul class="registry-ui-form-section registry-ui-review-files"><li><a href="#review-terms-example" download data-demo-review-zip>Итоговый комплект.zip</a></li></ul>
 <div class="demo-row"><a class="btn btn-secondary" href="#review-terms-example" download data-demo-review-zip>Скачать заполненные шаблоны</a></div>
 </section></div></div>
 <div class="modal-foot"><div class="modal-foot-actions"><button class="btn btn-secondary" type="button" data-close-review-terms>Закрыть</button></div></div>

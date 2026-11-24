@@ -27,10 +27,10 @@
   reviewTerms.querySelector('[data-demo-review-files]').addEventListener('change',event=>{
     reviewStatus.textContent=[...event.target.files].map(file=>file.name).join(', ');
   });
-  reviewTerms.querySelector('[data-demo-review-zip]').addEventListener('click',event=>{
+  reviewTerms.querySelectorAll('[data-demo-review-zip]').forEach(link=>link.addEventListener('click',event=>{
     event.preventDefault();
     reviewStatus.textContent='В рабочем окне комплект скачивается одним ZIP.';
-  });
+  }));
   const accountantReview=document.getElementById('accountant-review-example');
   document.querySelector('[data-open-accountant-review]').addEventListener('click',()=>accountantReview.showModal());
   accountantReview.querySelectorAll('[data-close-accountant-review]').forEach(button=>button.addEventListener('click',()=>accountantReview.close()));

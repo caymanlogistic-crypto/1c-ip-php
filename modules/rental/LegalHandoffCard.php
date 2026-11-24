@@ -124,8 +124,8 @@ final class LegalHandoffCard
                 .'<label class="file-dropzone registry-ui-review-upload" data-file-dropzone>'
                 .'<span class="dz-title">Перетащите сюда итоговые файлы</span>'
                 .'<span class="btn btn-secondary">Выбрать файлы</span>'
-                .'<span class="dz-note" id="legal-files-help">Word или PDF, до 20 МБ на файл. Загрузка начнётся сразу.</span>'
-                .'<input type="file" name="legal_files[]" accept=".doc,.docx,.pdf" aria-label="Выбрать итоговые файлы"'
+                .'<span class="dz-note" id="legal-files-help">Word, PDF или ZIP, до 20 МБ на файл. Загрузка начнётся сразу.</span>'
+                .'<input type="file" name="legal_files[]" accept=".doc,.docx,.pdf,.zip" aria-label="Выбрать итоговые файлы"'
                 .' aria-describedby="legal-files-help" multiple required data-rental-upload-on-select></label></form>'
                 .($files?self::fileList($files,$contract):'');
             $body.='<div class="demo-row"><form method="post" action="/rental/word-zip">'

@@ -59,7 +59,16 @@ final class Documents {
         return $dom->output();
     }
     public static function validateFile(string $path, string $extension):void {
-        if ($extension === 'pdf') {
+        if ($extension === 'zip') {
+            $archive = new \ZipArchive();
+            if ($archive->open($path, \ZipArchive::RDONLY | \ZipArchive::CHECKCONS) !== true) {
+                throw new RuntimeException('ZIP-архив повреждён.',422);
+            }
+            $numberOfFiles = $archive->numFiles;
+            $archive->close();
+            if ($numberOfFiles === 0) throw new RuntimeException('ZIP-архив пуст.',422);
+        }
+        elseif ($extension === 'pdf') {
             $size = filesize($path);
             $head = file_get_contents($path, false, null, 0, 8);
             $tail = file_get_contents($path, false, null, max(0, $size-4096));
