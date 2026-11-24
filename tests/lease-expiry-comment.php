@@ -37,11 +37,11 @@ for ($id=1;$id<=11;$id++) {
 }
 $tabs=LeaseRegistry::tabs($items,true);
 $check($tabs['all']===['Все',11,[0,0,0,0]],'All flag counts contracts without red or yellow badges');
-$check($tabs['ending']===['Заканчиваются',11,[0,0,0,0]],'Ending flag counts contracts without red or yellow badges');
+$check($tabs['ending']===['Заканчиваются',11,[6,5,0,0]],'Ending flag retains its red and yellow badges');
 $check($tabs['review']===['На завершении',0,[0,0,0,0]],'Review flag excludes active rows');
 $items[0]['contract']['status']='reconciling';$items[0]['view']['ending']=false;
 $tabs=LeaseRegistry::tabs($items,true);
-$check($tabs['ending']===['Заканчиваются',10,[0,0,0,0]] && $tabs['review']===['На завершении',1,[0,0,0,0]],'Each flag counts its selection without warning badges');
+$check($tabs['ending']===['Заканчиваются',10,[5,5,0,0]] && $tabs['review']===['На завершении',1,[1,0,0,0]],'Ending and review retain their own badge counts');
 $items[0]['view']['severity']='blue';
 $items[1]['view']['severity']='green';
 $check(LeaseRegistry::tabs($items,true)['all'][2]===[0,0,1,1],'Active tabs retain blue and green badges');

@@ -173,9 +173,9 @@ final class LeaseRegistry
         $tabs=[];
         $labels=$active?['all'=>'Все','ending'=>'Заканчиваются','review'=>'На завершении']
             :['all'=>'Все','ended'=>'Аренда завершена','closed'=>'Расчёты закрыты'];
-        $colors=$active?[2=>'green',3=>'blue']:['red','yellow','green','blue'];
         foreach ($labels as $flag=>$label) {
             $visible=array_filter($items,fn($item)=>self::selected($item,$flag));
+            $colors=$active && $flag==='all'?[2=>'green',3=>'blue']:['red','yellow','green','blue'];
             $counts=[0,0,0,0];
             foreach ($visible as $item) {
                 $index=array_search($item['view']['severity'],$colors,true);
