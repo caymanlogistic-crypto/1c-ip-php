@@ -275,14 +275,14 @@ final class AddendumController {
         . $c['id'])
         . '</div>';
         $actions = '';
-        $add = function(string $label, string $action, bool $primary = false)use(&$actions, $id) {
+        $add = function(string $label, string $action, bool $primary = false, bool $danger = false)use(&$actions, $id) {
             $user=Auth::user();
             $grant=match($user['role']) {'lawyer'=>'rental.approve.legal','accountant'=>'finance.write','director'=>'rental.approve.executive',default=>'rental.write'};
             if (!Auth::can($grant) || \App\PagePolicy::level(\App\PagePolicy::commandPage($action),$user)<2) return;
             $actions.=RentalUI::button($label, '/rental/addendum-action?id='
             . $id
             . '&action='
-            . $action, $primary);
+            . $action, $primary, $danger);
         };
         if (($role === $target || $role === 'admin') && !$d['applied'] && !in_array($d['status'], [
             'cancelled'
@@ -296,10 +296,10 @@ final class AddendumController {
                 'legal',
                 'accounting'
             ], true)) {
-                $add('Вернуть на доработку', 'document.return');
+                $add('Вернуть на доработку','document.return',danger:in_array($role,['lawyer','accountant'],true));
                 $add('Согласовано', $d['status'] === 'legal'?'document.legal':'document.packet', true);
             }
-            if ($d['status'] === 'returned' && $target === 'lawyer')$add('Передать менеджеру', 'document.forward', true);
+            if ($d['status'] === 'returned' && $target === 'lawyer')$add('Передать менеджеру','document.forward',primary:true,danger:$role==='lawyer');
             if ($d['status'] === 'approved')$add('Отправить ДС и счета', 'document.send', true);
             if ($delivery && $delivery['error'] && in_array($role,['admin','manager','accountant'],true)) $add('Документы переданы клиенту','document.handed');
             if ($d['status'] === 'sent')$add('Загрузить подписанное соглашение', 'document.sign', true);
@@ -341,13 +341,12 @@ final class AddendumController {
         $d = self::record($id);
         $action = (string)($_GET['action'] ?? '');
         \App\PagePolicy::requireCommand($action);
+        if (in_array($action,['document.return','document.forward'],true)) return ApprovalDecision::returnForRevision($d,$action);
         if ($action==='document.send' && $d['status']==='approved' && PacketForm::requiresConfirmation('document',$id)) $action='document.packet';
         $allowed = [
             'document.submit',
             'document.legal',
             'document.packet',
-            'document.return',
-            'document.forward',
             'document.handed',
             'document.send',
             'document.sign',
@@ -365,11 +364,7 @@ final class AddendumController {
             ]
         ]);
         $extra = '';
-        if (in_array($action, [
-            'document.return',
-            'document.forward',
-            'document.cancel'
-        ], true))$fields.=Controller::input('reason', 'Причина', $action === 'document.forward'?$d['reason']:'', 'text', true);
+        if ($action==='document.cancel')$fields.=Controller::input('reason','Причина','','text',true);
         if ($action === 'document.handed')$fields.='<label class="registry-ui-checkbox">'
         . '<input type="checkbox" name="confirmed" value="1" required>'
         . '<span>Документы переданы клиенту лично; это не подтверждение транспорта</span>'

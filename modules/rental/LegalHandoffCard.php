@@ -65,20 +65,13 @@ final class LegalHandoffCard
         }
         $links=PagePolicy::level('rental.parties',Auth::user())>=1
             ?RentalUI::button('Полные данные','/rental/legal-party-details?contract_id='.(int)$contract['id']):'';
-        $actions=(!$party['blocked']?self::toggle('review-party-block','Заблокировать работу',true):'')
-            .self::toggle('review-party-documents','Дозапросить документы',true,true)
+        $actions=(!$party['blocked']?ApprovalDecision::lawyerButton($contract,'block'):'')
+            .ApprovalDecision::lawyerButton($contract,'documents')
             .self::confirm($contract,LegalHandoff::PARTY,'Разрешить работу',$checked || $blocked,
                 extra:PremisesActsCard::hidden('party_basis',LegalHandoff::partyBasis(DB::pdo(),$contract)));
-        $panels=self::reason($contract,'contract.return','review-party-documents','Дозапросить документы','Закрыть форму запроса',
-            'Договор вернётся менеджеру с указанным списком.','Отправить запрос',danger:false,reasonLabel:'Какие документы нужны');
-        if (!$party['blocked']) {
-            $panels.=self::reason($contract,LegalHandoff::BLOCK,'review-party-block','Заблокировать работу','Отменить блокировку',
-                'Новые договоры будут заблокированы. Текущий договор вернётся на доработку с указанной причиной.',
-                'Заблокировать и вернуть');
-        }
         return self::section('Согласование контрагента',$facts
             .'<div class="registry-ui-review-actions"><div>'.$links.'</div><div class="demo-row">'.$actions.'</div></div>'
-            .$panels.ContractReviewFiles::legalPresentation($contract,$party),
+            .ContractReviewFiles::legalPresentation($contract,$party),
             $checked?'Работа разрешена':($blocked?'Работа заблокирована':'Ожидает решения'),$checked);
     }
 
@@ -103,11 +96,9 @@ final class LegalHandoffCard
                 .'</div>';
         }
         $facts.='<div class="registry-ui-review-actions"><div></div><div class="demo-row">'
-            .self::toggle('review-terms-return','Условия неверны',true,true)
+            .ApprovalDecision::lawyerButton($contract,'terms')
             .self::confirm($contract,LegalHandoff::TERMS,'Условия верны',$checked)
             .'</div></div>'
-            .self::reason($contract,'contract.return','review-terms-return','Условия неверны','Закрыть форму возврата',
-                'Укажите, каких данных не хватает или что нужно уточнить.','Вернуть на доработку')
             .self::securityMultiple($contract,$multiple);
         return self::section('Проверка условий',$facts,$checked?'Условия подтверждены':'Ожидает решения',$checked);
     }
@@ -182,33 +173,6 @@ final class LegalHandoffCard
         return '<form method="post" action="/rental/action">'
             .self::fields($contract,$action).$extra
             .'<button class="btn btn-success-solid" type="submit"'.($disabled?' disabled':'').'>'.View::e($label).'</button></form>';
-    }
-
-    private static function toggle(string $id,string $label,bool $danger=false,bool $neutralClose=false): string
-    {
-        return '<button type="button" class="btn '.($danger?'btn-danger':'btn-secondary').'" hidden data-form-disclosure-control'
-            .($neutralClose?' data-disclosure-neutral-close':'')
-            .' aria-expanded="false" aria-controls="'.View::e($id).'">'.View::e($label).'</button>';
-    }
-
-    private static function panel(string $id,string $label,string $opened,string $body,bool $danger=false): string
-    {
-        return '<details id="'.View::e($id).'" class="registry-ui-form-disclosure" data-form-disclosure>'
-            .'<summary class="btn '.($danger?'btn-danger':'btn-secondary').'"><span data-disclosure-collapsed>'.View::e($label)
-            .'</span><span data-disclosure-expanded>'.View::e($opened).'</span></summary>'
-            .'<div class="registry-ui-form-section">'.$body.'</div></details>';
-    }
-
-    private static function reason(array $contract,string $action,string $id,string $label,string $opened,
-        string $help,string $submit,bool $danger=true,string $reasonLabel='Причина'): string
-    {
-        if ($contract['status']==='returned' && $action==='contract.return') $action='contract.forward';
-        $form='<form class="registry-ui-form-section'.($danger?' registry-ui-review-reason':'').'" method="post" action="/rental/action">'
-            .self::fields($contract,$action).'<p class="registry-ui-modal-help">'.View::e($help).'</p>'
-            .'<label class="field"><span class="field-label">'.View::e($reasonLabel).'</span>'
-            .'<textarea class="field-input" name="reason" rows="2" maxlength="1000" required></textarea></label>'
-            .'<div class="demo-row"><button class="btn '.($danger?'btn-danger':'btn-primary').'" type="submit">'.View::e($submit).'</button></div></form>';
-        return self::panel($id,$label,$opened,$form,true);
     }
 
     private static function fileList(array $files,?array $draft=null): string

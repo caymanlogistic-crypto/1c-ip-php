@@ -112,32 +112,24 @@ final class AccountantReviewCard
         PagePolicy::requireCommand($action);
         if (!self::available($contract) || ($decision==='return' && $contract['status']!=='accounting'))
             throw new RuntimeException('Стадия договора изменилась. Откройте карточку заново.',409);
+        if ($decision==='return') return ApprovalDecision::returnForRevision($contract,$action);
         $formId='accountant-decision';
-        $form='<form id="'.$formId.'" method="post" action="/rental/action"'
-            .($decision==='return'?' class="registry-ui-form-section"':' hidden').'>'
+        $form='<form id="'.$formId.'" method="post" action="/rental/action" hidden>'
             .self::fields($contract,$action);
-        if ($decision==='return') {
-            $body=$form.'<label class="field"><span class="field-label">Причина возврата</span>'
-                .'<textarea class="field-input" name="reason" rows="3" maxlength="1000" required></textarea></label></form>';
-            $title='Вернуть на доработку';
-            $submit='<button type="submit" form="'.$formId.'" class="btn btn-danger">Вернуть</button>';
-        } else {
-            $db=DB::pdo();
-            $preview=NativePacket::preview($db,'contract',$id,Auth::user());
-            if (!hash_equals($preview['expected_packet_hash'],(string)($_GET['packet']??''))) {
-                throw new RuntimeException('Пакет изменился. Откройте карточку и сверьте актуальные данные.',409);
-            }
-            LegalHandoff::assertCounterparty($db,$contract);
-            $body=self::confirmationSummary($contract,$preview['view']['context']['party'])
-                .$form.PacketForm::confirmation($preview)['fields'];
-            foreach (['counterparty_confirmed','financial_confirmed','document_confirmed'] as $check) {
-                $body.=PremisesActsCard::hidden($check,'1');
-            }
-            $body.='</form>';
-            $title='Подтвердить пакет';
-            $submit='<button type="submit" form="'.$formId.'" class="btn btn-primary">Подтвердить</button>';
+        $db=DB::pdo();
+        $preview=NativePacket::preview($db,'contract',$id,Auth::user());
+        if (!hash_equals($preview['expected_packet_hash'],(string)($_GET['packet']??''))) {
+            throw new RuntimeException('Пакет изменился. Откройте карточку и сверьте актуальные данные.',409);
         }
-        return RentalUI::modal($title,$body,$submit,'approvals',closeLabel:'Вернуться');
+        LegalHandoff::assertCounterparty($db,$contract);
+        $body=self::confirmationSummary($contract,$preview['view']['context']['party'])
+            .$form.PacketForm::confirmation($preview)['fields'];
+        foreach (['counterparty_confirmed','financial_confirmed','document_confirmed'] as $check) {
+            $body.=PremisesActsCard::hidden($check,'1');
+        }
+        $body.='</form>';
+        $submit='<button type="submit" form="'.$formId.'" class="btn btn-primary">Подтвердить</button>';
+        return RentalUI::modal('Подтвердить пакет',$body,$submit,'approvals',closeLabel:'Вернуться');
     }
 
     private static function confirmationSummary(array $contract,array $party): string

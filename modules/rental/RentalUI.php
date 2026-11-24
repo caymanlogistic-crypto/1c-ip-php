@@ -54,7 +54,7 @@ final class RentalUI
             .$body.'</section>';
     }
 
-    public static function modal(string $title,string $body,string $actions='',string $active='contracts',bool $wide=false,string $leadingActions='',string $closeLabel='Закрыть',bool $extractForms=true,bool $canvas=false,bool $tableOnly=false, string $design="",bool $tall=false):string
+    public static function modal(string $title,string $body,string $actions='',string $active='contracts',bool $wide=false,string $leadingActions='',string $closeLabel='Закрыть',bool $extractForms=true,bool $canvas=false,bool $tableOnly=false, string $design="",bool $tall=false,bool $confirmation=false):string
     {
         if ($actions==='' && $extractForms)
             $body=preg_replace_callback('~<form\b[^>]*>.*?</form>~s',function($match) use(&$actions) {
@@ -72,7 +72,7 @@ final class RentalUI
         $titleId='rental-modal-title-'.bin2hex(random_bytes(6));
         $h='<dialog data-rental-dialog aria-labelledby="'.$titleId.'" data-rental-return="/rental/'.View::e($active).'"'
             .(!$fetch?' data-rental-autopen':'').($design!==''?\App\InterfaceDesign::attributes($design):'').' class="modal registry-ui-modal '
-            .($wide?'registry-ui-modal--probe':'registry-ui-modal--reading').($canvas?' registry-ui-modal--form-canvas':'').($tableOnly?' registry-ui-modal--table':'')
+            .($confirmation?'registry-ui-modal--confirmation':($wide?'registry-ui-modal--probe':'registry-ui-modal--reading')).($canvas?' registry-ui-modal--form-canvas':'').($tableOnly?' registry-ui-modal--table':'')
             .($tall?' registry-ui-modal--tall':'')
             .' demo-dialog"><div class="registry-ui-modal-form"><div class="modal-head"><h2 class="modal-title" id="'.$titleId.'">'
             .View::e($title)
