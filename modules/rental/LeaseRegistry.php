@@ -87,7 +87,9 @@ final class LeaseRegistry
         $tasks=Indicators::tasks(null,null,[$page]);
         $items=[];
         $states=$active?"('active','reconciling')":"('ended','closed')";
-        foreach (Controller::query('SELECT c.*,p.name party_name,p.inn party_inn FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status IN '.$states.' ORDER BY c.id DESC') as $contract) {
+        $contracts=Controller::query('SELECT c.*,p.name party_name,p.inn party_inn FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status IN '.$states.' ORDER BY c.id DESC');
+        $addenda=$active?LeaseCalculationAddenda::byContract(DB::pdo(),$contracts,date('Y-m-d')):[];
+        foreach ($contracts as $contract) {
             if (self::section($contract)!==$page) continue;
             $closed=false;$reviews=[];
             if ($contract['status']==='closed' || $contract['status']==='reconciling') {
@@ -118,18 +120,19 @@ final class LeaseRegistry
             }
             if ($objects==='') $objects='—';
             $responsible=implode('; ',array_map(fn($role)=>People::workflowName($role),$view['responsible']));
-            if (!WorkRegistry::matches($query,[$contract['number'],$contract['document_date'],$contract['party_name'],$contract['party_inn'],
+            $addendum=implode(', ',$addenda[$contract['id']] ?? []);
+            if (!WorkRegistry::matches($query,[$contract['number'],$addendum,$contract['document_date'],$contract['party_name'],$contract['party_inn'],
                 RegistryState::date($contract['start_date']),RegistryState::date($view['end']),strip_tags($objects),$view['stage'],$view['comment'],$view['expiry_comment'],$contract['amount'],$responsible])) continue;
-            $items[]=compact('contract','view','objects','responsible');
+            $items[]=compact('contract','view','objects','responsible','addendum');
         }
         $tabs=self::tabs($items,$active);
         $rows=[];$sum='0.00';$known=0;
         foreach ($items as $item) {
-            ['contract'=>$contract,'view'=>$view,'objects'=>$objects,'responsible'=>$responsible]=$item;
+            ['contract'=>$contract,'view'=>$view,'objects'=>$objects,'responsible'=>$responsible,'addendum'=>$addendum]=$item;
             if (!self::selected($item,$flag)) continue;
             if ($contract['amount']!==null) {$sum=bcadd($sum,$contract['amount'],2);$known++;}
             $rows[]=['_attrs'=>'class="'.RegistryState::rowClass($view['severity']).'" data-rental-url="/rental/contract?id='.(int)$contract['id'].'" tabindex="0"',
-                View::e($contract['number']),View::e($contract['party_name']),RegistryState::date($contract['start_date']),RegistryState::date($view['end']),$objects,
+                View::e($contract['number']),...($active?[View::e($addendum ?: '—')]:[]),View::e($contract['party_name']),RegistryState::date($contract['start_date']),RegistryState::date($view['end']),$objects,
                 $view['closed']?'<strong class="registry-ui-success">'.View::e($view['stage']).'</strong>':View::e($view['stage']),
                 self::commentHtml($view),Controller::money($contract['amount']),View::e($responsible ?: '—')];
         }
@@ -151,8 +154,8 @@ final class LeaseRegistry
             :'<form method="get" data-rental-registry-filter>'.$filterState.DirectoryUi::search($query).$reset.'</form>';
         $body=Controller::heading($title,$active?'Действующие условия аренды, сроки и назначенные действия.':'История завершённой аренды и подтверждений расчётов.',$actions)
             .Controller::tabs($tabs,$flag,!$active,$active?['q'=>$query,'type'=>$typeFilter]:[]).DirectoryUi::registry('rental-'.$page,
-                ['Договор','Контрагент','Начало','Окончание','Объекты аренды','Стадия','Комментарий','Аренда с НДС','Ответственный'],$rows,
-                ['short','flex','short','code','flex','text','flex','money','text'],$controls,
+                ['Договор',...($active?['ДС']:[]),'Контрагент','Начало','Окончание','Объекты аренды','Стадия','Комментарий','Аренда с НДС','Ответственный'],$rows,
+                ['short',...($active?['short']:[]),'flex','short','code','flex','text','flex','money','text'],$controls,
                 ' · Аренда с НДС: <b>'.Controller::money($known?$sum:($rows?null:'0.00')).'</b>',filterForm:$active);
         return View::page($title,$body,$page);
     }
