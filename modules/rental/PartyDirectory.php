@@ -183,16 +183,8 @@ final class PartyDirectory
         $bank=self::bank($id);
         $details=$id?DirectoryDetails::read(DB::pdo(),'parties',$id):[];
         $sectionClass='registry-ui-form-section registry-ui-review-section';
-        $sourceDetails='';
-        if ($id) {
-            $provenance=PartyOrigin::read($party);
-            $sourceDetails='<div class="registry-ui-modal-text"><span class="registry-ui-modal-help">Источник '
-                .View::e($provenance['label']).' · ID в базе '.View::e($provenance['local_id'])
-                .' · Код 1С '.View::e($provenance['code'] ?: '—').' · GUID 1С '.View::e($provenance['guid'] ?: '—').'</span></div>';
-        }
         $body='<div class="registry-ui-modal-grid" data-party-editor>'
             .'<section class="'.$sectionClass.'" aria-labelledby="party-organization-title"><h3 class="modal-title" id="party-organization-title">Данные клиента</h3>'
-            .$sourceDetails
             .'<div class="registry-ui-form-section" role="group" aria-label="Основные данные">'
             .'<div class="registry-ui-form-row">'
             .DirectoryUi::input('name','Название в документах / ФИО',$party['name'] ?? '','text',true)
