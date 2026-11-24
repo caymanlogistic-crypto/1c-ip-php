@@ -108,11 +108,17 @@ try {
     $_GET=['id'=>$id];
     $card=SourceCards::show();
     $currentFile=LegalHandoff::history($db,$id)[0]['files'][0]['filename'];
-    check(str_contains($card,$currentFile) && str_contains($card,'name="expected_packet_hash"'),'Accountant reviews current files and confirmation together');
+    check(str_contains($card,$currentFile) && str_contains($card,'decision=confirm&amp;packet='.$preview['expected_packet_hash']),
+        'Accountant opens confirmation for the package currently displayed');
+    $_GET=['id'=>$id,'decision'=>'confirm','packet'=>$preview['expected_packet_hash']];
+    $confirm=\Modules\Rental\AccountantReviewCard::decision();
+    check(str_contains($confirm,'name="expected_packet_hash"') && !str_contains($confirm,'type="checkbox"'),
+        'The second dialog confirms the same package and all three checks');
+    $_GET=['id'=>$id];
     $db->prepare('UPDATE parties SET name=? WHERE id=?')->execute(['Изменённый контрагент',$party['id']]);
     $blockedCard=SourceCards::show();
     check(str_contains($blockedCard,$currentFile) && str_contains($blockedCard,'Проверка пакета недоступна')
-        && !str_contains($blockedCard,'name="expected_packet_hash"'),'Unavailable confirmation keeps the current lawyer files visible');
+        && !str_contains($blockedCard,'decision=confirm'),'Unavailable confirmation keeps the current lawyer files visible');
     $packet=['id'=>$id,'version'=>record($id)['version'],'packet_confirmed'=>1,
         'expected_packet_hash'=>$preview['expected_packet_hash'],'counterparty_confirmed'=>1,
         'financial_confirmed'=>1,'document_confirmed'=>1];

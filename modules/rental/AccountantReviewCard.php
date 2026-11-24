@@ -8,6 +8,8 @@ use RuntimeException;
 
 final class AccountantReviewCard
 {
+    public const CHANGED_MESSAGE='Пакет изменился после открытия. Проверьте актуальные данные и подтвердите пакет заново.';
+
     public static function available(array $contract): bool
     {
         return RegistryState::managed($contract) && in_array($contract['status'],['accounting','approved'],true);
@@ -33,6 +35,7 @@ final class AccountantReviewCard
         $needsConfirmation=!$approved || $action==='contract.packet';
         $view=null;
         $confirmation=null;
+        $packetHash='';
         $failure='';
         if ($canWrite) {
             try {
@@ -41,7 +44,8 @@ final class AccountantReviewCard
                     $preview=NativePacket::preview($db,'contract',$id,$actor);
                     $view=$preview['view'];
                     LegalHandoff::assertCounterparty($db,$contract);
-                    $confirmation=PacketForm::confirmation($preview,$previous);
+                    $confirmation=PacketForm::confirmation($preview,$previous,self::CHANGED_MESSAGE);
+                    $packetHash=$preview['expected_packet_hash'];
                 } else {
                     $view=NativePacket::current($db,'contract',$id,$actor,'prepare');
                 }
@@ -63,25 +67,99 @@ final class AccountantReviewCard
         $delivery=$approved?Delivery::presentation($db,'contract',$id):null;
         $canOpenDelivery=$canWrite && $approved && !$needsConfirmation
             && (($view['state']??null)==='confirmed' || $delivery!==null);
-        $notice=RentalUI::notice().($confirmation['notice']??($previous===null?'':RentalUI::alert(PacketForm::CHANGED_MESSAGE,'','warning')));
+        $notice=RentalUI::notice().($confirmation['notice']??($previous===null?'':RentalUI::alert(self::CHANGED_MESSAGE,'','warning')));
         if ($delivery && $delivery['message']!=='') {
             $notice.=RentalUI::alert('Документы и доставка',$delivery['message'],$delivery['error']?'error':'info');
         }
+        if ($failure!=='') $notice.=RentalUI::alert('Проверка пакета недоступна',$failure,'warning');
         $body=$notice.'<div class="registry-ui-form-sections registry-ui-form-sections--compact">'
             .self::party($id,$party,$actor).self::terms($contract,$context)
             .LegalHandoffCard::accountantDocuments($id,$files,$handoff!==null)
             .self::invoice($contract,$view['invoices']??null,$context['organization']['vat']??null,$needsConfirmation)
-            .self::review($contract,$canWrite,$needsConfirmation,$confirmation,$failure,$action==='contract.return')
             .'</div>';
         $footer='';
+        if ($canWrite && $contract['status']==='accounting') {
+            $footer=RentalUI::button('Вернуть на доработку',self::decisionUrl($id,'return'),danger:true);
+        }
         if ($canWrite && $needsConfirmation) {
-            $footer='<button type="submit" class="btn btn-primary" form="accountant-packet"'
-                .($confirmation?'':' disabled').'>Подтвердить пакет</button>';
+            $footer.=$confirmation
+                ?RentalUI::button('Подтвердить пакет',self::decisionUrl($id,'confirm').'&packet='.$packetHash,primary:true)
+                :'<button type="button" class="btn btn-primary" disabled>Подтвердить пакет</button>';
         } elseif ($canOpenDelivery) {
             $footer=RentalUI::button('Пакет и отправка','/rental/action-form?id='.$id.'&action=contract.send',true);
         }
         return RentalUI::modal('Договор №'.$contract['number'].' · проверка бухгалтерией',$body,$footer,
             'approvals',wide:true,extractForms:false);
+    }
+
+    private static function decisionUrl(int $contractId,string $decision): string
+    {
+        return '/rental/accountant-decision?id='.$contractId.'&decision='.$decision;
+    }
+
+    public static function decision(?int $contractId=null,?string $selectedDecision=null): string
+    {
+        if ((Auth::user()['role']??null)!=='accountant') throw new RuntimeException('Действие доступно бухгалтерии.',403);
+        Auth::requirePermission('finance.write');
+        $id=$contractId??(int)($_GET['id']??0);
+        $contract=Access::contract($id,2);
+        $decision=$selectedDecision??(string)($_GET['decision']??'');
+        $action=match ($decision) {
+            'return'=>'contract.return',
+            'confirm'=>'contract.packet',
+            default=>throw new RuntimeException('Действие не найдено.',404),
+        };
+        PagePolicy::requireCommand($action);
+        if (!self::available($contract) || ($decision==='return' && $contract['status']!=='accounting'))
+            throw new RuntimeException('Стадия договора изменилась. Откройте карточку заново.',409);
+        $formId='accountant-decision';
+        $form='<form id="'.$formId.'" method="post" action="/rental/action" class="registry-ui-form-section">'
+            .self::fields($contract,$action);
+        if ($decision==='return') {
+            $body=$form.'<label class="field"><span class="field-label">Причина возврата</span>'
+                .'<textarea class="field-input" name="reason" rows="3" maxlength="1000" required></textarea></label></form>';
+            $title='Вернуть на доработку';
+            $submit='<button type="submit" form="'.$formId.'" class="btn btn-danger">Вернуть</button>';
+        } else {
+            $db=DB::pdo();
+            $preview=NativePacket::preview($db,'contract',$id,Auth::user());
+            if (!hash_equals($preview['expected_packet_hash'],(string)($_GET['packet']??''))) {
+                throw new RuntimeException('Пакет изменился. Откройте карточку и сверьте актуальные данные.',409);
+            }
+            LegalHandoff::assertCounterparty($db,$contract);
+            $body=self::confirmationSummary($contract,$preview['view']['context']['party'])
+                .$form.PacketForm::confirmation($preview)['fields'];
+            foreach (['counterparty_confirmed','financial_confirmed','document_confirmed'] as $check) {
+                $body.=PremisesActsCard::hidden($check,'1');
+            }
+            $body.='</form>';
+            $title='Подтвердить пакет';
+            $submit='<button type="submit" form="'.$formId.'" class="btn btn-primary">Подтвердить</button>';
+        }
+        return RentalUI::modal($title,$body,$submit,'approvals',closeLabel:'Вернуться');
+    }
+
+    private static function confirmationSummary(array $contract,array $party): string
+    {
+        $db=DB::pdo();
+        $id=(int)$contract['id'];
+        $issued=InitialInvoice::issuedFor($db,$id);
+        $planned=$issued?[]:InitialInvoice::preview($db,$contract,InitialInvoiceCard::defaultIssueDate($contract))['rows'];
+        $bills='';
+        foreach (self::securityFirst($issued ?: $planned) as $line) {
+            $label=self::invoiceLabel($line);
+            if ($issued) $label='№'.InvoiceDocument::number($line['number']).' · '.$label;
+            $bills.='<li>'.View::e($label).' · '.Controller::money($line['amount']).'</li>';
+        }
+        $delivery=trim((string)($party['edo']??''))!=='' && trim((string)($party['edo_id']??''))!==''
+            ?'Отправить клиенту приглашение и документы через ЭДО.'
+            :'Отправить клиенту документы по электронной почте.';
+        return '<p>Подтверждаются реквизиты, финансовые условия и состав пакета.</p>'
+            .'<h3 class="registry-ui-modal-summary">Действия после подключения автоматизации</h3>'
+            .'<ol><li>Занести нового контрагента в 1С.</li>'
+            .'<li>'.($issued?'Использовать уже выставленные счета.':'Выставить первые счета.')
+            .($bills?'<ul>'.$bills.'</ul>':' Состав счетов пока не рассчитан.').'</li>'
+            .'<li>'.View::e($delivery).'</li><li>Взять договор на обслуживание и контролировать первые счета и оплату.</li></ol>';
     }
 
     private static function party(int $contractId,array $party,array $actor): string
@@ -141,9 +219,7 @@ final class AccountantReviewCard
                 $body.=RentalUI::alert('Отдельные счета ждут проверки перед включением в пакет',
                     'Сверьте срок оплаты и актуальность условий этих счетов.','warning');
             }
-            usort($issued,static fn(array $a,array $b): int =>
-                ($b['kind']==='Обеспечительный платёж')<=>($a['kind']==='Обеспечительный платёж'));
-            foreach ($issued as $invoice) {
+            foreach (self::securityFirst($issued) as $invoice) {
                 $invoiceId=(int)$invoice['id'];
                 $fileId=$files[$invoiceId]??null;
                 $amount=Controller::money($invoice['amount']);
@@ -154,12 +230,7 @@ final class AccountantReviewCard
                     in_array($invoiceId,$held,true)=>'Требует проверки',
                     default=>'Отдельный счёт',
                 };
-                $caption=match ($invoice['kind']) {
-                    'Первый период'=>InitialInvoice::DUE_PARTS['rent'],
-                    'Аренда'=>InitialInvoice::DUE_PARTS['next'],
-                    default=>$invoice['kind'],
-                };
-                $number=View::e('№'.InvoiceDocument::number($invoice['number'])).'<div class="doc-meta">'.View::e($caption).'</div>';
+                $number=View::e('№'.InvoiceDocument::number($invoice['number'])).'<div class="doc-meta">'.View::e(self::invoiceLabel($invoice)).'</div>';
                 if ($fileId) $number.='<a href="/rental/download?id='.View::e($fileId).'">Скачать PDF</a>';
                 if ($membership) $number.='<div class="doc-meta">'.$membership.'</div>';
                 $rows[]=[$number,View::e($invoice['period']),
@@ -167,59 +238,41 @@ final class AccountantReviewCard
             }
         } else {
             $plan=InitialInvoice::preview($db,$contract,InitialInvoiceCard::defaultIssueDate($contract));
-            $planned=$plan['rows'];
-            usort($planned,static fn(array $a,array $b): int =>
-                ($b['kind']==='Обеспечительный платёж')<=>($a['kind']==='Обеспечительный платёж'));
-            foreach ($planned as $line) {
+            foreach (self::securityFirst($plan['rows']) as $line) {
                 $period=$line['kind']==='Обеспечительный платёж'?'—'
                     :Documents::dateText($line['from']).' — '.Documents::dateText($line['to']);
-                $rows[]=[View::e(InitialInvoice::DUE_PARTS[$line['due_part']] ?? $line['kind']),View::e($period),
+                $rows[]=[View::e(self::invoiceLabel($line)),View::e($period),
                     View::e($line['due']?Documents::dateText($line['due']):'Требует подтверждения'),Controller::money($line['amount'])];
             }
             if (!$rows) {
                 if (($plan['condition']['multiple']??null)!==0)
                     $rows[]=['Обеспечительный платёж','—','—','—'];
                 $rows[]=['Аренда за первый период','—','—','—'];
-                $body='<p class="registry-ui-modal-help">Откройте расчёт, чтобы проверить условия начислений.</p>';
+                $body='<p class="registry-ui-modal-help">Нужны подтверждённые условия первого начисления.</p>';
             }
         }
         $body.='<div class="registry-ui-review-terms">'
             .Controller::table(['Начисление / счёт','Период','Срок оплаты','Сумма с НДС'],$rows,['text','text','short','money']).'</div>';
-        if (InitialInvoice::can($contract,InitialInvoice::ISSUE) || $issued) {
-            $body.='<div class="demo-row">'.RentalUI::button($issued?'Открыть первые счета':'Выставить первый счёт',InitialInvoiceCard::route($id)).'</div>';
+        if ($issued) {
+            $body.='<div class="demo-row">'.RentalUI::button('Открыть первые счета',InitialInvoiceCard::route($id)).'</div>';
         }
         return RentalUI::reviewSection('Первый счёт',$body,$issued?'Зарегистрирован':'Не выставлен',(bool)$issued);
     }
 
-    private static function review(array $contract,bool $canWrite,bool $needsConfirmation,?array $confirmation,string $failure,bool $openReturn): string
+    private static function securityFirst(array $rows): array
     {
-        $body='';
-        if ($failure!=='') $body.=RentalUI::alert('Проверка пакета недоступна',$failure,'warning');
-        if ($confirmation) {
-            $body.='<form id="accountant-packet" class="registry-ui-form-section" method="post" action="/rental/action">'
-                .self::fields($contract,'contract.packet').$confirmation['fields'];
-            foreach (['counterparty_confirmed'=>'Контрагент и реквизиты проверены','financial_confirmed'=>'Финансовые условия проверены',
-                'document_confirmed'=>'Документы и состав пакета проверены'] as $name=>$caption) {
-                $body.='<label class="registry-ui-checkbox"><input type="checkbox" name="'.$name.'" value="1" required><span>'
-                    .View::e($caption).'</span></label>';
-            }
-            $body.='</form>';
-        }
-        if ($canWrite && $contract['status']==='accounting') {
-            $body.='<details class="registry-ui-form-disclosure"'.($openReturn?' open':'').'>'
-                .'<summary class="btn btn-danger">Вернуть на доработку</summary>'
-                .'<form class="registry-ui-form-section" method="post" action="/rental/action">'
-                .self::fields($contract,'contract.return')
-                .'<label class="field"><span class="field-label">Причина возврата</span>'
-                .'<textarea class="field-input" name="reason" rows="2" maxlength="1000" required></textarea></label>'
-                .'<p class="registry-ui-modal-help">Укажите, каких данных не хватает или что нужно уточнить.</p>'
-                .'<div class="demo-row"><button type="submit" class="btn btn-danger">Подтвердить возврат</button></div>'
-                .'</form></details>';
-        }
-        $done=!$needsConfirmation && $contract['status']==='approved' && $failure==='';
-        if ($done) $body.='<p class="registry-ui-modal-help">Согласованный пакет готов к отдельному действию «Пакет и отправка».</p>';
-        if (!$canWrite && $body==='') $body='<p class="registry-ui-modal-help">Карточка доступна для просмотра.</p>';
-        return RentalUI::reviewSection('Проверка пакета',$body,$done?'Пакет согласован':'Ожидает согласования',$done);
+        usort($rows,static fn(array $a,array $b): int =>
+            ($b['kind']===InitialInvoice::DUE_PARTS['security'])<=>($a['kind']===InitialInvoice::DUE_PARTS['security']));
+        return $rows;
+    }
+
+    private static function invoiceLabel(array $line): string
+    {
+        return match ($line['kind']) {
+            'Первый период'=>InitialInvoice::DUE_PARTS['rent'],
+            'Аренда'=>InitialInvoice::DUE_PARTS['next'],
+            default=>$line['kind'],
+        };
     }
 
     private static function fields(array $contract,string $action): string

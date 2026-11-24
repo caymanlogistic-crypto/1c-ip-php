@@ -25,7 +25,7 @@ final class PacketForm
         }
     }
 
-    public static function confirmation(array $packet, ?array $previous = null): array
+    public static function confirmation(array $packet, ?array $previous = null, string $changedMessage = self::CHANGED_MESSAGE): array
     {
         $view = $packet['view'];
         $context = $view['context'];
@@ -50,7 +50,7 @@ final class PacketForm
         $hidden .= '<input type="hidden" name="expected_packet_hash" value="'
             .View::e($packet['expected_packet_hash']).'">'
             .'<input type="hidden" name="packet_confirmed" value="1">';
-        $notice = $previous === null ? '' : RentalUI::alert(self::CHANGED_MESSAGE, implode(' · ', $changed), 'warning');
+        $notice = $previous === null ? '' : RentalUI::alert($changedMessage, implode(' · ', $changed), 'warning');
         return ['fields'=>$hidden,'notice'=>$notice];
     }
 

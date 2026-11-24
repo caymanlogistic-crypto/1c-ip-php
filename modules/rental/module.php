@@ -12,6 +12,7 @@ $routes['/rental/edit-party']=[\Modules\Rental\PartyDirectory::class,'editor'];
 $routes['/rental/party-reference']=[\Modules\Rental\PartyReference::class,'lookup'];
 $routes['/rental/legal-party-details']=[\Modules\Rental\LegalHandoffCard::class,'partyDetails'];
 $routes['/rental/accountant-party-details']=[\Modules\Rental\AccountantReviewCard::class,'partyDetails'];
+$routes['/rental/accountant-decision']=[\Modules\Rental\AccountantReviewCard::class,'decision'];
 $routes['/rental/party-review']=[\Modules\Rental\PartyLegalReview::class,'form'];
 $routes['/rental/party-status']=[\Modules\Rental\PartyDirectory::class,'status'];
 $routes['/rental/organization']=[\Modules\Rental\OrganizationDirectory::class,'page'];

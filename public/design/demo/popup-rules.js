@@ -35,11 +35,20 @@
   document.querySelector('[data-open-accountant-review]').addEventListener('click',()=>accountantReview.showModal());
   accountantReview.querySelectorAll('[data-close-accountant-review]').forEach(button=>button.addEventListener('click',()=>accountantReview.close()));
   accountantReview.querySelectorAll('[data-demo-accountant-file]').forEach(link=>link.addEventListener('click',event=>event.preventDefault()));
-  accountantReview.querySelectorAll('form').forEach(form=>form.addEventListener('submit',event=>{
-    event.preventDefault();
-    form.reset();
-    accountantReview.close();
+  accountantReview.querySelectorAll('[data-show-accountant-decision]').forEach(button=>button.addEventListener('click',()=>{
+    document.getElementById(button.dataset.showAccountantDecision).showModal();
   }));
+  document.querySelectorAll('[data-close-accountant-decision]').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
+  document.querySelector('[data-finish-accountant-decision]').addEventListener('click',event=>{
+    event.target.closest('dialog').close();
+    accountantReview.close();
+  });
+  document.querySelector('[data-accountant-return-form]').addEventListener('submit',event=>{
+    event.preventDefault();
+    event.target.reset();
+    event.target.closest('dialog').close();
+    accountantReview.close();
+  });
   const reviewParty=document.getElementById('review-party-example');
   document.querySelectorAll('[data-open-review-party]').forEach(button=>button.addEventListener('click',()=>reviewParty.showModal()));
   reviewParty.querySelectorAll('[data-close-review-party]').forEach(button=>button.addEventListener('click',()=>reviewParty.close()));

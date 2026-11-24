@@ -291,7 +291,8 @@ final class SourceCards {
         if ($action==='contract.send' && $c['status']==='approved' && PacketForm::requiresConfirmation('contract',$id)) $action='contract.packet';
         if (Auth::user()['role']==='accountant' && AccountantReviewCard::available($c)
             && ($action==='contract.packet' || ($action==='contract.return' && $c['status']==='accounting'))) {
-            return AccountantReviewCard::render($c,$previousPacket,$action);
+            return $action==='contract.return'
+                ?AccountantReviewCard::decision($id,'return'):AccountantReviewCard::render($c,$previousPacket,$action);
         }
         $allowed = [
             'contract.submit' => 'Отправить на согласование',

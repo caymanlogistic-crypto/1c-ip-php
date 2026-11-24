@@ -1271,7 +1271,7 @@ final class Controller {
             ], true))throw $e;
             $previewChanged = $e->getCode() === 409 && $e->getMessage() === NativePacket::PREVIEW_CHANGED;
             $message = match ($e->getMessage()) {
-                NativePacket::PREVIEW_CHANGED => PacketForm::CHANGED_MESSAGE,
+                NativePacket::PREVIEW_CHANGED => $action==='contract.packet'?AccountantReviewCard::CHANGED_MESSAGE:PacketForm::CHANGED_MESSAGE,
                 'NATIVE_PACKET_LEGAL_FILE_SUPERSEDED', 'NATIVE_PACKET_LEGAL_BASELINE_CHANGED',
                 'NATIVE_PACKET_DOCUMENT_BASE_CHANGED' => 'Документ или условия изменились. Попросите юриста проверить актуальный комплект.',
                 'NATIVE_PACKET_NOT_AT_ACCOUNTANT' => 'Этап согласования изменился. Откройте карточку заново.',
