@@ -224,6 +224,8 @@ final class LegalHandoff
         $expected=(string)($input['packet_fingerprint']??'');
         if (!hash_equals(self::fingerprint($files),$expected)) throw new RuntimeException('Комплект изменился. Проверьте файлы повторно.',409);
         $validated=self::verifyFiles($db,$id,$files);
+        $security=WordSecurityTerms::current($db,$contract);
+        foreach ($validated as $file) WordSecurityTerms::verifyFile($db,$contract,$file,$security);
         $party=Service::get($db,'parties',(int)$contract['party_id']);
         $source=PartyLegalReview::contractSource($db,$party,PartyLegalReview::state($db,(int)$party['id']));
         $bundle=['contract_id'=>$id,'version'=>(int)$contract['version'],'files'=>$files,'actor'=>$actor['name'],

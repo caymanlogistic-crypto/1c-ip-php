@@ -112,16 +112,20 @@ final class DocxTemplate
     /** Replace matched characters only, preserving the formatting of surrounding runs. */
     private static function fillParagraph(DOMDocument $document,array $texts,string $text,array $values,array $phrases=[]): bool
     {
-        preg_match_all('/\{\{([^{}]+)\}\}/u',$text,$matches,PREG_OFFSET_CAPTURE);
         $replacements=[];
-        foreach ($matches[0] as $index=>[$token,$offset]) {
-            $key=$matches[1][$index][0];
-            if (!array_key_exists($key,$values)) throw new RuntimeException('Не заполнено поле Word: '.$key);
-            $replacements[$offset]=[$token,$values[$key]];
-        }
         foreach ($phrases as $phrase=>$replacement) {
             $offset=strpos($text,$phrase);
             if ($offset!==false) $replacements[$offset]=[$phrase,$replacement];
+        }
+        $phraseRanges=$replacements;
+        preg_match_all('/\{\{([^{}]+)\}\}/u',$text,$matches,PREG_OFFSET_CAPTURE);
+        foreach ($matches[0] as $index=>[$token,$offset]) {
+            foreach ($phraseRanges as $start=>[$phrase]) {
+                if ($offset>=$start && $offset+strlen($token)<=$start+strlen($phrase)) continue 2;
+            }
+            $key=$matches[1][$index][0];
+            if (!array_key_exists($key,$values)) throw new RuntimeException('Не заполнено поле Word: '.$key);
+            $replacements[$offset]=[$token,$values[$key]];
         }
         if (!$replacements) return false;
         $ranges=[];$offset=0;

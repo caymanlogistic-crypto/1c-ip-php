@@ -2,7 +2,7 @@
 declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 use App\DB;
-use Modules\Rental\{Service,WordPack,WordGenerationData,OriginalDocuments,TemplateAssets,Importer,Evidence,DirectoryDetails,Documents,LegalHandoff};
+use Modules\Rental\{Service,WordPack,WordGenerationData,OriginalDocuments,TemplateAssets,Importer,Evidence,DirectoryDetails,Documents,FileOrder,InitialInvoice,LegalHandoff,WordDerivative,WordSecurityTerms};
 set_exception_handler(static function(Throwable $e):void{fwrite(STDERR,$e->getMessage().' @ '.$e->getFile().':'.$e->getLine().PHP_EOL);exit(1);});
 $db=DB::pdo();$receipt=json_decode(file_get_contents(APP_ROOT.'/.local/copy-verification.json'),true,512,JSON_THROW_ON_ERROR);
 if($db->query('SELECT DATABASE()')->fetchColumn()!==$receipt['database']||!str_starts_with($receipt['database'],'ipphp_task_')||realpath($receipt['app_root'])!==APP_ROOT||!$receipt['isolated_test_data'])throw new RuntimeException('Isolated verified data required');
@@ -10,7 +10,8 @@ function ok(bool $v,string $m):void{if(!$v)throw new RuntimeException($m);}
 function actor(string $role):void{$q=DB::pdo()->prepare('SELECT u.id,u.auth_version FROM users u JOIN role_profiles p ON p.role_id=u.role WHERE p.kind=? AND u.active=1 ORDER BY u.id LIMIT 1');$q->execute([$role]);$u=$q->fetch();ok((bool)$u,'Role exists '.$role);$_SESSION=['user_id'=>$u['id'],'auth_version'=>$u['auth_version']];}
 function reject(callable $f,string $part):void{try{$f();}catch(RuntimeException $e){ok(str_contains($e->getMessage(),$part),'Unexpected rejection: '.$e->getMessage());return;}throw new RuntimeException('Expected rejection '.$part);}
 function command(string $action,array $input):array{return Service::command($action,$input+['command_key'=>bin2hex(random_bytes(16))]);}
-function fixture(string $type,bool $withPlan=true,array $rates=['10500.01'],string $partyType='company',array $planFormats=[]):int{
+function fixture(string $type,bool $withPlan=true,array $rates=['10500.01'],string $partyType='company',array $planFormats=[],
+    bool $confirmSecurity=true,?string $documentDate=null):int{
     $db=DB::pdo();actor('manager');
     $pid=(int)$db->query('SELECT MAX(id)+1 FROM parties')->fetchColumn();
     $oid=(int)$db->query('SELECT MAX(id)+1 FROM rental_objects')->fetchColumn();
@@ -44,14 +45,18 @@ function fixture(string $type,bool $withPlan=true,array $rates=['10500.01'],stri
         $cid++;
         $sum=bcadd($sum,$rate,2);
     }
-    $r=command('contract.create',['party_id'=>$pid,'start_date'=>'2026-12-01','end_date'=>'2027-11-30','amount'=>$sum,'objects'=>array_keys($objects),'term_amount'=>$objects,'intent'=>'submit']);
-    $id=(int)$r['id'];actor('lawyer');confirmChecks(Service::get($db,'contracts',$id));return $id;
+    $r=command('contract.create',['party_id'=>$pid,'start_date'=>'2026-12-01','end_date'=>'2027-11-30','amount'=>$sum,
+        'objects'=>array_keys($objects),'term_amount'=>$objects,'intent'=>'submit']
+        +($documentDate===null?[]:['document_date'=>$documentDate]));
+    $id=(int)$r['id'];actor('lawyer');confirmChecks(Service::get($db,'contracts',$id),$confirmSecurity);return $id;
 }
-function confirmChecks(array $record): void {
+function confirmChecks(array $record,bool $confirmSecurity=true): void {
     foreach ([LegalHandoff::PARTY,LegalHandoff::TERMS] as $check) {
         command($check,['id'=>$record['id'],'version'=>$record['version'],
             'party_basis'=>LegalHandoff::partyBasis(DB::pdo(),$record)]);
     }
+    if ($confirmSecurity) command(LegalHandoff::SECURITY_MULTIPLE,
+        ['id'=>$record['id'],'version'=>$record['version'],'multiple'=>'1']);
 }
 function inputFor(array $plan):array{
     $sample=['party_postal_address'=>'Москва, ул. Примерная, д. 1','party_email'=>'lawyer@example.test','party_kpp'=>'770101001','party_ogrn'=>'1027700123456',
@@ -92,8 +97,110 @@ function checkOfficeAct(string $text,string $unit): void {
     ok(!str_contains($text,'показания')&&!str_contains($text,'брелок'),
         'Office deed omits meter readings and parking accessories');
 }
+function stageGeneratedWord(PDO $db,array $contract,array $pack,array &$created,bool $zip): array {
+    $draft=LegalHandoff::files($db,$contract);
+    ok($draft===[],'Use a fresh synthetic contract attachment list');
+    $query=$db->prepare('SELECT * FROM rental_files WHERE id=?');
+    $query->execute([$pack['primary']]);
+    $source=$query->fetch();
+    $id=bin2hex(random_bytes(16));
+    $path=Documents::directory().'/'.$id.($zip?'.zip':'.docx');
+    $created[$id]=$path;
+    if ($zip) {
+        $archive=new ZipArchive();
+        ok($archive->open($path,ZipArchive::CREATE)===true,'Create synthetic ZIP');
+        ok($archive->addFile(Documents::directory().'/'.$source['path'],$source['filename']),'Use the generated primary as the first ZIP entry');
+        ok($archive->close(),'Write synthetic ZIP');
+    } else {
+        ok(copy(Documents::directory().'/'.$source['path'],$path),'Copy generated Word to the lawyer attachment');
+    }
+    $filename=$zip?'Синтетический комплект.zip':$source['filename'];
+    $sha256=hash_file('sha256',$path);
+    $db->prepare("INSERT INTO rental_files(id,entity_type,entity_id,version,kind,filename,path,sha256,mime)
+        VALUES(?,'contract',?,?,'lawyer-file',?,?,?,?)")
+        ->execute([$id,$contract['id'],$contract['version'],$filename,basename($path),$sha256,$zip?'application/zip':$source['mime']]);
+    FileOrder::assign($db,$id);
+    $files=[compact('id','filename','sha256')];
+    $db->prepare("UPDATE rental_facts SET fact_json=JSON_SET(fact_json,'$.files',CAST(? AS JSON))
+        WHERE namespace='legal_handoff_draft' AND source_key=?")->execute([Importer::json($files),$contract['id']]);
+    return ['id'=>$contract['id'],'version'=>$contract['version'],'packet_fingerprint'=>LegalHandoff::fingerprint($files)];
+}
+
+function assertWordSecurity(PDO $db,array &$created): void {
+    foreach (['office'=>'Офис','parking'=>'Машиноместо'] as $kind=>$type) {
+        $partyType=$kind==='office'?'company':'entrepreneur';
+        $id=fixture($type,partyType:$partyType,confirmSecurity:false,documentDate:date('Y-m-d'));
+        $contract=Service::get($db,'contracts',$id);
+        $version=(int)$contract['version'];
+        $selection=[$kind=>0];
+        $input=['id'=>$id,'version'=>$version];
+        reject(fn()=>WordPack::plan($db,'contract',$id,$version,$selection),'Сначала согласуйте кратность');
+        reject(fn()=>Documents::export($db,'contract',$id,$version,'docx'),'Сначала согласуйте кратность');
+        $priorRequest=null;
+        foreach ([1,0,2] as $multiple) {
+            command(LegalHandoff::SECURITY_MULTIPLE,$input+['multiple'=>(string)$multiple]);
+            $plan=WordPack::plan($db,'contract',$id,$version,$selection);
+            $data=inputFor($plan);
+            $hashes=hashes($plan);
+            if ($priorRequest!==null) {
+                reject(fn()=>WordPack::produce($db,'contract',$id,$version,$selection,$data,$hashes,$priorRequest,$created),
+                    'Ключ формы уже использован');
+            }
+            reject(fn()=>WordPack::produce($db,'contract',$id,$version,$selection,
+                $data+['security_clause'=>'Подставная сумма'],$hashes,bin2hex(random_bytes(16)),$created),
+                'Нельзя подменять');
+            $request=bin2hex(random_bytes(16));
+            $pack=WordPack::produce($db,'contract',$id,$version,$selection,$data,$hashes,$request,$created);
+            ok($pack['primary']===WordPack::produce($db,'contract',$id,$version,$selection,$data,$hashes,$request,$created)['primary'],
+                'Same calculation and request reuse the original generated file');
+            $doc=wordText($db,$pack['files'][0]);
+            $calc=InitialInvoice::preview($db,$contract,date('Y-m-d'));
+            $amount=InitialInvoice::securityAmount('10500.01',$multiple);
+            $security=array_values(array_filter($calc['rows'],static fn(array $row): bool =>
+                $row['kind']==='Обеспечительный платёж'));
+            ok(WordSecurityTerms::matches(['multiple'=>$multiple,'amount'=>$amount],$pack['security']),
+                'Pack records effective security');
+            ok(!str_contains($doc,'{{vat}}') && !str_contains($doc,'арендной платы за один месяц аренды'),
+                'Replaced approved clause has no placeholder or hard-coded original amount');
+            if ($multiple===0) {
+                ok(!$security && str_contains($doc,'Обеспечительный платёж по настоящему Договору не предусмотрен.')
+                    && str_contains($doc,'Условия Договора об обеспечительном платеже не применяются.'),
+                    'Zero has no security invoice and neutralizes payment obligations in the contract');
+            } else {
+                $expected=preg_replace('/[\p{Z}\s]+/u',' ',Documents::amountText($amount));
+                ok(count($security)===1 && $security[0]['amount']===$amount
+                    && str_contains($doc,$expected.' руб. с НДС (кратность к месячной арендной плате — '.$multiple.')'),
+                    'Word and first calculation report the same exact gross amount');
+                ok(str_contains($doc,$kind==='office'?'в течение 2 (двух) рабочих дней с момента подписания настоящего Договора':
+                    'одновременно с первым платежом вносит обеспечительный платёж'), 'Keep the original payment deadline');
+            }
+            if ($multiple===1) {
+                $oldPack=$pack;
+                $attach=stageGeneratedWord($db,$contract,$oldPack,$created,$kind==='parking');
+            }
+            $priorRequest=$request;
+        }
+
+        reject(fn()=>command('contract.legal',$attach+['security_multiple'=>2]),'Сформируйте договор заново');
+        if ($kind==='office') {
+            $old=LegalHandoff::files($db,$contract)[0];
+            reject(fn()=>WordDerivative::produce($db,$old['id']),'Сформируйте договор заново');
+        }
+        $db->prepare("UPDATE rental_facts SET fact_json=JSON_SET(fact_json,'$.files',JSON_ARRAY())
+            WHERE namespace='legal_handoff_draft' AND source_key=?")->execute([$id]);
+        $attach=stageGeneratedWord($db,$contract,$pack,$created,$kind==='parking');
+        ok(command('contract.legal',$attach+['security_multiple'=>2])['status']==='accounting',
+            'Current generated Word and ZIP pass the normal handoff');
+    }
+}
+
 $created=[];$db->beginTransaction();
 try{
+    assertWordSecurity($db,$created);
+    if (in_array('--security-only',$argv,true)) {
+        echo "PASS: confirmed 0/1/2, exact first-invoice amounts, office/parking deadlines, regenerated Word, stale direct DOCX/ZIP/PDF and current handoff\n";
+        return;
+    }
     ok(WordGenerationData::floorWords('-1')==='минус первом'&&WordGenerationData::floorWords('0')==='нулевом'
         &&WordGenerationData::floorWords('2')==='втором'&&WordGenerationData::floorWords('')==='','Floor numerals include the levels below ground');
     foreach(['Офис','Машиноместо'] as $type){

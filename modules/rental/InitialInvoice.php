@@ -151,9 +151,14 @@ final class InitialInvoice
         return self::hash([$header,array_map(static fn(array $term): array => array_intersect_key($term,$economic),$terms)]);
     }
 
+    public static function securityAmount(string $gross,int $multiple): string
+    {
+        return bcmul($gross,(string)$multiple,2);
+    }
+
     private static function assertSecurityAmount(array $contract,int $multiple): void
     {
-        if (bccomp(bcmul($contract['amount']??'0',(string)$multiple,2),'999999999999999999.99',2)>0)
+        if (bccomp(self::securityAmount($contract['amount']??'0',$multiple),'999999999999999999.99',2)>0)
             throw new RuntimeException('Сумма обеспечения превышает допустимую сумму счёта.',422);
     }
 
@@ -274,7 +279,7 @@ final class InitialInvoice
             $plan['rows'][] = $row+self::plannedDeadline($db,$id,$basis,$form,$row['initial'] ? 'rent' : 'next',$signature,$transfer,$issued);
         }
         if ($condition['multiple'] > 0) {
-            $security = bcmul($gross,(string)$condition['multiple'],2);
+            $security = self::securityAmount($gross,$condition['multiple']);
             $plan['rows'][] = ['kind'=>'Обеспечительный платёж','period'=>'Обеспечение','from'=>$start,'to'=>$end,
                 'amount'=>$security,'initial'=>1]+self::plannedDeadline($db,$id,$basis,$form,'security',$signature,$transfer);
         }
