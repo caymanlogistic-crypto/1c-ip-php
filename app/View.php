@@ -3,10 +3,21 @@ declare(strict_types=1);
 namespace App;
 final class View {
     public static function e(mixed $v):string{return htmlspecialchars((string)($v??''),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');}
-    public static function login(string $error=''):string {
+    public static function login(string $error='',array $presets=[]):string {
         // Exact native login composition from S/templates/registration/login.html.
         $css=self::fontPreloads();foreach(['system/palette.css','system/css/erp-ui.css','system/css/registry-components.css','system/css/ui-controls.css','system/css/time-picker.css','system/css/ui-shell.css','system/css/registry-viewport.css','system/css/notification-icons.css','demo/demo_geometry.css','erp/login-brand.css']as $asset)$css.='<link rel="stylesheet" href="/design/'.$asset.'">';
-        $name='ИП Яковлев';return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>Вход в систему · '.self::e($name).'</title>'.$css.'</head><body><main class="modal-overlay is-open login-screen" aria-label="Вход в систему"><dialog open class="modal registry-ui-modal registry-ui-modal--confirmation" aria-labelledby="login-title"><form method="post" class="registry-ui-modal-form"><input type="hidden" name="_csrf" value="'.self::e(Http::csrf()).'"><div class="modal-head"><h1 class="modal-title" id="login-title">'.self::e($name).'</h1></div><div class="modal-body registry-ui-modal-grid"><p class="registry-ui-modal-text">Войдите в свою учётную запись</p>'.$error.'<div class="field"><label class="field-label" for="id_username">Логин</label><input type="text" name="username" autofocus autocapitalize="none" autocomplete="username" maxlength="150" class="field-input" required id="id_username"></div><div class="field"><label class="field-label" for="id_password">Пароль</label><input type="password" name="password" autocomplete="current-password" class="field-input" required id="id_password"></div></div><div class="modal-foot"><button class="btn btn-primary" type="submit">Войти в систему</button></div></form></dialog></main></body></html>';
+        $roles='';
+        $script='';
+        if ($presets) {
+            $roles='<fieldset data-server-role-login><legend class="field-label">Тестовые роли</legend><div class="inline-actions">';
+            foreach ($presets as $role=>$label) {
+                $roles.='<button type="button" class="btn btn-secondary" data-login-role="'.self::e($role).'">'
+                    .self::e($label).'</button>';
+            }
+            $roles.='</div><p class="field-msg is-error" role="alert" hidden>Не удалось заполнить форму. Обновите страницу.</p></fieldset>';
+            $script='<script defer src="/assets/server-role-login.js"></script>';
+        }
+        $name='ИП Яковлев';return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>Вход в систему · '.self::e($name).'</title>'.$css.$script.'</head><body><main class="modal-overlay is-open login-screen" aria-label="Вход в систему"><dialog open class="modal registry-ui-modal registry-ui-modal--confirmation" aria-labelledby="login-title"><form method="post" class="registry-ui-modal-form"><input type="hidden" name="_csrf" value="'.self::e(Http::csrf()).'"><div class="modal-head"><h1 class="modal-title" id="login-title">'.self::e($name).'</h1></div><div class="modal-body registry-ui-modal-grid"><p class="registry-ui-modal-text">Войдите в свою учётную запись</p>'.$error.'<div class="field"><label class="field-label" for="id_username">Логин</label><input type="text" name="username" autofocus autocapitalize="none" autocomplete="username" maxlength="150" class="field-input" required id="id_username"></div><div class="field"><label class="field-label" for="id_password">Пароль</label><input type="password" name="password" autocomplete="current-password" class="field-input" required id="id_password"></div>'.$roles.'</div><div class="modal-foot"><button class="btn btn-primary" type="submit">Войти в систему</button></div></form></dialog></main></body></html>';
     }
     public static function page(string $title,string $body,string $active='',array $pageScripts=[],?\Modules\Rental\ObjectReadModel $objects=null):string {
         $extraScripts='';
