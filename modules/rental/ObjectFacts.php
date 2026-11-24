@@ -41,13 +41,14 @@ final class ObjectFacts
     {
         $counts=[0,0,0,0];
         if (!Auth::can('rental.read') || \App\PagePolicy::level('rental.objects',Auth::user())<1) return $counts;
-        $today=date('Y-m-d');$read??=new ObjectReadModel($today);
+        $today=$read?->today??date('Y-m-d');$read??=new ObjectReadModel($today);
         foreach ($read->objects as $object) {
             $parent=ObjectReadModel::parent($object);
             if (!DirectoryScope::signals($object,$parent)) continue;
             $facts=self::project($object,$parent,$read->availability[$object['id']] ?? null,$today,$read);
             $index=array_search($facts['severity'],['red','yellow','green','blue'],true);
             if ($index!==false) $counts[$index]++;
+            if ($facts['package']!==null && $facts['severity']!=='green') $counts[2]++;
         }
         return $counts;
     }

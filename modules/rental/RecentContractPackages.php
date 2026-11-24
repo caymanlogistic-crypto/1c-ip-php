@@ -57,9 +57,9 @@ final class RecentContractPackages
         return $packages;
     }
 
-    public static function byObject(PDO $db,string $today,?int $objectId=null): array
+    public static function byObject(PDO $db,string $today,?int $objectId=null,?array $packages=null): array
     {
-        $packages=self::byContract($db,$today);
+        $packages??=self::byContract($db,$today);
         if (!$packages) return [];
         $ids=array_keys($packages);
         $slots=implode(',',array_fill(0,count($ids),'?'));

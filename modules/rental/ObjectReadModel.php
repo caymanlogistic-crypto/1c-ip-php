@@ -9,6 +9,7 @@ final class ObjectReadModel
 {
     public readonly array $objects;
     public readonly array $availability;
+    public readonly array $contractPackages;
     private array $leases=[],$bookings=[],$previous=[],$historical=[],$events=[],$applied=[],$documents=[],$work=[],$packages=[];
 
     public function __construct(public readonly string $today)
@@ -20,7 +21,9 @@ final class ObjectReadModel
         foreach (Availability::items($today,$today) as $item) $availability[$item['id']]=$item;
         $this->availability=$availability;
         $this->work=self::pendingWork();
-        $this->packages=RecentContractPackages::byObject(DB::pdo(),$today);
+        $db=DB::pdo();
+        $this->contractPackages=RecentContractPackages::byContract($db,$today);
+        $this->packages=RecentContractPackages::byObject($db,$today,packages:$this->contractPackages);
         $this->leases=Occupancy::leasesOn($today);
         foreach (Controller::query('SELECT r.object_id,r.id,r.until_date,r.comment,COALESCE(NULLIF(r.client_name,\'\'),p.name) client_name '
             .'FROM reservations r LEFT JOIN parties p ON p.id=r.party_id WHERE '.Occupancy::reservationPredicate('r')
