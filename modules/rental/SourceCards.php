@@ -15,7 +15,8 @@ final class SourceCards {
 
     private static function contract(int $id): array {
         Access::contract($id);
-        return Controller::query('SELECT c.*,COALESCE(p.name,\'—\') party_name FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.id=?', [
+        return Controller::query('SELECT c.*,COALESCE(p.name,\'—\') party_name,p.inn party_inn,p.contact party_contact,
+            p.email party_email,p.phone party_phone FROM contracts c LEFT JOIN parties p ON p.id=c.party_id WHERE c.id=?', [
             $id
         ])[0] ?? throw new RuntimeException('Договор не найден.', 404);
     }

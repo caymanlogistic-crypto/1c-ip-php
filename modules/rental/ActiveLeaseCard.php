@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental;
 
-use App\{Auth, BillableTerms, DB, PagePolicy};
+use App\{Auth, BillableTerms, DB, PagePolicy, View};
 
 final class ActiveLeaseCard
 {
@@ -17,11 +17,8 @@ final class ActiveLeaseCard
         $canManage=in_array($user['role'],['admin','manager'],true) && Auth::can('rental.write');
         $body=ContractRevision::presentation($contract).RentalUI::notice();
         $body.='<div class="registry-ui-form-sections registry-ui-form-sections--compact">'
-            .RentalUI::reviewSection('Контрагент',RentalUI::pairs([['Наименование',$contract['party_name']]]))
-            .RentalUI::reviewSection('Условия договора',self::terms($contract,$managed),'Действует',true)
-            .SecurityDepositCard::section($contract,reviewStyle:true)
-            .RentalUI::reviewSection('Оплата',LeasePaymentTermsCard::summary($contract)
-                .InitialInvoiceCard::entry($contract).InitialInvoiceCard::attachments($contract));
+            .RentalUI::reviewSection('Контрагент',self::party($contract))
+            .RentalUI::reviewSection('Условия договора',self::terms($contract,$managed),'Действует',true);
 
         $documents=CustomerBookings::contractOrigin($contract);
         $links=Documents::signedContractLinks($id);
@@ -44,6 +41,17 @@ final class ActiveLeaseCard
 
         return RentalUI::modal('Договор №'.$contract['number'],$body,$addendum,'contracts-active',wide:true,
             leadingActions:$terminate,extractForms:false);
+    }
+
+    private static function party(array $contract): string
+    {
+        $body=RentalUI::pairs([['Наименование',$contract['party_name']],['ИНН',$contract['party_inn'] ?: '—']]);
+        $body.='<div class="form-grid-3 registry-ui-form-row">';
+        foreach ([['Контактное лицо',$contract['party_contact']],['Электронная почта',$contract['party_email']],['Телефон',$contract['party_phone']]] as [$label,$value]) {
+            $body.='<div class="field"><span class="registry-ui-secondary">'.View::e($label).'</span>'
+                .'<span class="registry-ui-modal-text">'.View::e(trim((string)$value) ?: '—').'</span></div>';
+        }
+        return $body.'</div>';
     }
 
     private static function terms(array $contract,bool $managed): string

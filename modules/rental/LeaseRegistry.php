@@ -144,13 +144,16 @@ final class LeaseRegistry
             }
             $typeSelect.='</select>';
         }
-        $controls='<form method="get" data-rental-registry-filter><input type="hidden" name="flag" value="'.View::e($flag).'">'
-            .$typeSelect.DirectoryUi::search($query)
-            .'<button type="submit" name="reset" value="1" class="registry-ui-reset"'.($query==='' && $typeFilter==='all'?' hidden':'').'>Сбросить фильтры</button></form>';
+        $filterState='<input type="hidden" name="flag" value="'.View::e($flag).'">';
+        $reset='<button type="submit" name="reset" value="1" class="registry-ui-reset"'
+            .($query==='' && $typeFilter==='all'?' hidden':'').'>'.($active?'Сбросить фильтр':'Сбросить фильтры').'</button>';
+        $controls=$active?$filterState.$reset.$typeSelect.DirectoryUi::search($query,true)
+            :'<form method="get" data-rental-registry-filter>'.$filterState.DirectoryUi::search($query).$reset.'</form>';
         $body=Controller::heading($title,$active?'Действующие условия аренды, сроки и назначенные действия.':'История завершённой аренды и подтверждений расчётов.',$actions)
             .Controller::tabs($tabs,$flag,!$active,$active?['q'=>$query,'type'=>$typeFilter]:[]).DirectoryUi::registry('rental-'.$page,
                 ['Договор','Контрагент','Начало','Окончание','Объекты аренды','Стадия','Комментарий','Аренда с НДС','Ответственный'],$rows,
-                ['short','flex','short','code','flex','text','flex','money','text'],$controls,' · Аренда с НДС: <b>'.Controller::money($known?$sum:($rows?null:'0.00')).'</b>');
+                ['short','flex','short','code','flex','text','flex','money','text'],$controls,
+                ' · Аренда с НДС: <b>'.Controller::money($known?$sum:($rows?null:'0.00')).'</b>',filterForm:$active);
         return View::page($title,$body,$page);
     }
 

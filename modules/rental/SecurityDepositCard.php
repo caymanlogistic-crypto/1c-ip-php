@@ -7,7 +7,7 @@ use DateTimeImmutable;
 
 final class SecurityDepositCard
 {
-    public static function section(array $contract,bool $reviewStyle=false): string
+    public static function section(array $contract): string
     {
         $db=DB::pdo();
         $id=(int)$contract['id'];
@@ -18,7 +18,7 @@ final class SecurityDepositCard
         $invoice=$ledger['invoice'];
         $basis=$ledger['basis'];
         $money=Controller::money(...);
-        $body=RentalUI::pairs([
+        $body='<h3 class="registry-ui-modal-summary">Обеспечение</h3>'.RentalUI::pairs([
             ['Обязательство',$money($invoice['amount'] ?? null)],
             ['Подтверждённые поступления',$money($ledger['received'])],
             ['Пришло зачётом с прежнего договора',$money($ledger['credited'])],
@@ -70,9 +70,7 @@ final class SecurityDepositCard
             $body.=Controller::table(['Приход','Дата','Распределено','Подтверждение'],$rows);
         }
         if ($ledger['moves']) $body.=self::history($id,$ledger['moves']);
-        $body.=$closing?self::actions($id,$ledger,$preview):'';
-        return $reviewStyle?RentalUI::reviewSection('Обеспечение',$body)
-            :'<h3 class="registry-ui-modal-summary">Обеспечение</h3>'.$body;
+        return $body.($closing?self::actions($id,$ledger,$preview):'');
     }
 
     private static function file(array $doc): string
