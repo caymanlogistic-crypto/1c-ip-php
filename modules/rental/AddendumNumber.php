@@ -10,13 +10,13 @@ final class AddendumNumber
     public static function forNew(PDO $db,array $contract): string
     {
         $id=(int)$contract['id'];
-        $managed=RegistryState::managed($contract);
+        $source=Importer::decodeExact($contract['source_json']);
         $saved=$db->prepare('SELECT d.number,d.status FROM rental_documents d WHERE d.contract_id=? AND '.WorkspaceReset::visibleSql('d'));
         $saved->execute([$id]);
         $documents=$saved->fetchAll();
         $numbers=array_column($documents,'number');
 
-        if (!$managed) {
+        if (!empty($source['imported'])) {
             $dates=$db->prepare('SELECT DISTINCT GREATEST(t.start_date,COALESCE(t.effective_date,t.start_date)) AS applies_from
                 FROM contract_terms t WHERE t.contract_id=? AND t.start_date IS NOT NULL');
             $dates->execute([$id]);
