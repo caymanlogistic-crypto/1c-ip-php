@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use App\{Auth, DB};
-use Modules\Rental\{Documents, InitialInvoice, InitialInvoiceCard, PartyLegalReview, Service};
+use Modules\Rental\{Documents, InitialInvoice, InitialInvoiceCard, PartyLegalReview, Service, SourceCards};
 
 require dirname(__DIR__).'/app/bootstrap.php';
 
@@ -140,6 +140,10 @@ try {
     $new=$contract();
     check($new['status']===($returned?'returned':'legal') && !$new['signed'],'Billing must preserve the unsigned agreement stage');
     check(!str_contains(InitialInvoiceCard::card(),'Зарегистрировать первый счёт'),'Hide registration after success');
+    if (!$returned) {
+        actor('lawyer');
+        check(!str_contains(SourceCards::show(),'id="legal-initial-terms"'),'Issued invoices prevent amendment through the legal confirmation form');
+    }
     echo 'PASS accountant issue with legal approval, denied roles and stale evidence, PDF attachments, dates/security and idempotency',PHP_EOL;
 } finally {
     if ($db->inTransaction()) {

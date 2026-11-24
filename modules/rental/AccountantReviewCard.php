@@ -251,7 +251,7 @@ final class AccountantReviewCard
         if ($issued) {
             $body.='<div class="demo-row">'.RentalUI::button('Открыть первые счета',InitialInvoiceCard::route($id)).'</div>';
         }
-        $state=$issued?'Зарегистрирован':'Не выставлен';
+        $state=$issued?'Счета зарегистрированы':'Требует уточнения';
         if ($previewUrl!=='') $state=InitialInvoicePreview::LABEL;
         return RentalUI::reviewSection('Первый расчёт',$body,$state,(bool)$issued,$previewUrl);
     }

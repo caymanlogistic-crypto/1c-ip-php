@@ -7,7 +7,7 @@ set_exception_handler(static function(Throwable $error): void {
 });
 
 use App\{Auth, DB};
-use Modules\Rental\{ContractReviewFiles, DirectoryDetails, Documents, FileOrder, Importer, InitialInvoice, LegalHandoff, LegalReview, NativePacket, PartyLegalReview, Service, SourceCards, WorkflowEvents};
+use Modules\Rental\{ContractReviewFiles, DirectoryDetails, Documents, FileOrder, Importer, InitialInvoice, InitialInvoiceCard, LegalHandoff, LegalReview, NativePacket, PartyLegalReview, Service, SourceCards, WorkflowEvents};
 
 // Run only against a verified, separately restored local worktree copy.
 $db=DB::pdo();
@@ -59,7 +59,7 @@ function stageFiles(PDO $db,array $contract,int $amount,array &$paths): void {
     $db->prepare("UPDATE rental_facts SET fact_json=? WHERE namespace='legal_handoff_draft' AND source_key=?")
         ->execute([Importer::json($draft),$contract['id']]);
 }
-function fixture(string $inn='7701234560'): int {
+function fixture(string $inn='7701234560',?string $documentDate=null): int {
     $db=DB::pdo();actor('manager');
     $pid=(int)$db->query('SELECT MAX(id)+1 FROM parties')->fetchColumn();
     $oid=(int)$db->query('SELECT MAX(id)+1 FROM rental_objects')->fetchColumn();
@@ -69,7 +69,8 @@ function fixture(string $inn='7701234560'): int {
     $db->prepare("INSERT INTO cadastre(id,number,area,type,source_json) VALUES(?,'77:01:000000:999999',20,'Офис','{}')")->execute([$cid]);
     $db->prepare("INSERT INTO rental_objects(id,name,type,area,cadastre_id,source_json) VALUES(?,'Тестовое помещение юриста','Офис',20,?,'{}')")->execute([$oid,$cid]);
     $r=command('contract.create',['party_id'=>$pid,'start_date'=>'2026-12-01','end_date'=>'2027-11-30',
-        'amount'=>'10000.00','objects'=>[$oid],'term_amount'=>[$oid=>'10000.00'],'intent'=>'submit']);
+        'amount'=>'10000.00','objects'=>[$oid],'term_amount'=>[$oid=>'10000.00'],'intent'=>'submit']
+        +($documentDate?['document_date'=>$documentDate]:[]));
     return (int)$r['id'];
 }
 $files=[];$db->beginTransaction();
@@ -107,6 +108,11 @@ try {
     $preview=NativePacket::preview($db,'contract',$id,Auth::user());
     $_GET=['id'=>$id];
     $card=SourceCards::show();
+    $billingContract=record($id);
+    $question=InitialInvoice::preview($db,$billingContract,InitialInvoiceCard::defaultIssueDate($billingContract))['questions'][0]??'';
+    check(str_contains($card,'Первый расчёт') && str_contains($card,'Требует уточнения')
+        && $question!=='' && str_contains($card,$question),
+        'An unavailable first calculation shows the actual plan question');
     $currentFile=LegalHandoff::history($db,$id)[0]['files'][0]['filename'];
     check(str_contains($card,$currentFile) && str_contains($card,'decision=confirm&amp;packet='.$preview['expected_packet_hash']),
         'Accountant opens confirmation for the package currently displayed');
@@ -209,6 +215,36 @@ try {
         ->execute([$legacy['id'],Importer::json(['version'=>(int)$legacy['version'],
             'party'=>LegalHandoff::partyBasis($db,$legacy,legacy:true),'files'=>[]])]);
     InitialInvoice::assertIssueParty($db,$legacy);
+
+    $billingId=fixture('7701234563',date('Y-m-d'));
+    $billing=record($billingId);
+    actor('lawyer');
+    $_GET=['id'=>$billingId];
+    $legalCard=SourceCards::show();
+    check(str_contains($legalCard,'id="legal-initial-terms"') && str_contains($legalCard,'name="lease_form" required')
+        && str_contains($legalCard,'name="multiple" min="0" step="1"')
+        && str_contains($legalCard,'name="reason" rows="2" maxlength="600" required'),
+        'The legal review exposes the canonical first calculation fields');
+    $firstTerms=['id'=>$billingId,'version'=>$billing['version'],'lease_form'=>'D17','multiple'=>'0',
+        'reason'=>'Пункт 3 учебного договора','command_key'=>bin2hex(random_bytes(16))];
+    $saved=Service::command(LegalHandoff::TERMS,$firstTerms);
+    $eventCount=(int)$db->query("SELECT COUNT(*) FROM rental_events WHERE contract_id=$billingId")->fetchColumn();
+    check(Service::command(LegalHandoff::TERMS,$firstTerms)===$saved
+        && (int)$db->query("SELECT COUNT(*) FROM rental_events WHERE contract_id=$billingId")->fetchColumn()===$eventCount,
+        'The financial confirmation uses the existing idempotent command');
+    $zero=InitialInvoice::preview($db,$billing,date('Y-m-d'));
+    check(array_column($zero['rows'],'kind')===['Первый период'] && $zero['rows'][0]['amount']==='10000.00',
+        'An explicitly confirmed zero omits security while keeping rent');
+    $changed=$billing;
+    $changed['end_date']='2027-12-01';
+    check(InitialInvoice::preview($db,$changed,date('Y-m-d'))['rows']===[], 'Changed terms require a renewed confirmation');
+    $firstTerms['multiple']='1';
+    $firstTerms['command_key']=bin2hex(random_bytes(16));
+    Service::command(LegalHandoff::TERMS,$firstTerms);
+    $security=InitialInvoice::securityFirst(InitialInvoice::preview($db,$billing,date('Y-m-d'))['rows'])[0];
+    check($security['kind']==='Обеспечительный платёж' && $security['amount']==='10000.00' && $security['due']===null,
+        'Known security amount remains in the plan before the due date is established');
+    check(InitialInvoice::issuedFor($db,$billingId)===[], 'Confirming the calculation does not issue first invoices');
     echo "PASS: optional source, current and legacy proofs, handoff, return, roles, file integrity, no invoices\n";
 } finally {
     $db->rollBack();
