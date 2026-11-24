@@ -70,6 +70,7 @@
   const reasonForm=reviewDecision.querySelector('form');
   const redActions={
     block:['Новые договоры с этим контрагентом будут заблокированы. Текущий договор вернётся менеджеру.','Причина блокировки','Заблокировать и вернуть'],
+    'party-block':['Учебная компания','Причина','Заблокировать'],
     documents:['Договор вернётся менеджеру с указанным списком.','Какие документы нужны','Отправить запрос'],
     terms:['Договор вернётся менеджеру с указанными замечаниями.','Какие условия нужно исправить','Вернуть на доработку'],
     accounting:['Договор вернётся юристу с указанной причиной.','Причина возврата','Вернуть']
@@ -94,6 +95,12 @@
   const reviewParty=document.getElementById('review-party-example');
   document.querySelectorAll('[data-open-review-party]').forEach(button=>button.addEventListener('click',()=>reviewParty.showModal()));
   reviewParty.querySelectorAll('[data-close-review-party]').forEach(button=>button.addEventListener('click',()=>reviewParty.close()));
+  const structuredParty=document.getElementById('structured-party-example');
+  document.querySelector('[data-open-structured-party]').addEventListener('click',()=>structuredParty.showModal());
+  structuredParty.querySelectorAll('[data-close-structured-party]').forEach(button=>button.addEventListener('click',()=>structuredParty.close()));
+  structuredParty.querySelectorAll('[data-demo-party-contract]').forEach(button=>button.addEventListener('click',()=>{
+    document.getElementById(button.dataset.demoPartyContract).showModal();
+  }));
   const dialog=document.getElementById('compact-popup-example');
   document.querySelector('[data-open-compact-example]').addEventListener('click',()=>dialog.showModal());
   dialog.querySelectorAll('[data-close-compact-example]').forEach(button=>button.addEventListener('click',()=>dialog.close()));

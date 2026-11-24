@@ -43,18 +43,43 @@ final class PartyDirectory
         return $id ? (Controller::query('SELECT * FROM party_bank_accounts WHERE party_id=? AND operational=1 ORDER BY id LIMIT 1',[$id])[0] ?? null) : null;
     }
 
-    private static function contracts(int $partyId): string
+    private static function accessibleContracts(int $partyId): iterable
     {
-        $links=[];
         foreach (Controller::query('SELECT id,number,document_date FROM contracts c WHERE party_id=? AND '
             .ContractDraft::visibleSql('c').' ORDER BY document_date DESC,id DESC',[$partyId]) as $contract) {
             try {Access::contract((int)$contract['id']);}
             catch (RuntimeException $error) {if ($error->getCode()===403) continue; throw $error;}
+            yield $contract;
+        }
+    }
+
+    private static function contracts(int $partyId): string
+    {
+        $links=[];
+        foreach (self::accessibleContracts($partyId) as $contract) {
             $label='№ '.$contract['number'].($contract['document_date']?' от '.Documents::dateText($contract['document_date']):'');
             $links[]=RentalUI::button($label,'/rental/contract?id='.(int)$contract['id']);
             array_push($links,...Documents::signedContractLinks((int)$contract['id'],' '.$label));
         }
         return $links?'<div class="registry-ui-secondary">Договоры · '.implode(' · ',$links).'</div>':'';
+    }
+
+    private static function contractSection(int $partyId): string
+    {
+        $rows=[];
+        foreach (self::accessibleContracts($partyId) as $contract) {
+            $id=(int)$contract['id'];
+            $signed=Documents::signedContractLinks($id);
+            $rows[]=[
+                RentalUI::button('№ '.$contract['number'],'/rental/contract?id='.$id),
+                View::e(RegistryState::date($contract['document_date'])),
+                $signed?'<div class="demo-row">'.implode('',$signed).'</div>':'—',
+            ];
+        }
+        $body=$rows?'<div class="registry-ui-review-table">'
+            .Controller::table(['Номер','Дата','Подписанный экземпляр'],$rows,['short','short','flex'],inferRowLinks:false).'</div>'
+            :'<p class="registry-ui-modal-text">Нет доступных договоров.</p>';
+        return RentalUI::reviewSection('Договоры',$body);
     }
 
     public static function page(): string
@@ -120,7 +145,9 @@ final class PartyDirectory
     {
         $party=self::record((int)($_GET['id'] ?? 0));
         $body=$party['blocked']?RentalUI::alert('Контрагент заблокирован',$party['block_reason'] ?? '','error'):'';
-        $body.=self::reviewDetails($party,true).PartyLegalReview::presentation($party).self::contracts((int)$party['id']);
+        $body.='<div class="registry-ui-form-sections registry-ui-form-sections--compact">'
+            .self::reviewDetails($party,true).PartyLegalReview::presentation($party,structured:true)
+            .self::contractSection((int)$party['id']).'</div>';
         $actions=self::editable($party)?RentalUI::button('Редактировать','/rental/edit-party?id='.$party['id'],true):'';
         $actions.=PartyLegalReview::actions($party);
         return RentalUI::modal('Контрагент: '.$party['name'],$body,$actions,'parties',false,self::statusButton($party));
@@ -150,26 +177,42 @@ final class PartyDirectory
             $originFields=[['Источник',$origin['label']],['ID в базе',$origin['local_id']],
                 ['Код 1С',$origin['code'] ?: '—'],['GUID 1С',$origin['guid'] ?: '—']];
         }
-        $body=DirectoryUi::pairs([
+        $client=[
             ['Тип клиента',DirectoryRules::PARTY_TYPES[$type] ?? '—'],
             ['Название для поиска',($details['search_name'] ?? '') ?: $party['name']],['Название в документах',$party['name']],
             ...$originFields,['ИНН',$party['inn']],['Адрес',$party['address']],
-            ...$requisites,
-            ['Почтовый адрес',$party['postal_address'] ?: 'Не указан'],['Основной контакт',$party['contact']],['Телефон',$party['phone']],
+            ...$requisites,['Почтовый адрес',$party['postal_address'] ?: 'Не указан'],
+        ];
+        $primary=[
+            ['Основной контакт',$party['contact']],['Телефон',$party['phone']],
             ['Должность',$details['contact_position'] ?? ''],['Роль контакта',$details['contact_role'] ?? ''],
             ['Электронная почта',$party['email']],['Получает документацию',self::selected($party['document_recipient'])?'Да':'Нет'],
+        ];
+        $additional=[
             ['Дополнительный контакт',$party['additional_contact'] ?: 'Не указан'],['Телефон',$party['additional_phone']],
             ['Должность',$details['additional_contact_position'] ?? ''],['Роль контакта',$details['additional_contact_role'] ?? ''],
             ['Электронная почта',$party['account_email']],['Получает документацию',self::selected($party['additional_document_recipient'])?'Да':'Нет'],
-            ['Подписант',$details['signer'] ?? ''],['Должность подписанта',$details['signer_position'] ?? ''],
+        ];
+        $signer=[
+            [$technical?'ФИО':'Подписант',$details['signer'] ?? ''],
+            [$technical?'Должность':'Должность подписанта',$details['signer_position'] ?? ''],
             ['Основание полномочий',$details['signer_basis'] ?? ''],
-            ['Система ЭДО',$party['edo']],['Идентификатор ЭДО',$party['edo_id']],
-        ]).'<span class="registry-ui-modal-summary">Банковские реквизиты</span>';
+        ];
+        $edo=[['Система ЭДО',$party['edo']],['Идентификатор ЭДО',$party['edo_id']]];
         $bank=self::bank((int)$party['id']);
-        $body.=Controller::table(['Основной','Банк','Расч. счёт','БИК','Корр. счёт'],$bank?[
+        $accounts=Controller::table(['Основной','Банк','Расч. счёт','БИК','Корр. счёт'],$bank?[
             ['Основной',View::e(DirectoryUi::bankName($bank)),View::e($bank['account']),View::e($bank['bik']),View::e($bank['correspondent_account'])],
         ]:[],['short','text','code','code','code']);
-        return $body;
+        if (!$technical) {
+            return DirectoryUi::pairs([...$client,...$primary,...$additional,...$signer,...$edo])
+                .'<span class="registry-ui-modal-summary">Банковские реквизиты</span>'.$accounts;
+        }
+        return RentalUI::reviewSection('Данные клиента',DirectoryUi::pairs($client))
+            .RentalUI::reviewSection('Контакты','<div class="registry-ui-form-row">'
+                .DirectoryUi::pairs($primary).DirectoryUi::pairs($additional).'</div>')
+            .RentalUI::reviewSection('Подписант',DirectoryUi::pairs($signer))
+            .RentalUI::reviewSection('Банковские реквизиты',$accounts)
+            .RentalUI::reviewSection('ЭДО',DirectoryUi::pairs($edo));
     }
 
     public static function editor(): string

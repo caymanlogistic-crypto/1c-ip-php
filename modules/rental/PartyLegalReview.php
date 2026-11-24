@@ -159,23 +159,25 @@ final class PartyLegalReview
         return ['id'=>$id,'message'=>$text];
     }
 
-    public static function presentation(array $party): string
+    public static function presentation(array $party,bool $structured=false): string
     {
         $db=DB::pdo();$id=(int)$party['id'];$review=self::state($db,$id);
+        $accepted=!$party['blocked'] && ($review['status'] ?? '')==='accepted'
+            && hash_equals($review['signature'],self::signature($db,$party));
         $status=$party['blocked']?'Работа запрещена':match ($review['status'] ?? '') {
             'pending'=>'У юриста',
             'returned'=>'На исправлении у менеджера',
-            'accepted'=>hash_equals($review['signature'],self::signature($db,$party))?'Клиент согласован':'Реквизиты изменились · нужна повторная проверка',
+            'accepted'=>$accepted?'Клиент согласован':'Реквизиты изменились · нужна повторная проверка',
             'draft'=>'Готовится менеджером',
             default=>'Отдельная проверка не начата'
         };
-        $body='<span class="registry-ui-modal-summary">Проверка клиента юристом</span>'.RentalUI::pairs([
-            ['Решение',$status],['Участник',$review['actor_name'] ?? '—'],
-            ['Причина возврата',$review['reason'] ?? '—'],['Индивидуальное обеспечение',$review['deposit_note'] ?? '—'],
-        ]);
+        $rows=[['Участник',$review['actor_name'] ?? '—'],
+            ['Причина возврата',$review['reason'] ?? '—'],['Индивидуальное обеспечение',$review['deposit_note'] ?? '—']];
+        $body=RentalUI::pairs($structured?$rows:[['Решение',$status],...$rows]);
         $file=isset($review['file_id'])?self::findFile($db,$id,$review['file_id']):null;
         if ($file) $body.=self::link($file);
-        return $body;
+        return $structured?RentalUI::reviewSection('Проверка контрагента',$body,$status,$accepted)
+            :'<span class="registry-ui-modal-summary">Проверка клиента юристом</span>'.$body;
     }
 
     private static function link(array $file): string
