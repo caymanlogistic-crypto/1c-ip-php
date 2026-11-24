@@ -131,8 +131,10 @@ final class ContractWorkflowReceiver
     private function message(array $scope,array $plan): string
     {
         $version=$scope['catalog_versions'][$plan['kind']];
-        $includesSecurityChange=ContractWorkflowRelay::assertApproved($this->db,$plan['kind'],$version);
-        if (!$includesSecurityChange && isset($plan['values'][ContractSecurityMax::TOKEN])) {
+        $extended=ContractWorkflowRelay::assertApproved($this->db,$plan['kind'],$version);
+        $field=ContractWorkflowRelay::extendedField($plan['kind'],$version);
+        $hasField=$field!==null && isset($plan['values'][$field]);
+        if ((!$extended && $hasField) || ($plan['kind']===AccountantPackageMax::KEY && $extended && !$hasField)) {
             throw new RuntimeException('CONTRACT_RELAY_VALUES',400);
         }
         $render=TemplateCatalog::renderEvent($this->db,'max',$plan['kind'],$plan['values']);

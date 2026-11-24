@@ -42,7 +42,7 @@ final class WorkflowEvents
         }elseif($op==='legal'&&$to==='accounting'){$kind='legalApprove';$target='accountant';}
         elseif(in_array($op,['return','legal-block'],true)&&$to==='returned'){$kind=$from==='accounting'?'accountantReturn':'lawyerReturn';$target=$after['return_to']??null;}
         elseif($op==='forward'&&$to==='returned'&&($after['return_to']??null)==='manager'){$kind='lawyerReturn';$target='manager';}
-        elseif($action==='contract.packet'&&$from==='accounting'&&$to==='active'&&!empty($input['packet_confirmed'])){$kind='package';$target='manager';}
+        elseif($action==='contract.packet'&&in_array($from,['accounting','approved'],true)&&$to==='active'&&!empty($input['packet_confirmed'])){$kind='package';$target='manager';}
         elseif($action==='document.packet'&&$to==='approved'&&!empty($input['packet_confirmed'])){$kind='package';$target='manager';}
         elseif($op==='handed'&&$from==='approved'&&$to==='sent'){$kind='handed';$target='manager';}
         elseif($op==='sign'&&$from==='sent'&&in_array($to,['active','signed'],true)){$kind='signed';$target='manager';}

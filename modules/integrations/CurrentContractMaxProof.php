@@ -42,7 +42,7 @@ final class CurrentContractMaxProof
             'submit','resubmit'=>in_array($operation,['create','edit','submit'],true)&&($event['to_status']??null)==='legal',
             'legalApprove'=>$operation==='legal'&&($event['to_status']??null)==='accounting',
             'lawyerReturn','accountantReturn'=>in_array($operation,['return','forward','legal-block'],true)&&($event['to_status']??null)==='returned',
-            'package'=>$operation==='packet'&&($event['to_status']??null)==='approved',
+            'package'=>$operation==='packet'&&(($event['to_status']??null)==='approved' || AccountantPackageMax::initialConfirmation($event)),
             'signed'=>$operation==='sign'&&in_array($event['to_status']??null,['signed','active'],true),
             'activated'=>$operation==='apply',
             'block','unblock'=>$entity==='party'&&$operation===$kind&&($event['party_id']??null)===($event['entity_id']??null)
@@ -143,6 +143,12 @@ final class CurrentContractMaxProof
         if ($key===ContractSecurityMax::KEY) {
             $change=ContractSecurityMax::value($event);
             if ($change!=='') $values[ContractSecurityMax::TOKEN]=$change;
+        }
+        if ($key===AccountantPackageMax::KEY && AccountantPackageMax::initialConfirmation($event)) {
+            if (!empty($owner['signed']) || !ContractWorkflowRelay::assertApproved($this->db,$key,$catalogVersion)) {
+                throw new RuntimeException('ACCOUNTANT_PACKAGE_MAX_NOT_ADMITTED');
+            }
+            $values[AccountantPackageMax::TOKEN]=AccountantPackageMax::fromEvent($event);
         }
         if ($key==='firstInvoice') {
             $receipt=InitialInvoice::receipt($this->db,(int)$event['contract_id']);

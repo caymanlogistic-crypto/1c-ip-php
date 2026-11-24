@@ -20,7 +20,11 @@ final class TemplateCatalog
         if (in_array($key,['booking','bookingCreated','bookingUpdated','bookingCancelled'],true)) {
             $reservation=['reservationStart','previousDeadline'];
         }
-        $contract = $key === ContractSecurityMax::KEY ? [ContractSecurityMax::TOKEN] : [];
+        $contract = match ($key) {
+            ContractSecurityMax::KEY => [ContractSecurityMax::TOKEN],
+            AccountantPackageMax::KEY => [AccountantPackageMax::TOKEN],
+            default => [],
+        };
         return array_merge(self::MESSAGE_VARS,ContractSubmitMax::VARIABLES,['reservationTypeLabel','reservationAreaLabel'],$reservation,$contract);
     }
 
@@ -35,6 +39,10 @@ final class TemplateCatalog
         if(array_diff(array_keys($values),self::messageVariables($channel,$key)))throw new \InvalidArgumentException('UNKNOWN_TEMPLATE_FIELD');
         foreach($values as $value)if(!is_string($value))throw new \InvalidArgumentException('TEMPLATE_VALUE_STRING_REQUIRED');
         $q=$db->prepare('SELECT * FROM integration_template_catalog WHERE channel=? AND source_key=?');$q->execute([$channel,$key]);$entry=$q->fetch(\PDO::FETCH_ASSOC);if(!$entry)throw new \RuntimeException('CATALOG_ENTRY_NOT_FOUND');
+        if ($channel==='max' && $key===AccountantPackageMax::KEY && AccountantPackageMax::matchesTemplate($entry)
+            && empty($values[AccountantPackageMax::TOKEN])) {
+            throw new \RuntimeException('ACCOUNTANT_PACKAGE_CONFIRMATION_REQUIRED');
+        }
         $render=self::preview($channel,$entry,$values);
         $binding=['channel'=>$channel,'source_key'=>$key,'version'=>(int)$entry['version'],'source_sha256'=>$entry['source_sha256'],'recipients_policy'=>$entry['recipients_policy'],'attachment_policy'=>$entry['attachment_policy'],'format'=>$render['format']];
         $binding['render_sha256']=hash('sha256',Support::canonical(['subject'=>$render['subject'],'body'=>$render['body'],'values'=>$values]));
@@ -92,7 +100,8 @@ final class TemplateCatalog
             $result=[];
             foreach ($entries as $key=>$entry) {
                 $old=$current[$key];
-                if ($key===ContractSecurityMax::KEY && ContractSecurityMax::matchesTemplate($old)) {
+                if (($key===ContractSecurityMax::KEY && ContractSecurityMax::matchesTemplate($old))
+                    || ($key===AccountantPackageMax::KEY && AccountantPackageMax::matchesTemplate($old))) {
                     $result[$key]=['changed'=>false,'version'=>(int)$old['version']];
                     continue;
                 }
@@ -213,6 +222,7 @@ final class TemplateCatalog
             return match ($key) {
                 'contractObjectLines' => ContractSubmitMax::objectLines($value,$format,$escape),
                 ContractSecurityMax::TOKEN => ContractSecurityMax::render($value,$format,$escape),
+                AccountantPackageMax::TOKEN => AccountantPackageMax::render($value,$format,$escape),
                 default => $escape($value),
             };
         },$text);
