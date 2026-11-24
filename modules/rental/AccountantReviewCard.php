@@ -122,7 +122,8 @@ final class AccountantReviewCard
             throw new RuntimeException('Пакет изменился. Откройте карточку и сверьте актуальные данные.',409);
         }
         LegalHandoff::assertCounterparty($db,$contract);
-        $body=self::confirmationSummary($contract,$preview['view']['context']['party'])
+        $view=$preview['view'];
+        $body=self::confirmationSummary($view['context']['party'],$view['accountant_confirmation_summary'])
             .$form.PacketForm::confirmation($preview)['fields'];
         foreach (['counterparty_confirmed','financial_confirmed','document_confirmed'] as $check) {
             $body.=PremisesActsCard::hidden($check,'1');
@@ -132,30 +133,23 @@ final class AccountantReviewCard
         return RentalUI::modal('Подтвердить пакет',$body,$submit,'approvals',closeLabel:'Вернуться');
     }
 
-    private static function confirmationSummary(array $contract,array $party): string
+    private static function confirmationSummary(array $party,array $summary): string
     {
-        $db=DB::pdo();
-        $id=(int)$contract['id'];
-        $issued=InitialInvoice::issuedFor($db,$id);
-        $planned=$issued?[]:InitialInvoice::preview($db,$contract,InitialInvoiceCard::defaultIssueDate($contract))['rows'];
+        $issued=$summary['issued'];
         $bills='';
-        foreach (InitialInvoice::securityFirst($issued ?: $planned) as $line) {
-            $label=self::invoiceLabel($line);
-            if ($issued) $label='№'.InvoiceDocument::number($line['number']).' · '.$label;
+        foreach ($issued ?: $summary['planned'] as $line) {
+            $label=($issued?'№'.$line['number'].' · ':'').$line['label'];
             $bills.='<li>'.View::e($label).' · '.Controller::money($line['amount']).'</li>';
         }
         $delivery=trim((string)($party['edo']??''))!=='' && trim((string)($party['edo_id']??''))!==''
-            ?'Клиент получит приглашение и комплект документов через ЭДО.'
-            :'Клиент получит комплект документов по электронной почте.';
-        $billing=match (true) {
-            (bool)$issued=>'В пакет войдут ранее выставленные счета.',
-            $bills!==''=>'Будут выставлены первые счета.',
-            default=>'Состав первых счетов пока не рассчитан.',
-        };
+            ?'Отправка приглашения и комплекта документов через ЭДО'
+            :'Отправка комплекта документов по электронной почте';
+        $disabled=' <strong class="registry-ui-error">(ОТКЛЮЧЕНО)</strong>';
+        $billing=$issued?' Ранее выставленные счета.':($bills===''?' Состав первых счетов пока не рассчитан.':'');
         return '<h3 class="registry-ui-modal-summary">После подтверждения пакета</h3>'
-            .'<ol class="registry-ui-modal-list"><li>Если контрагент новый, система заведёт его в 1С.</li>'
-            .'<li>'.View::e($billing).($bills?'<ul class="registry-ui-modal-list">'.$bills.'</ul>':'').'</li>'
-            .'<li>'.View::e($delivery).'</li>'
+            .'<ol class="registry-ui-modal-list"><li>Создание нового контрагента в 1С'.$disabled.'</li>'
+            .'<li>Выставление первых счетов'.$disabled.$billing.($bills?'<ul class="registry-ui-modal-list">'.$bills.'</ul>':'').'</li>'
+            .'<li>'.View::e($delivery).$disabled.'</li>'
             .'<li>Договор будет принят на обслуживание с контролем счетов и оплаты.</li></ol>';
     }
 
