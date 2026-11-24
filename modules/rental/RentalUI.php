@@ -38,7 +38,7 @@ final class RentalUI
             .$body.'</section>';
     }
 
-    public static function modal(string $title,string $body,string $actions='',string $active='contracts',bool $wide=false,string $leadingActions='',string $closeLabel='Закрыть',bool $extractForms=true,bool $canvas=false,bool $tableOnly=false, string $design=""):string
+    public static function modal(string $title,string $body,string $actions='',string $active='contracts',bool $wide=false,string $leadingActions='',string $closeLabel='Закрыть',bool $extractForms=true,bool $canvas=false,bool $tableOnly=false, string $design="",bool $tall=false):string
     {
         if ($actions==='' && $extractForms)
             $body=preg_replace_callback('~<form\b[^>]*>.*?</form>~s',function($match) use(&$actions) {
@@ -57,6 +57,7 @@ final class RentalUI
         $h='<dialog data-rental-dialog aria-labelledby="'.$titleId.'" data-rental-return="/rental/'.View::e($active).'"'
             .(!$fetch?' data-rental-autopen':'').($design!==''?\App\InterfaceDesign::attributes($design):'').' class="modal registry-ui-modal '
             .($wide?'registry-ui-modal--probe':'registry-ui-modal--reading').($canvas?' registry-ui-modal--form-canvas':'').($tableOnly?' registry-ui-modal--table':'')
+            .($tall?' registry-ui-modal--tall':'')
             .' demo-dialog"><div class="registry-ui-modal-form"><div class="modal-head"><h2 class="modal-title" id="'.$titleId.'">'
             .View::e($title)
             .'</h2><button class="modal-close" type="button" data-rental-close aria-label="Закрыть">×</button></div><div class="modal-body"><div class="registry-ui-modal-grid"><div id="form-error" hidden></div>'

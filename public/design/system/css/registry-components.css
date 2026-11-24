@@ -537,6 +537,7 @@
 /* OWNER-approved compact registry popup roles (transfer checkpoint v010). */
 .registry-ui-modal:not([open]),.registry-ui-modal [hidden]{display:none!important}
 .registry-ui-modal{box-sizing:border-box;width:min(1230px,calc(100vw - 32px));padding:0;transform:none;overflow:hidden}
+.registry-ui-modal.registry-ui-modal--tall{max-height:min(920px,calc(100dvh - 24px))}
 .registry-ui-modal--reading{width:min(900px,calc(100vw - 32px))}
 .registry-ui-modal--confirmation{width:min(640px,calc(100vw - 32px))}
 .registry-ui-modal--weight-single{width:min(640px,calc(100vw - 32px))}
