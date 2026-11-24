@@ -4,7 +4,7 @@
   function markedForm(target) { return target?.closest?.('form[data-source-validation]'); }
   function alertTemplate(form) { return form.querySelector('template[data-source-validation-alert]'); }
   function showInlineError(form, template) {
-    const body=form.closest('.modal-body');
+    const body=form.closest('.modal-body') || form.querySelector('.modal-body');
     const current=body?.parentElement.querySelector('[data-rental-form-error]');
     if(!body || !template?.content.firstElementChild)return false;
     if(current?.hasAttribute('data-source-client-error'))return true;
