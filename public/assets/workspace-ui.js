@@ -173,6 +173,7 @@
     const value=form.dataset.rentalAvailabilityUrl;
     if(!value)return;
     availabilityRequests.get(form)?.abort();
+    if(form.hasAttribute('data-form-error-notification')&&!form.elements.namedItem('start_date')?.value)return;
     const abort=new AbortController();
     availabilityRequests.set(form,abort);
     try{
@@ -207,10 +208,17 @@
       }
     }
     catch(error){
-      if(error.name!=='AbortError')formError(form.closest('dialog'),error.message);
+      if(error.name!=='AbortError')formError(form.closest('dialog'),error.message,form);
     }
   }
-  function formError(dialog,message){
+  function notifiesFormErrors(form){
+    return form.hasAttribute('data-form-error-notification')||!!form.querySelector('[data-form-error-notification]');
+  }
+  function formError(dialog,message,form){
+    if(notifiesFormErrors(form)){
+      window.PlanexNotifications?.show({tone:'danger',message,scope:form});
+      return;
+    }
     let host=dialog.querySelector('[data-rental-form-error]');
     if(!host){
       host=document.createElement('div');
@@ -252,6 +260,8 @@
     if(form.dataset.submitting)return;
     const data=new FormData(form,submitter);
     const creatingParty=data.get('action')==='party.save'&&data.get('id')==='0';
+    const notifyErrors=notifiesFormErrors(form);
+    if(notifyErrors)window.PlanexNotifications?.clear(form);
     let response,partySaved=false;
     form.dataset.submitting='true';
     const autoUpload=form.querySelector('[data-rental-upload-on-select]');
@@ -315,7 +325,11 @@
         mountRental(replacement,lastFocus);
         return;
       }
-      if(!response.ok)throw new Error(doc.querySelector('[role="alert"]')?.textContent.trim()||'Не удалось сохранить. Проверьте доступ и повторите попытку.');
+      if(!response.ok){
+        const alert=doc.querySelector('[role="alert"]');
+        const text=notifyErrors ? alert?.querySelector('.alert-body-title') || alert : alert;
+        throw new Error(text?.textContent.trim()||'Не удалось сохранить. Проверьте доступ и повторите попытку.');
+      }
       if(replacement){
         if(refresh) await window.RentalRegistry.load(refresh,{completion:true,preserve:true,savedInvoice});
         // A committed command replaces its obsolete navigation context.
@@ -349,8 +363,8 @@
       else if(creatingParty&&(!response||response.ok||response.status>=500)){
         message='Не получено подтверждение сохранения контрагента. Повторите сохранение в этой же форме с теми же данными.';
       }
-      formError(dialog,message);
-      if(creatingParty)dialog.querySelector('[data-rental-form-error]')?.scrollIntoView({block:'nearest'});
+      formError(dialog,message,form);
+      if(creatingParty&&!notifyErrors)dialog.querySelector('[data-rental-form-error]')?.scrollIntoView({block:'nearest'});
     }
     finally{
       delete form.dataset.submitting;

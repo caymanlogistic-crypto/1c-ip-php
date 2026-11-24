@@ -29,7 +29,7 @@ final class BookingController {
             '<form id="'
             . $fid
             . '" class="registry-ui-modal-grid" method="post" action="/rental/action" data-rental-availability-url="/rental/availability?mode=booking"'
-            . ($action==='reservation.create'?' novalidate data-source-validation':'')
+            . ($action==='reservation.create'?' novalidate data-source-validation data-form-error-notification':'')
             . '><input type="hidden" name="_csrf" value="'
             . View::e(Http::csrf())
             . '"><input type="hidden" name="action" value="'
@@ -67,8 +67,7 @@ final class BookingController {
         . '<label class="field"><span class="field-label-row"><span class="field-label">Резервирование действует до <span class="req">*</span></span></span>'
         . '<input class="field-input" name="until_date" type="date" value="'.$start.'" min="'.$start.'" required></label>'
         . '</div>'
-        . DirectoryUi::input('comment', 'Комментарий', '', 'text', true)
-        . '<template data-source-validation-alert>'.RentalUI::alert('Заполните или исправьте выделенные поля.','','error').'</template>';
+        . DirectoryUi::input('comment', 'Комментарий', '', 'text', true);
         [
             $body,
             $actions

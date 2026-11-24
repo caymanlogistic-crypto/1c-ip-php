@@ -183,7 +183,7 @@ final class PartyDirectory
         $bank=self::bank($id);
         $details=$id?DirectoryDetails::read(DB::pdo(),'parties',$id):[];
         $sectionClass='registry-ui-form-section registry-ui-review-section';
-        $body='<div class="registry-ui-modal-grid" data-party-editor>'
+        $body='<div class="registry-ui-modal-grid" data-party-editor'.(!$id?' data-form-error-notification':'').'>'
             .'<section class="'.$sectionClass.'" aria-labelledby="party-organization-title"><h3 class="modal-title" id="party-organization-title">Данные клиента</h3>'
             .'<div class="registry-ui-form-section" role="group" aria-label="Основные данные">'
             .'<div class="registry-ui-form-row">'
@@ -254,15 +254,9 @@ final class PartyDirectory
             .self::edoOperator($party['edo'] ?? '').DirectoryUi::input('edo_id','Идентификатор ЭДО',$party['edo_id'] ?? '').'</div>'
             .'<div class="registry-ui-modal-grid" data-edo-conflict hidden><span role="status"></span>'
             .'<button class="btn btn-secondary" type="button" data-edo-apply>Подставить оператора</button></div></section></div>';
-        if (!$id) $body.='<template data-party-validation-alert>'
-            .RentalUI::alert('Заполните или исправьте выделенные поля.','','error').'</template>';
-        [$form,$actions,$formId]=DirectoryUi::form('party.save',$party,$body);
-        // Temporary presentation helper, only for a new party opened from a contract.
-        $demo=!$id && ($_GET['context'] ?? '')==='contract-create'
-            ?'<button class="btn btn-danger" type="button" form="'.View::e($formId).'" data-party-demo-fill="company">Демо: ООО</button>'
-            .'<button class="btn btn-danger" type="button" form="'.View::e($formId).'" data-party-demo-fill="entrepreneur">Демо: ИП</button>':'';
+        [$form,$actions]=DirectoryUi::form('party.save',$party,$body);
         return RentalUI::modal($id?'Редактировать контрагента':'Новый контрагент',$form,$actions,'parties',
-            leadingActions:$party?self::statusButton($party):$demo,tall:true);
+            leadingActions:$party?self::statusButton($party):'',tall:true);
     }
 
     private static function edoOperator(string $current): string

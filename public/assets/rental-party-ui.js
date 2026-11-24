@@ -268,6 +268,8 @@
     }
   }
 
+  const validationMessage = 'Заполните или исправьте выделенные поля.';
+
   function markPartyValidation(form) {
     let first = null;
     for (const control of form.querySelectorAll('input,select,textarea')) {
@@ -287,29 +289,16 @@
         visible.removeAttribute('aria-invalid');
       }
     }
-    if (!first) form.closest('dialog')?.querySelector('[data-party-client-error]')?.remove();
+    if (!first) window.PlanexNotifications?.clear(form, validationMessage);
     return first;
   }
 
-  function showPartyValidation(form, template) {
-    const body = form.closest('.modal-body');
-    const current = body.parentElement.querySelector('[data-rental-form-error]');
-    const source = template.content.firstElementChild;
-    const alert = current || source.cloneNode(true);
-    if (current && !current.hasAttribute('data-party-client-error')) {
-      current.querySelector('.alert-body-title').textContent = source.querySelector('.alert-body-title').textContent;
-    }
-    alert.setAttribute('data-party-client-error', '');
-    alert.setAttribute('data-rental-form-error', '');
-    if (alert.nextElementSibling !== body) body.before(alert);
-  }
-
   document.addEventListener('invalid', event => {
-    if (!event.target.closest('[data-party-editor]')) return;
+    const editor = event.target.closest('[data-party-editor]');
+    if (!editor) return;
     event.preventDefault();
     const form = event.target.form;
-    const template = form?.querySelector('[data-party-validation-alert]');
-    if (template) {
+    if (editor.hasAttribute('data-form-error-notification')) {
       if (pendingPartyValidation.has(form)) return;
       pendingPartyValidation.add(form);
       // The native attempt dispatches a separate invalid event for each control.
@@ -319,7 +308,7 @@
         attemptedPartyValidation.add(form);
         const first = markPartyValidation(form);
         if (!first) return;
-        showPartyValidation(form, template);
+        window.PlanexNotifications?.show({tone:'danger', title:'Проверьте поля', message:validationMessage, scope:form});
         const collapsed = first.closest('details:not([open])');
         if (collapsed) collapsed.open = true;
         first.scrollIntoView({block: 'nearest'});
@@ -332,12 +321,6 @@
     const message = event.target.name === 'party_type' && event.target.validity.valueMissing
       ? 'Выберите тип клиента.' : event.target.validationMessage;
     window.PlanexNotifications?.show({tone: 'danger', message});
-  }, true);
-
-  document.addEventListener('submit', event => {
-    if (event.target.querySelector('[data-party-validation-alert]')) {
-      event.target.closest('dialog')?.querySelector('[data-rental-form-error]')?.remove();
-    }
   }, true);
 
   document.addEventListener('click', event => {

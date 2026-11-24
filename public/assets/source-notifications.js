@@ -18,6 +18,7 @@
   }
   let stack = null, stackHost = null, hostObserver = null;
   let templateResolver = null;
+  const scopedNotices = new WeakMap();
 
   function resolveText(original, eventKey, variables) {
     if (!templateResolver) return original;
@@ -140,7 +141,7 @@
       if (!paused.size && !closed) startTimer();
     }
     function dismiss(manual) {
-      if (closed || removing) return;
+      if (closed || (removing && !manual)) return;
       if (!manual && hasFocus()) { pause('focus'); return; }
       const restoreFocus = manual && hasFocus();
       const siblings = Array.from(stack.children);
@@ -148,6 +149,7 @@
       const neighbor = siblings[index + 1] || siblings[index - 1];
       window.clearTimeout(timer); timer = null;
       if (manual || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        window.clearTimeout(exitTimer);
         closed = true; toast.remove();
         if (restoreFocus) {
           const target = neighbor?.querySelector('.toast-close');
@@ -171,6 +173,11 @@
     });
     close.addEventListener('click', () => dismiss(true));
     startTimer();
+    return {
+      entry,
+      matches: next => !closed && !removing && entry.tone === next.tone && entry.title === next.title && entry.message === next.message,
+      close: () => dismiss(true)
+    };
   }
 
   window.PlanexNotifications = Object.freeze({
@@ -178,12 +185,23 @@
       if (callback !== null && typeof callback !== 'function') throw new TypeError('A notification text resolver must be a function or null');
       templateResolver = callback;
     },
-    show({tone = 'success', title, message, eventKey, variables} = {}) {
+    show({tone = 'success', title, message, eventKey, variables, scope} = {}) {
       if (!Object.hasOwn(labels, tone)) throw new TypeError('Unknown notification tone');
       const body = String(message ?? '').trim();
       if (!body) return;
       const original = {tone, title: String(title ?? labels[tone].title), message: body};
-      present(resolveText(original, eventKey, variables));
+      const resolved = resolveText(original, eventKey, variables);
+      const current = scope && scopedNotices.get(scope);
+      if (current?.matches(resolved)) return;
+      current?.close();
+      const notice = present(resolved);
+      if (scope) scopedNotices.set(scope, notice);
+    },
+    clear(scope, message) {
+      const notice = scopedNotices.get(scope);
+      if (!notice || (message !== undefined && notice.entry.message !== message)) return;
+      notice.close();
+      scopedNotices.delete(scope);
     }
   });
 })();
