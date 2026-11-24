@@ -20,7 +20,12 @@ final class TemplateCatalog
         if (in_array($key,['booking','bookingCreated','bookingUpdated','bookingCancelled'],true)) {
             $reservation=['reservationStart','previousDeadline'];
         }
-        return array_merge(self::MESSAGE_VARS,ContractSubmitMax::VARIABLES,['reservationTypeLabel','reservationAreaLabel'],$reservation);
+        $contract = match ($key) {
+            ContractSecurityMax::KEY => [ContractSecurityMax::TOKEN],
+            AccountantPackageMax::KEY => [AccountantPackageMax::TOKEN],
+            default => [],
+        };
+        return array_merge(self::MESSAGE_VARS,ContractSubmitMax::VARIABLES,['reservationTypeLabel','reservationAreaLabel'],$reservation,$contract);
     }
 
     public const TOP_VARS=['title','text','record','section','why','actor','number','party','template','details'];
@@ -29,11 +34,23 @@ final class TemplateCatalog
     public function event(string $channel,string $key,array $values): array {
         return self::renderEvent($this->db,$channel,$key,$values);
     }
-    public static function renderEvent(\PDO $db,string $channel,string $key,array $values): array {
+    public static function renderEvent(\PDO $db,string $channel,string $key,array $values,bool $legacyDirectPackage=false): array {
         if(!in_array($channel,['email','max'],true)||!preg_match('/^[A-Za-z0-9_.-]{1,100}$/D',$key))throw new \InvalidArgumentException('CATALOG_EVENT_INVALID');
         if(array_diff(array_keys($values),self::messageVariables($channel,$key)))throw new \InvalidArgumentException('UNKNOWN_TEMPLATE_FIELD');
         foreach($values as $value)if(!is_string($value))throw new \InvalidArgumentException('TEMPLATE_VALUE_STRING_REQUIRED');
         $q=$db->prepare('SELECT * FROM integration_template_catalog WHERE channel=? AND source_key=?');$q->execute([$channel,$key]);$entry=$q->fetch(\PDO::FETCH_ASSOC);if(!$entry)throw new \RuntimeException('CATALOG_ENTRY_NOT_FOUND');
+        if ($channel==='max' && $key===AccountantPackageMax::KEY && AccountantPackageMax::matchesTemplate($entry)
+            && empty($values[AccountantPackageMax::TOKEN])) {
+            if (!$legacyDirectPackage) throw new \RuntimeException('ACCOUNTANT_PACKAGE_CONFIRMATION_REQUIRED');
+            $history=$db->prepare('SELECT format,subject,body_text FROM integration_template_history WHERE channel=? AND source_key=? AND version=?');
+            $history->execute([$channel,$key,AccountantPackageMax::LEGACY_VERSION]);
+            $legacy=$history->fetch(\PDO::FETCH_ASSOC);
+            $approved=Support::decode(file_get_contents(__DIR__.'/defaults/contract-max-templates.json'))[$key];
+            if (!$legacy || $legacy['format']!==$approved['format'] || $legacy['body_text']!==$approved['body'] || $legacy['subject']!=='') {
+                throw new \RuntimeException('CONTRACT_RELAY_TEMPLATE_CHANGED',409);
+            }
+            $entry=array_replace($entry,$legacy,['version'=>AccountantPackageMax::LEGACY_VERSION]);
+        }
         $render=self::preview($channel,$entry,$values);
         $binding=['channel'=>$channel,'source_key'=>$key,'version'=>(int)$entry['version'],'source_sha256'=>$entry['source_sha256'],'recipients_policy'=>$entry['recipients_policy'],'attachment_policy'=>$entry['attachment_policy'],'format'=>$render['format']];
         $binding['render_sha256']=hash('sha256',Support::canonical(['subject'=>$render['subject'],'body'=>$render['body'],'values'=>$values]));
@@ -90,8 +107,13 @@ final class TemplateCatalog
                 WHERE channel='max' AND source_key=?");
             $result=[];
             foreach ($entries as $key=>$entry) {
-                self::validateFormat($entry['format'],$entry['body'],self::messageVariables('max',$key));
                 $old=$current[$key];
+                if (($key===ContractSecurityMax::KEY && ContractSecurityMax::matchesTemplate($old))
+                    || ($key===AccountantPackageMax::KEY && AccountantPackageMax::matchesTemplate($old))) {
+                    $result[$key]=['changed'=>false,'version'=>(int)$old['version']];
+                    continue;
+                }
+                self::validateFormat($entry['format'],$entry['body'],self::messageVariables('max',$key));
                 $sha=$key==='staffHandoff'?hash('sha256',$staffBytes):$old['source_sha256'];
                 $changed=$old['format']!==$entry['format'] || $old['body_text']!==$entry['body'] || $old['source_sha256']!==$sha;
                 if ($apply && $changed) {
@@ -204,7 +226,13 @@ final class TemplateCatalog
         $replace=static fn(string $text): string=>preg_replace_callback('/\{([^{}]+)\}/u',static function(array $match) use($base,$escape,$format,$max): string {
             $key=$match[1];
             $value=is_scalar($base[$key] ?? null)?(string)$base[$key]:'';
-            return $max && $key==='contractObjectLines'?ContractSubmitMax::objectLines($value,$format,$escape):$escape($value);
+            if (!$max) return $escape($value);
+            return match ($key) {
+                'contractObjectLines' => ContractSubmitMax::objectLines($value,$format,$escape),
+                ContractSecurityMax::TOKEN => ContractSecurityMax::render($value,$format,$escape),
+                AccountantPackageMax::TOKEN => AccountantPackageMax::render($value,$format,$escape),
+                default => $escape($value),
+            };
         },$text);
         $body=$replace($entry['body_text']);
         if ($reservationHtml) $body=str_replace('<b></b>','',$body);
