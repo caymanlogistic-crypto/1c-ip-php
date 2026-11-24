@@ -1109,7 +1109,12 @@ final class Controller {
         ], $idle);
     }
 
-    public static function completionTarget(string $action, array $input): ?string {
+    public static function completionTarget(string $action,array $input,array $result=[]): ?string {
+        if ($action==='contract.packet' && ($result['status']??null)==='active') {
+            $actor=Auth::user();
+            return $actor && \App\PagePolicy::level('rental.contracts-active',$actor)>=1
+                ?'/rental/contracts-active':'/rental/approvals';
+        }
         if (in_array($action, ['contract.create', 'contract.edit', 'document.create', 'document.edit'], true)) {
             return ($input['intent'] ?? 'draft') === 'submit' ? '/rental/approvals' : '/rental/contracts';
         }
@@ -1203,7 +1208,7 @@ final class Controller {
             $result = Service::command($action, $in, $freshCommittedEventId,$materials);
             if (in_array($action,RentalServices::ACTIONS,true) && !empty($result['service_id'])) $target='/rental/service?id='.$result['service_id'];
             if ($action===PremisesInventory::MOVE) $target='/rental/object-inventory?id='.(int)$result['id'];
-            $completion = self::completionTarget($action, $in);
+            $completion = self::completionTarget($action,$in,$result);
             $completeInApprovals = $completion === '/rental/approvals';
             $maxNotice=self::workflowMaxNotice($freshCommittedEventId,(string)($in['command_key']??''),$action,showAccepted: !$completeInApprovals);
             if ($action === 'party.save' && empty($in['id']) && ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'ERP-Fetch') {

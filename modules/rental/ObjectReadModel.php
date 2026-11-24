@@ -2,14 +2,14 @@
 declare(strict_types=1);
 namespace Modules\Rental;
 
-use App\ContractOccupancy;
+use App\{ContractOccupancy,DB};
 
 /** One explicitly owned read snapshot, never persisted across requests or commands. */
 final class ObjectReadModel
 {
     public readonly array $objects;
     public readonly array $availability;
-    private array $leases=[],$bookings=[],$previous=[],$historical=[],$events=[],$applied=[],$documents=[],$work=[];
+    private array $leases=[],$bookings=[],$previous=[],$historical=[],$events=[],$applied=[],$documents=[],$work=[],$packages=[];
 
     public function __construct(public readonly string $today)
     {
@@ -20,6 +20,7 @@ final class ObjectReadModel
         foreach (Availability::items($today,$today) as $item) $availability[$item['id']]=$item;
         $this->availability=$availability;
         $this->work=self::pendingWork();
+        $this->packages=RecentContractPackages::byObject(DB::pdo(),$today);
         $this->leases=Occupancy::leasesOn($today);
         foreach (Controller::query('SELECT r.object_id,r.id,r.until_date,r.comment,COALESCE(NULLIF(r.client_name,\'\'),p.name) client_name '
             .'FROM reservations r LEFT JOIN parties p ON p.id=r.party_id WHERE '.Occupancy::reservationPredicate('r')
@@ -60,6 +61,7 @@ final class ObjectReadModel
     }
 
     public function work(int $id): array {return $this->work[$id] ?? [];}
+    public function package(int $id): ?array {return $this->packages[$id] ?? null;}
     public function lease(int $id): ?array {return $this->leases[$id] ?? null;}
     public function booking(int $id): ?array {return $this->bookings[$id][0] ?? null;}
     public function bookings(int $id): array {return $this->bookings[$id] ?? [];}

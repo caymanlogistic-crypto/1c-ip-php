@@ -41,8 +41,10 @@ final class LeaseRegistry
     public static function commentHtml(array $view): string
     {
         $notice=$view['expiry_comment'];
+        $recent=$view['package']??null;
         return ($notice!==''?'<div><strong class="registry-ui-error">'.View::e($notice).'</strong></div>':'')
-            .View::e($view['comment'] ?: ($notice===''?'—':''));
+            .View::e($view['comment'] ?: ($notice==='' && !$recent?'—':''))
+            .($recent?'<div><strong class="registry-ui-success">Принят на обслуживание '.RegistryState::date($recent['date']).'</strong></div>':'');
     }
 
     public static function projection(array $contract,string $role,array $tasks,bool $closed,bool $ending,array $reviews=[]): array
@@ -88,7 +90,9 @@ final class LeaseRegistry
         $items=[];
         $states=$active?"('active','reconciling')":"('ended','closed')";
         $contracts=Controller::query('SELECT c.*,p.name party_name,p.inn party_inn FROM contracts c JOIN parties p ON p.id=c.party_id WHERE c.status IN '.$states.' ORDER BY c.id DESC');
-        $addenda=$active?LeaseCalculationAddenda::byContract(DB::pdo(),$contracts,date('Y-m-d')):[];
+        $today=date('Y-m-d');
+        $addenda=$active?LeaseCalculationAddenda::byContract(DB::pdo(),$contracts,$today):[];
+        $packages=$active?RecentContractPackages::byContract(DB::pdo(),$today):[];
         foreach ($contracts as $contract) {
             if (self::section($contract)!==$page) continue;
             $closed=false;$reviews=[];
@@ -106,8 +110,9 @@ final class LeaseRegistry
                 if (OccupiedBilling::noPhysicalReturn(DB::pdo(),$contract)) $reviews['act']=$reviews['return_not_applicable']=true;
             }
             $planned=Controller::query("SELECT COUNT(*) n FROM rental_documents d WHERE d.contract_id=? AND d.kind='renewal' AND d.applied=0 AND d.status<>'cancelled' AND d.end_date>? AND (d.status IN ('sent','signed') OR EXISTS(SELECT 1 FROM reservations r WHERE r.document_id=d.id AND r.status='active'))",[$contract['id'],$contract['end_date']])[0]['n'];
-            $ending=$contract['status']==='active' && !$planned && self::expiry($contract['end_date'],date('Y-m-d'))!=='';
+            $ending=$contract['status']==='active' && !$planned && self::expiry($contract['end_date'],$today)!=='';
             $view=self::projection($contract,$user['role'],$tasks,$closed,$ending,$reviews);
+            $view['package']=$packages[$contract['id']]??null;
             $groups=[];
             foreach (Controller::query('SELECT o.type,o.name FROM contract_objects co JOIN rental_objects o ON o.id=co.object_id WHERE co.contract_id=? ORDER BY o.id',[$contract['id']]) as $object) {
                 $groups[$object['type'] ?: 'Объекты'][]=$object['name'];
@@ -131,7 +136,7 @@ final class LeaseRegistry
             ['contract'=>$contract,'view'=>$view,'objects'=>$objects,'responsible'=>$responsible,'addendum'=>$addendum]=$item;
             if (!self::selected($item,$flag)) continue;
             if ($contract['amount']!==null) {$sum=bcadd($sum,$contract['amount'],2);$known++;}
-            $rows[]=['_attrs'=>'class="'.RegistryState::rowClass($view['severity']).'" data-rental-url="/rental/contract?id='.(int)$contract['id'].'" tabindex="0"',
+            $rows[]=['_attrs'=>'class="'.RegistryState::rowClass($view['package']?'green':$view['severity']).'" data-rental-url="/rental/contract?id='.(int)$contract['id'].'" tabindex="0"',
                 View::e($contract['number']),...($active?[View::e($addendum ?: '—')]:[]),View::e($contract['party_name']),RegistryState::date($contract['start_date']),RegistryState::date($view['end']),$objects,
                 $view['closed']?'<strong class="registry-ui-success">'.View::e($view['stage']).'</strong>':View::e($view['stage']),
                 self::commentHtml($view),Controller::money($contract['amount']),View::e($responsible ?: '—')];
@@ -153,7 +158,7 @@ final class LeaseRegistry
         $controls=$active?$filterState.$reset.$typeSelect.DirectoryUi::search($query,true)
             :'<form method="get" data-rental-registry-filter>'.$filterState.DirectoryUi::search($query).$reset.'</form>';
         $body=Controller::heading($title,$active?'Действующие условия аренды, сроки и назначенные действия.':'История завершённой аренды и подтверждений расчётов.',$actions)
-            .Controller::tabs($tabs,$flag,!$active,$active?['q'=>$query,'type'=>$typeFilter]:[]).DirectoryUi::registry('rental-'.$page,
+            .($active?RentalUI::notice():'').Controller::tabs($tabs,$flag,!$active,$active?['q'=>$query,'type'=>$typeFilter]:[]).DirectoryUi::registry('rental-'.$page,
                 ['Договор',...($active?['ДС']:[]),'Контрагент','Начало','Окончание','Объекты аренды','Стадия','Комментарий','Аренда с НДС','Ответственный'],$rows,
                 ['short',...($active?['short']:[]),'flex','short','code','flex','text','flex','money','text'],$controls,
                 ' · Аренда с НДС: <b>'.Controller::money($known?$sum:($rows?null:'0.00')).'</b>',filterForm:$active);
@@ -181,7 +186,7 @@ final class LeaseRegistry
             $colors=$active && $flag==='all'?[2=>'green',3=>'blue']:['red','yellow','green','blue'];
             $counts=[0,0,0,0];
             foreach ($visible as $item) {
-                $index=array_search($item['view']['severity'],$colors,true);
+                $index=array_search(!empty($item['view']['package'])?'green':$item['view']['severity'],$colors,true);
                 if ($index!==false) $counts[$index]++;
             }
             $tabs[$flag]=[$label,count($visible),$counts];
