@@ -10,7 +10,8 @@ final class PartyDirectory
     private static function record(int $id,int $level=1): array
     {
         Access::pages(['parties'],$level);
-        return Controller::query('SELECT * FROM parties WHERE id=?',[$id])[0] ?? throw new RuntimeException('Контрагент не найден.',404);
+        return Controller::query('SELECT * FROM parties p WHERE p.id=? AND '.WorkspaceReset::visibleSql('p'),[$id])[0]
+            ?? throw new RuntimeException('Контрагент не найден.',404);
     }
 
     private static function editable(?array $party=null): bool
@@ -105,7 +106,8 @@ final class PartyDirectory
         foreach (Controller::query("SELECT p.*,b.bank,b.account,b.bik,b.correspondent_account,b.source_json bank_source,"
             ."NULLIF(JSON_UNQUOTE(JSON_EXTRACT(d.fact_json,'$.search_name')),'') search_name FROM parties p "
             ."LEFT JOIN party_bank_accounts b ON b.party_id=p.id AND b.operational=1 "
-            ."LEFT JOIN rental_facts d ON d.namespace='directory_parties' AND d.source_key=CAST(p.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AND d.operative=1 ORDER BY p.id") as $party) {
+            ."LEFT JOIN rental_facts d ON d.namespace='directory_parties' AND d.source_key=CAST(p.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AND d.operative=1 "
+            .'WHERE '.WorkspaceReset::visibleSql('p').' ORDER BY p.id') as $party) {
             $party['_origin']=PartyOrigin::read($party);
             if ($origin!=='all' && $party['_origin']['kind']!==$origin) continue;
             if (!WorkRegistry::matches($query,array_map(static fn($value)=>(string)($value ?? ''),array_merge(array_intersect_key($party,array_flip([

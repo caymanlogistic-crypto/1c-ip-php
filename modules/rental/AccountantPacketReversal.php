@@ -15,6 +15,35 @@ final class AccountantPacketReversal
 
     public static function execute(PDO $db, array $actor, array $contract, array $input): array
     {
+        self::requireLocalOperator($db);
+        $reason=DirectoryDetails::text($input,'reason',600);
+        $eventId=filter_var($input['event_id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);
+        $id=(int)$contract['id'];
+        if ($reason==='' || !$eventId || ($input['number']??null)!==$contract['number']) {
+            throw new RuntimeException('Укажите точный номер договора, событие подтверждения и причину.',422);
+        }
+        [$event,$receipt,$proof]=self::currentConfirmation($db,$contract,$eventId);
+        self::assertNoEffects($db,$id,$event);
+        LegalHandoff::assertCounterparty($db,$contract);
+        $q=$db->prepare("SELECT file_id,baseline_hash FROM rental_approvals WHERE entity_type='contract' AND entity_id=? AND role='lawyer'");
+        $q->execute([$id]);
+        $legal=$q->fetch();
+        if (!$legal || $legal['file_id']!==$proof['snapshot']['file']['id']
+            || $legal['baseline_hash']!==$proof['snapshot']['legal']['baseline_hash']
+            || $legal['baseline_hash']!==Evidence::approvalSignature($db,$id,$legal['file_id'])) {
+            throw new RuntimeException('Юридический пакет изменился после подтверждения.',409);
+        }
+
+        $db->prepare("UPDATE contracts SET status='accounting',return_to=NULL,reason=NULL,version=version+1 WHERE id=?")->execute([$id]);
+        $details=['status'=>'accounting','version'=>(int)$contract['version']+1,
+            'original_event_id'=>$eventId,'original_confirmation_id'=>$receipt['id'],'reason'=>$reason];
+        Service::event($db,$actor,self::ACTION,'Договор №'.$contract['number'].' возвращён на проверку бухгалтерии. '.$reason,$id,$details);
+        Audit::record(self::ACTION,'contract',$id,$contract,$details);
+        return ['id'=>$id,'status'=>'accounting','message'=>'Договор возвращён на проверку бухгалтерии.','version'=>$details['version']];
+    }
+
+    public static function requireLocalOperator(PDO $db): void
+    {
         Service::roles(['admin']);
         if (PHP_SAPI!=='cli' || !$db->inTransaction() || getenv('APP_STAND') || getenv('IPPHP_ALLOW_EXTERNAL')
             || getenv('IPPHP_RENTAL_MAX_POSTCOMMIT')) {
@@ -24,12 +53,11 @@ final class AccountantPacketReversal
         if ((int)$db->query("SELECT IS_USED_LOCK('ipphp-provider:max')=CONNECTION_ID()")->fetchColumn()!==1) {
             throw new RuntimeException('Требуется блокировка отправок MAX на время операции.',409);
         }
-        $reason=DirectoryDetails::text($input,'reason',600);
-        $eventId=filter_var($input['event_id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);
+    }
+
+    public static function currentConfirmation(PDO $db,array $contract,int $eventId): array
+    {
         $id=(int)$contract['id'];
-        if ($reason==='' || !$eventId || ($input['number']??null)!==$contract['number']) {
-            throw new RuntimeException('Укажите точный номер договора, событие подтверждения и причину.',422);
-        }
         if ($contract['status']!=='active' || !empty($contract['signed']) || !RegistryState::managed($contract)) {
             throw new RuntimeException('Отмена доступна только сразу после подтверждения неподписанного договора.',409);
         }
@@ -64,26 +92,10 @@ final class AccountantPacketReversal
             throw new RuntimeException('Квитанция относится к другому подтверждению.',409);
         }
 
-        self::assertNoEffects($db,$id,$event);
-        LegalHandoff::assertCounterparty($db,$contract);
-        $q=$db->prepare("SELECT file_id,baseline_hash FROM rental_approvals WHERE entity_type='contract' AND entity_id=? AND role='lawyer'");
-        $q->execute([$id]);
-        $legal=$q->fetch();
-        if (!$legal || $legal['file_id']!==$proof['snapshot']['file']['id']
-            || $legal['baseline_hash']!==$proof['snapshot']['legal']['baseline_hash']
-            || $legal['baseline_hash']!==Evidence::approvalSignature($db,$id,$legal['file_id'])) {
-            throw new RuntimeException('Юридический пакет изменился после подтверждения.',409);
-        }
-
-        $db->prepare("UPDATE contracts SET status='accounting',return_to=NULL,reason=NULL,version=version+1 WHERE id=?")->execute([$id]);
-        $details=['status'=>'accounting','version'=>(int)$contract['version']+1,
-            'original_event_id'=>$eventId,'original_confirmation_id'=>$receipt['id'],'reason'=>$reason];
-        Service::event($db,$actor,self::ACTION,'Договор №'.$contract['number'].' возвращён на проверку бухгалтерии. '.$reason,$id,$details);
-        Audit::record(self::ACTION,'contract',$id,$contract,$details);
-        return ['id'=>$id,'status'=>'accounting','message'=>'Договор возвращён на проверку бухгалтерии.','version'=>$details['version']];
+        return [$event,$receipt,$proof];
     }
 
-    private static function assertNoEffects(PDO $db,int $id,array $event): void
+    public static function assertNoEffects(PDO $db,int $id,array $event,bool $allowFinalMax=false): void
     {
         $queries=[
             'SELECT 1 FROM invoices WHERE contract_id=? LIMIT 1',
@@ -103,7 +115,8 @@ final class AccountantPacketReversal
         if (InitialInvoice::receipt($db,$id) || OnecRequest::read($db,$id)) {
             throw new RuntimeException('По договору есть связанные операции со счетами или 1С. Требуется сверка.',409);
         }
-        $q=$db->prepare("SELECT 1 FROM messaging_attempts WHERE provider='max' AND request_key IN (?,?,?) LIMIT 1");
+        $q=$db->prepare("SELECT 1 FROM messaging_attempts WHERE provider='max' AND request_key IN (?,?,?)"
+            .($allowFinalMax?" AND status NOT IN ('accepted','failed')":"").' LIMIT 1');
         $q->execute([WorkflowMaxEvent::requestKey($event),ServerWorkflowMax::requestKey($event),
             ServerWorkflowMax::requestKey($event,true)]);
         if ($q->fetchColumn()) throw new RuntimeException('По подтверждению уже есть попытка отправки MAX. Требуется сверка.',409);

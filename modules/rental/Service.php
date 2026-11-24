@@ -63,10 +63,10 @@ final class Service {
     private const BLOCK_PROJECT_STATUSES=['draft','legal','accounting','returned','approved','sent'];
 
     public static function blockedPartyForNew(PDO $p,array $party):bool {
-        if(!empty($party['blocked']))return true;
+        if(!empty($party['blocked']) || WorkspaceReset::hidden($party))return true;
         $inn=preg_replace('/\D/','',(string)($party['inn']??''));
         if($inn==='')return false; // Empty identities never merge unrelated counterparties.
-        $q=$p->prepare('SELECT id,inn FROM parties WHERE blocked=1 ORDER BY id FOR UPDATE');$q->execute();
+        $q=$p->prepare('SELECT id,inn FROM parties p WHERE blocked=1 AND '.WorkspaceReset::visibleSql('p').' ORDER BY id FOR UPDATE');$q->execute();
         foreach($q->fetchAll(PDO::FETCH_ASSOC) as $blocked)
             if(preg_replace('/\D/','',(string)($blocked['inn']??''))===$inn)return true;
         return false;
@@ -307,6 +307,7 @@ final class Service {
         if ($action === DebtFollowUp::SAVE) return DebtFollowUp::write($p,$u,$in);
         if (in_array($action,RentalServices::ACTIONS,true)) return RentalServices::execute($p,$action,$in);
         if(in_array($action,['workspace.reset','workspace.undo','workspace.remove-test-object'],true))return WorkspaceReset::execute($p,$u,$action,$in);
+        if ($action===LocalTestCycleReset::ACTION) return LocalTestCycleReset::execute($p,$u,$in);
         if ($action===TermEndCorrection::ACTION) return TermEndCorrection::execute($p,$u,$in);
         if ($action===ArchivedRentCorrection::ACTION) return ArchivedRentCorrection::execute($p,$u,$in);
         if ($action===SavedReceipt408::ACTION) return SavedReceipt408::execute($p,$u,$in);
@@ -813,6 +814,7 @@ final class Service {
                 'accountant'
             ]);
             $party = self::get($p, 'parties', (int)$in['party_id']);
+            if (WorkspaceReset::hidden($party))throw new RuntimeException('Контрагент не найден.',404);
             $a = self::money($in['amount']);
             $date = self::date($in['payment_date']);
             $id = \App\BusinessIds::next($p,'payments',9000000,false);
@@ -846,6 +848,7 @@ final class Service {
                 'director'
             ]);
             $x = self::get($p, 'parties', $id);
+            if (WorkspaceReset::hidden($x))throw new RuntimeException('Контрагент не найден.',404);
             self::version($x, $in);
             $reason = trim($in['reason'] ?? '');
             if (!$reason)throw new RuntimeException('Укажите причину.');

@@ -207,7 +207,7 @@ final class ArchivedRentRestoration
         $name=trim((string)($source['Description'] ?? ''));
         if (($source['Ref_Key'] ?? '')!==$ref || ($source['DeletionMark'] ?? true)!==false || !preg_match('/^\d{10}$/D',$inn) || $name==='')
             throw new RuntimeException('Юрлицо 1С не подтверждено.',409);
-        $query=$db->prepare('SELECT id,name,kpp,blocked,source_json FROM parties WHERE inn=? FOR UPDATE');
+        $query=$db->prepare('SELECT id,name,kpp,blocked,source_json FROM parties p WHERE inn=? AND '.WorkspaceReset::visibleSql('p').' FOR UPDATE');
         $query->execute([$inn]);
         $existing=$query->fetchAll();
         $proof=['source_party_guid'=>$ref,'source_sha256'=>$archive['raw_sha256']];
