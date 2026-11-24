@@ -73,7 +73,6 @@ final class AddendumController {
             $quote['basis_label'] = Documents::dateText($quote['basis']);
             foreach ($quote['rates'] as &$rate) {
                 $rate['display_base'] = Controller::money($rate['base']);
-                $rate['display_amount'] = Controller::money($rate['amount']);
             }
             unset($rate);
             Http::json($quote);
@@ -132,8 +131,13 @@ final class AddendumController {
         $previewStart=$start ?: date('Y-m-d');$previewEnd=$end ?: $previewStart;
         if ($previewEnd<$previewStart)$previewEnd=$previewStart;
         $party=Controller::query('SELECT name FROM parties WHERE id=?',[$c['party_id']])[0]['name'];
+        $number=$d['number'] ?? AddendumNumber::forNew(DB::pdo(),$c);
+        $numberLabel=AddendumNumber::token($number);
+        $baseLabel='к договору №'.$c['number'].($c['document_date']?' от '.Documents::dateText($c['document_date']):'');
+        $title=($numberLabel!==''?'ДС №'.$numberLabel:'Допсоглашение').' '.$baseLabel;
         $form = 'rental-addendum-form';
         $body = '<form id="'.$form.'" class="registry-ui-modal-grid" data-rental-contract-form data-rental-addendum-form'
+            .' data-rental-addendum-base="'.View::e($baseLabel).'"'
             .' data-rental-period-start="'.View::e($start).'" data-rental-period-end="'.View::e($end).'"'
             .(!$fixed?' data-rental-availability-url="/rental/availability?mode=contract&amp;contract_id='.$cid.'"':'')
             .($indexed?' data-rental-indexation-url="/rental/addendum-indexation?contract_id='.$cid.'" data-indexation-ready="'.($quote?'true':'false').'"':'')
@@ -147,11 +151,10 @@ final class AddendumController {
             .($selection['scope']!==''?'<input type="hidden" name="object_scope" value="'.$selection['scope'].'">':'')
             .($indexed?'<input type="hidden" name="indexation" value="1">':'')
             .($continuation?ExpiryContinuation::fields($continuation).ExpiryContinuation::editorNote($continuation):'')
-            .'<span class="registry-ui-modal-help">'.View::e('К договору №'.$c['number'].' от '.Documents::dateText($c['document_date']).' · '.$party).'</span>'
             .Controller::input('base_party','Контрагент',$party,'text',false);
         $body=str_replace('name="base_party"','name="base_party" readonly aria-readonly="true"',$body);
         $body.='<div class="registry-ui-modal-grid registry-ui-modal-grid--reading">'
-            .Controller::input('number','Номер допсоглашения',$d['number'] ?? '','text',true)
+            .Controller::input('number','Номер допсоглашения',$number,'text',true)
             .Controller::input('document_date','Дата допсоглашения',$d['document_date'] ?? date('Y-m-d'),'date',true)
             .Controller::input('start_date','Начало аренды',$start,'date',true)
             .Controller::input('end_date','Окончание аренды',$end,'date',true)
@@ -181,7 +184,7 @@ final class AddendumController {
         . '<button class="btn btn-primary" type="submit" form="'
         . $form
         . '" name="intent" value="submit">Отправить на согласование</button>';
-        return RentalUI::modal($d?'Изменить допсоглашение':'Допсоглашение', $body, $actions, 'contracts-active', true);
+        return RentalUI::modal($title, $body, $actions, 'contracts-active', true);
     }
     public static function card():string {
         Auth::requirePermission('rental.read');

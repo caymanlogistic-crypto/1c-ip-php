@@ -16,7 +16,8 @@ try {
  Modules\Rental\Occupancy::insert($p,'contract_objects',['contract_id'=>$cid,'object_id'=>$oid]);
  $p->prepare("INSERT INTO contract_terms(contract_id,object_id,start_date,end_date,amount,source_json) VALUES(?,?,?,?,'123.45','{}')")->execute([$cid,$oid,$from,$until]);
  $before=Service::get($p,'contracts',$cid);$_GET=['contract_id'=>$cid,'object_scope'=>'change'];$html=AddendumController::editor();
- verify(str_contains($html,'К договору №'.$before['number']),'Missing base contract context');
+ verify(str_contains($html,'ДС №1 к договору №'.$before['number'].' от '.date('d.m.Y')),'Missing base contract context and suggested number in heading');
+ verify(!str_contains($html,'К договору №'.$before['number'].' от '.date('d.m.Y').' · '),'Duplicate base contract context');
  $doc=new DOMDocument();@$doc->loadHTML('<?xml encoding="UTF-8">'.$html);$xpath=new DOMXPath($doc);$pairs=[];
  foreach($xpath->query('//form[@id="rental-addendum-form"]//input[@name][not(ancestor::template)]') as $input)$pairs[]=urlencode($input->getAttribute('name')).'='.urlencode($input->getAttribute('value'));
  parse_str(implode('&',$pairs),$in);unset($in['_csrf'],$in['object_scope']);$in['number']='LOCAL-'.bin2hex(random_bytes(6));$in['intent']='draft';

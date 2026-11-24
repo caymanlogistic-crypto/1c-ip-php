@@ -572,7 +572,6 @@
       for(const row of form.querySelectorAll('[data-rental-term-id]')){
         const rate=quote.rates[row.dataset.rentalTermId];
         row.querySelector('[data-rental-indexation-base]').textContent=rate.display_base;
-        row.querySelector('[data-rental-indexation-amount]').textContent=rate.display_amount;
         row.querySelector('[data-unit-price]').value=rate.amount;
       }
       total(form);
@@ -582,7 +581,6 @@
       if(controller.signal.aborted||!form.isConnected)return;
       for(const row of form.querySelectorAll('[data-rental-term-id]')){
         row.querySelector('[data-rental-indexation-base]').textContent='—';
-        row.querySelector('[data-rental-indexation-amount]').textContent='—';
         row.querySelector('[data-unit-price]').value='';
       }
       total(form);
@@ -591,6 +589,11 @@
     }
   }
   document.addEventListener('input',event=>{
+    if(event.target.name==='number' && event.target.form?.hasAttribute('data-rental-addendum-base')){
+      const number=event.target.value.trim().replace(/^(?:ДС(?=\s|№|\d)\s*)?№?\s*/iu,'');
+      const title=event.target.closest('dialog')?.querySelector('.modal-head > .modal-title');
+      if(title)title.textContent=(number?'ДС №'+number:'Допсоглашение')+' '+event.target.form.dataset.rentalAddendumBase;
+    }
     if(event.target.name==='index_percent'){
       const form=event.target.closest('[data-rental-indexation-url]');
       if(form)refreshIndexation(form);
