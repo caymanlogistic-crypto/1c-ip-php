@@ -99,6 +99,16 @@
     });
     if(autopen&&fallback)location.assign(localURL(fallback));
   }
+  function showRentalNotices(dialog){
+    if(!window.PlanexNotifications)return;
+    for(const notice of dialog.querySelectorAll('[data-rental-transient-notice]')){
+      const text=notice.querySelector('.alert-body-title').textContent;
+      const detail=notice.querySelector('.alert-body-sub')?.textContent;
+      window.PlanexNotifications.show({tone:notice.dataset.rentalTransientNotice,
+        title:detail?text:undefined,message:detail||text,scope:notice});
+      notice.hidden=true;
+    }
+  }
   function mountRental(dialog,opener,preserveParent=false){
     if(activeRental){
       if(preserveParent){
@@ -126,6 +136,7 @@
       closeRental(dialog);
     });
     dialog.showModal();
+    showRentalNotices(dialog);
     window.PlanexInterfaceDesign?.mount(dialog);
     window.RentalPickers?.enhance(dialog);
     window.RentalPartyUI?.enhance(dialog);

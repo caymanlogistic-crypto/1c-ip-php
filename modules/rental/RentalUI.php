@@ -17,9 +17,11 @@ final class RentalUI
         return '<button type="button" class="btn '.($danger?'btn-danger':($primary?'btn-primary':'btn-secondary')).'" data-rental-open="'.View::e($url).'">'.View::e($label).'</button>';
     }
 
-    public static function alert(string $title,string $sub='',string $tone='info',bool $filled=false): string
+    public static function alert(string $title,string $sub='',string $tone='info',bool $filled=false,bool $transient=false): string
     {
-        return '<div class="form-alert alert-'.$tone.($filled?' form-alert--filled':'').'" role="'.($tone==='error'?'alert':'status').'"><span class="alert-mark" aria-hidden="true">'.($tone==='error'?'×':($tone==='warning'?'!':'i')).'</span><div class="alert-body"><div class="alert-body-title">'.View::e($title).'</div>'.($sub?'<div class="alert-body-sub">'.View::e($sub).'</div>':'').'</div></div>';
+        return '<div class="form-alert alert-'.$tone.($filled?' form-alert--filled':'').'" role="'.($tone==='error'?'alert':'status').'"'
+            .($transient?' data-rental-transient-notice="'.($tone==='error'?'danger':$tone).'"':'')
+            .'><span class="alert-mark" aria-hidden="true">'.($tone==='error'?'×':($tone==='warning'?'!':'i')).'</span><div class="alert-body"><div class="alert-body-title">'.View::e($title).'</div>'.($sub?'<div class="alert-body-sub">'.View::e($sub).'</div>':'').'</div></div>';
     }
 
     public static function notice(): string
@@ -27,7 +29,7 @@ final class RentalUI
         if (!isset($_SESSION['rental_notice'])) return '';
         $message=(string)$_SESSION['rental_notice'];
         unset($_SESSION['rental_notice']);
-        return self::alert($message);
+        return self::alert($message,transient:true);
     }
 
     public static function reviewTermsTable(array $terms,?string $total): string

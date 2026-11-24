@@ -200,10 +200,7 @@ final class AddendumController {
         $body = '';
         $delivery=Delivery::presentation(\App\DB::pdo(),'document',$id);
         if ($delivery && $delivery['message']!=='') $body.=RentalUI::alert('Документы и доставка',$delivery['message'],$delivery['error']?'error':'info');
-        if (isset($_SESSION['rental_notice'])) {
-            $body.=RentalUI::alert($_SESSION['rental_notice']);
-            unset($_SESSION['rental_notice']);
-        }
+        $body.=RentalUI::notice();
         $body.=RentalUI::alert($d['status'] === 'cancelled'?'Проект аннулирован':($d['status'] === 'returned'?'Возврат на доработку':($d['status'] === 'signed'?'Соглашение подписано':'Согласование допсоглашения')), $d['reason']?:($d['status'] === 'draft'?'Черновик допсоглашения. Согласование ещё не начато.':'Текущий исполнитель: '
         . $target), in_array($d['status'], [
             'returned',

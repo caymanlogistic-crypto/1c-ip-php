@@ -67,7 +67,7 @@ final class AccountantReviewCard
         $delivery=$approved?Delivery::presentation($db,'contract',$id):null;
         $canOpenDelivery=$canWrite && $approved && !$needsConfirmation
             && (($view['state']??null)==='confirmed' || $delivery!==null);
-        $notice=RentalUI::notice().($confirmation['notice']??($previous===null?'':RentalUI::alert(self::CHANGED_MESSAGE,'','warning')));
+        $notice=RentalUI::notice().($confirmation['notice']??($previous===null?'':RentalUI::alert(self::CHANGED_MESSAGE,'','warning',transient:true)));
         if ($delivery && $delivery['message']!=='') {
             $notice.=RentalUI::alert('Документы и доставка',$delivery['message'],$delivery['error']?'error':'info');
         }

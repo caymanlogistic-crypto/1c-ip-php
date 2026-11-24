@@ -97,10 +97,7 @@ final class SourceCards {
         $delivery=Delivery::presentation(\App\DB::pdo(),'contract',$id);
         if ($delivery && $delivery['message']!=='') $body.=RentalUI::alert('Документы и доставка',$delivery['message'],$delivery['error']?'error':'info');
         $actions = '';
-        if (isset($_SESSION['rental_notice'])) {
-            $body.=RentalUI::alert($_SESSION['rental_notice']);
-            unset($_SESSION['rental_notice']);
-        }
+        $body.=RentalUI::notice();
         if ($c['status'] === 'returned')$body.=RentalUI::alert(Controller::status($c['status']), $c['reason'] ?? '', 'error');
         $actState = null;
         $reviewStates=[];

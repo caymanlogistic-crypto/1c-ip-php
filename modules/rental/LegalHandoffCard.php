@@ -29,7 +29,7 @@ final class LegalHandoffCard
             .self::documents($contract,$files,$ready).'</div>';
         $formId='legal-handoff';
         $canTransfer=$ready && $files && $multiple!==null;
-        $body.='<form id="'.$formId.'" method="post" action="/rental/action">'
+        $body.='<form id="'.$formId.'" method="post" action="/rental/action" data-form-error-notification>'
             .self::fields($contract,'contract.legal')
             .PremisesActsCard::hidden('security_multiple',$multiple??'')
             .PremisesActsCard::hidden('packet_fingerprint',LegalHandoff::fingerprint($files)).'</form>';
@@ -106,7 +106,7 @@ final class LegalHandoffCard
     private static function securityMultiple(array $contract,?int $multiple): string
     {
         $issued=InitialInvoice::issuedSecurityMultiple(DB::pdo(),(int)$contract['id']);
-        $form='<form id="legal-security-multiple" class="registry-ui-form-section" method="post" action="/rental/action">'
+        $form='<form id="legal-security-multiple" class="registry-ui-form-section" method="post" action="/rental/action" data-form-error-notification>'
             .self::fields($contract,LegalHandoff::SECURITY_MULTIPLE)
             .'<div class="registry-ui-form-row"><div class="registry-ui-modal-address-row registry-ui-modal-address-row--code">'
             .'<input class="field-input" type="number" name="multiple" min="0" step="1" value="'.($multiple??$issued??1)
@@ -121,7 +121,7 @@ final class LegalHandoffCard
     {
         $id=(int)$contract['id'];
         if ($ready) {
-            $body='<form class="registry-ui-form-section" method="post" action="/rental/action" enctype="multipart/form-data">'
+            $body='<form class="registry-ui-form-section" method="post" action="/rental/action" enctype="multipart/form-data" data-form-error-notification>'
                 .self::fields($contract,LegalHandoff::UPLOAD)
                 .'<label class="file-dropzone registry-ui-review-upload" data-file-dropzone>'
                 .'<span class="dz-title">Перетащите сюда итоговые файлы</span>'
@@ -130,7 +130,7 @@ final class LegalHandoffCard
                 .'<input type="file" name="legal_files[]" accept=".doc,.docx,.pdf,.zip" aria-label="Выбрать итоговые файлы"'
                 .' aria-describedby="legal-files-help" multiple required data-rental-upload-on-select></label></form>'
                 .($files?self::fileList($files,$contract):'');
-            $body.='<div class="demo-row"><form method="post" action="/rental/word-zip">'
+            $body.='<div class="demo-row"><form method="post" action="/rental/word-zip" data-form-error-notification>'
                 .PremisesActsCard::hidden('_csrf',\App\Http::csrf())
                 .PremisesActsCard::hidden('id',$id)
                 .PremisesActsCard::hidden('version',(int)$contract['version'])
@@ -165,7 +165,7 @@ final class LegalHandoffCard
 
     private static function confirm(array $contract,string $action,string $label,bool $disabled,string $extra=''): string
     {
-        return '<form method="post" action="/rental/action">'
+        return '<form method="post" action="/rental/action" data-form-error-notification>'
             .self::fields($contract,$action).$extra
             .'<button class="btn btn-success-solid" type="submit"'.($disabled?' disabled':'').'>'.View::e($label).'</button></form>';
     }
@@ -175,7 +175,7 @@ final class LegalHandoffCard
         $list='<ul class="registry-ui-form-section registry-ui-review-files">';
         foreach ($files as $file) {
             $list.='<li><a href="/rental/download?id='.View::e($file['id']).'">'.View::e($file['filename']).'</a>';
-            if ($draft) $list.='<form method="post" action="/rental/action">'.self::fields($draft,LegalHandoff::REMOVE)
+            if ($draft) $list.='<form method="post" action="/rental/action" data-form-error-notification>'.self::fields($draft,LegalHandoff::REMOVE)
                 .PremisesActsCard::hidden('file_id',$file['id'])
                 .'<button type="submit" class="btn btn-secondary" aria-label="Убрать '.View::e($file['filename']).'">Убрать</button></form>';
             $list.='</li>';

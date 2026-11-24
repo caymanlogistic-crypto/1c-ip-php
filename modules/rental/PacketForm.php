@@ -50,7 +50,7 @@ final class PacketForm
         $hidden .= '<input type="hidden" name="expected_packet_hash" value="'
             .View::e($packet['expected_packet_hash']).'">'
             .'<input type="hidden" name="packet_confirmed" value="1">';
-        $notice = $previous === null ? '' : RentalUI::alert($changedMessage, implode(' · ', $changed), 'warning');
+        $notice = $previous === null ? '' : RentalUI::alert($changedMessage, implode(' · ', $changed), 'warning',transient:true);
         return ['fields'=>$hidden,'notice'=>$notice];
     }
 

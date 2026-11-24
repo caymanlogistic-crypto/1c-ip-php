@@ -31,7 +31,7 @@
   const securityState=reviewTerms.querySelector('[data-demo-security-state]');
   const transfer=reviewTerms.querySelector('[data-demo-legal-transfer]');
   const saveSecurity=securityForm.querySelector('button[type="submit"]');
-  let confirmedMultiple=null;
+  let confirmedMultiple=null, fileMultiple='1';
   securityForm.addEventListener('input',()=>{
     const field=securityForm.elements.multiple;
     const matches=field.value===confirmedMultiple;
@@ -45,9 +45,19 @@
     securityState.setAttribute('data-complete','');
     saveSecurity.disabled=true;
     transfer.disabled=false;
+    window.PlanexNotifications?.show({tone:'info',message:'Кратность обеспечения согласована.',scope:reviewTerms});
+  });
+  transfer.addEventListener('click',()=>{
+    if(fileMultiple===confirmedMultiple){
+      reviewTerms.close();
+      return;
+    }
+    window.PlanexNotifications?.show({tone:'danger',scope:reviewTerms,
+      message:'Кратность обеспечения изменилась. Сформируйте договор заново и замените прежний файл в комплекте.'});
   });
   const reviewStatus=reviewTerms.querySelector('[data-demo-review-files-status]');
   reviewTerms.querySelector('[data-demo-review-files]').addEventListener('change',event=>{
+    if(event.target.files.length)fileMultiple=confirmedMultiple;
     reviewStatus.textContent=[...event.target.files].map(file=>file.name).join(', ');
   });
   reviewTerms.querySelectorAll('[data-demo-review-zip]').forEach(link=>link.addEventListener('click',event=>{
