@@ -38,7 +38,8 @@ final class MaxTemplateAdmin
                 default=>$deadline,
             };
         }
-        return [
+        $contract=$key===ContractSecurityMax::KEY ? [ContractSecurityMax::TOKEN=>'Строка об изменении кратности обеспечения'] : [];
+        return $contract+[
             'text'=>'Текст события', 'number'=>'Номер договора', 'party'=>'Контрагент',
             'lawyer'=>'Юрист', 'manager'=>'Менеджер', 'accountant'=>'Бухгалтер',
             'director'=>'Директор', 'admin'=>'Администратор', 'version'=>'Версия документа',
@@ -65,6 +66,10 @@ final class MaxTemplateAdmin
             ]),
         ];
         if ($key==='submit') return $contractSample;
+        if ($key===ContractSecurityMax::KEY) {
+            return ['party'=>'ООО «Учебный клиент»',
+                ContractSecurityMax::TOKEN=>Support::json(['previous'=>1,'current'=>2,'amount'=>'40000.00'])]+$contractSample;
+        }
         if (array_key_exists($key,TemplateCatalog::RESERVATION_VARS)) {
             return [
                 'number'=>'173','context'=>'2.2','party'=>'ООО «Пример»','reservationStart'=>'23.11.2026',

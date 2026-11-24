@@ -100,10 +100,13 @@ final class ContractWorkflowRelay
             || !self::actorAllowed($plan['kind'],$event['actor_role'])) {
             throw new RuntimeException('CONTRACT_RELAY_ACTOR_CHANGED');
         }
-        self::assertApproved($this->db,$plan['kind'],$version);
+        $includesSecurityChange=self::assertApproved($this->db,$plan['kind'],$version);
         $proof=(new CurrentContractMaxProof($this->db))->relayProof($id,$version);
         if ($proof['event']!==$event) throw new RuntimeException('CONTRACT_RELAY_EVENT_CHANGED',409);
         $plan['values']=array_intersect_key($proof['catalog']['values'],array_flip(self::fields($plan['kind'])));
+        if ($includesSecurityChange && isset($proof['catalog']['values'][ContractSecurityMax::TOKEN])) {
+            $plan['values'][ContractSecurityMax::TOKEN]=$proof['catalog']['values'][ContractSecurityMax::TOKEN];
+        }
         self::validatePlan($plan,$scope,time());
         return $plan;
     }
@@ -219,6 +222,9 @@ final class ContractWorkflowRelay
         }:[];
         if (!in_array($plan['action'],$actions,true) || !is_array($plan['values'])) throw new RuntimeException('CONTRACT_RELAY_PAYLOAD',400);
         $keys=array_flip(self::fields($kind));
+        $securityChange=$kind===ContractSecurityMax::KEY && $plan['version']>=ContractSecurityMax::VERSION
+            && array_key_exists(ContractSecurityMax::TOKEN,$plan['values']);
+        if ($securityChange) $keys[ContractSecurityMax::TOKEN]=true;
         if (array_diff_key($keys,$plan['values']) || array_diff_key($plan['values'],$keys)) {
             throw new RuntimeException('CONTRACT_RELAY_VALUES',400);
         }
@@ -226,6 +232,13 @@ final class ContractWorkflowRelay
             $limit=$key==='contractObjectLines'?10000:2400;
             if (!is_string($value) || strlen($value)>$limit || str_contains($value,"\0"))
                 throw new RuntimeException('CONTRACT_RELAY_VALUES',400);
+        }
+        if ($securityChange) {
+            try {
+                ContractSecurityMax::parse($plan['values'][ContractSecurityMax::TOKEN]);
+            } catch (RuntimeException $error) {
+                throw new RuntimeException('CONTRACT_RELAY_VALUES',400,$error);
+            }
         }
         if ($kind==='firstInvoice' && !preg_match('~^(?:https://ui[.]89[.]208[.]213[.]14[.]sslip[.]io|http://127[.]0[.]0[.]1:[0-9]{4,5})/rental/contract[?]id='
             .$plan['contract_id'].'$~D',$plan['values']['recordUrl'])) {
@@ -246,7 +259,8 @@ final class ContractWorkflowRelay
         if (!self::allowed($plan,$scope,$now)) throw new RuntimeException('CONTRACT_RELAY_EVENT_SCOPE',409);
     }
 
-    public static function assertApproved(PDO $db,string $kind,int $version): void
+    /** Returns whether the admitted, exact template uses the optional security-change field. */
+    public static function assertApproved(PDO $db,string $kind,int $version): bool
     {
         $approved=$kind==='firstInvoice'
             ?Support::decode(file_get_contents(__DIR__.'/defaults/first-invoice-max.json'))
@@ -254,9 +268,12 @@ final class ContractWorkflowRelay
         $q=$db->prepare("SELECT version,format,body_text FROM integration_template_catalog WHERE channel='max' AND source_key=?");
         $q->execute([$kind]);
         $row=$q->fetch();
-        if (!$row || (int)$row['version']!==$version || $row['format']!==$approved['format'] || $row['body_text']!==$approved['body']) {
+        if (!$row || (int)$row['version']!==$version) {
             throw new RuntimeException('CONTRACT_RELAY_TEMPLATE_CHANGED',409);
         }
+        if ($row['format']===$approved['format'] && $row['body_text']===$approved['body']) return false;
+        if ($kind===ContractSecurityMax::KEY && ContractSecurityMax::matchesTemplate($row)) return true;
+        throw new RuntimeException('CONTRACT_RELAY_TEMPLATE_CHANGED',409);
     }
 
     public function assertHttpRequest(string $method,string $url,?string $body): void

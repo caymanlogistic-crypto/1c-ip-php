@@ -237,6 +237,10 @@ final class WorkflowMaxEvent
             'version'=>(string)$event['entity_version'],'reason'=>$event['reason'],
             'documentNumber'=>$event['record_number'],'documentLabel'=>$party?'Контрагент '.$event['party_name']:($event['entity_kind']==='document'?'Документ':'Договор').' №'.$event['record_number'],
             'context'=>$party?'Контрагент '.$event['party_name']:'Договор №'.$event['contract_number'].' · '.$event['party_name'],'recipientNames'=>$event['target_role']===null?'':$people[$event['target_role']]]);
+        if ($key===ContractSecurityMax::KEY) {
+            $change=ContractSecurityMax::value($event);
+            if ($change!=='') $values[ContractSecurityMax::TOKEN]=$change;
+        }
         $render=TemplateCatalog::renderEvent($this->db,'max',$key,$values);
         if($render['binding']['version']!==$catalogVersion)throw new RuntimeException('RENTAL_MAX_CATALOG_REVISION_CHANGED');
         // Word/manual mode cannot silently tell a user to run the deferred automatic PDF step.

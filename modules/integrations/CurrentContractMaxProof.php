@@ -140,6 +140,10 @@ final class CurrentContractMaxProof
             $lease=$event['entity_kind']==='contract'?$owner:Service::get($this->db,'contracts',$event['contract_id']);
             $values+=ContractSubmitMax::values($this->db,$lease,$key==='submit')+['party'=>$event['party_name']];
         }
+        if ($key===ContractSecurityMax::KEY) {
+            $change=ContractSecurityMax::value($event);
+            if ($change!=='') $values[ContractSecurityMax::TOKEN]=$change;
+        }
         if ($key==='firstInvoice') {
             $receipt=InitialInvoice::receipt($this->db,(int)$event['contract_id']);
             if (($receipt['command_key']??null)!==$event['command_key'] || $receipt['invoice_ids']!==$event['invoice_ids']) {

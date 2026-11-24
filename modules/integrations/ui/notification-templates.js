@@ -3,7 +3,7 @@
  'use strict';
  const formats=Object.freeze(['plain','markdown','html']);
  const people={manager:'Раиса Шилова',lawyer:'Наиль Еналиев',accountant:'Наталия Демидова',director:'Андрей Яковлев',admin:'Владимир',actor:'Система'};
- const placeholders=Object.freeze(['text','number','party','lawyer','manager','accountant','director','admin','version','reason','invoiceNumbers','recipientNames','actor','documentNumber','effective','context','documentLabel','invoiceSummary','effectiveSummary','managerEmail','reservationStart','reservationCommentLine','reservationCommentPrefix','reservationComment','reservationTypeLabel','reservationAreaLabel','previousDeadline','contractSubmitTitle','contractStart','contractEnd','contractObjectLines','contractSubmitAction']);
+ const placeholders=Object.freeze(['text','number','party','lawyer','manager','accountant','director','admin','version','reason','invoiceNumbers','recipientNames','actor','documentNumber','effective','context','documentLabel','invoiceSummary','effectiveSummary','managerEmail','reservationStart','reservationCommentLine','reservationCommentPrefix','reservationComment','reservationTypeLabel','reservationAreaLabel','previousDeadline','contractSubmitTitle','contractStart','contractEnd','contractObjectLines','contractSubmitAction','contractSecurityMultipleChange']);
  const tokenSet=new Set(placeholders),formatOf=v=>v===null||v===undefined||v===''?'plain':String(v);
  const max=(id,name,trigger,title,action,body='{text}')=>Object.freeze({id,name,trigger,format:'markdown',body:title+'\n{context}\n\n'+body+'\n\n'+action});
  const maxDefinitions=Object.freeze([
@@ -107,6 +107,15 @@
     const bold=format==='html'?['<b>','</b>']:format==='markdown'?['**','**']:['',''];
     return JSON.parse(v[key]||'[]').map(item=>'Объект: '+bold[0]+escape(item.name)+bold[1]+' ('+escape(item.type)+')'
      +(item.area!==''?' — '+escape(item.area)+' м²':'')).join('\n');
+   }
+   if(key==='contractSecurityMultipleChange'){
+    if(!v[key])return '';
+    const change=JSON.parse(v[key]),marks=format==='html'?['<b>','</b>']:format==='markdown'?['**','**']:['',''];
+    const bold=value=>marks[0]+escape(value)+marks[1];
+    const [rubles,kopecks]=change.amount.split('.');
+    const payment=change.current===0?'Обеспечительный платёж не предусмотрен.'
+     :'Обеспечительный платёж с НДС — '+bold(rubles.replace(/\B(?=(\d{3})+(?!\d))/g,' ')+','+kopecks+' ₽')+'.';
+    return 'Кратность обеспечения изменена с '+bold(change.previous)+' до '+bold(change.current)+'. '+payment+'\n';
    }
    return escape(identifiers.has(key)?v[key]:formatMaxDates(v[key]));
   });

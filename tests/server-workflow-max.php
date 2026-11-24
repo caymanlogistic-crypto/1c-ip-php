@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
-use Modules\Integrations\{CurrentContractMaxProof,ServerWorkflowMax,Support,TemplateCatalog,WorkflowMaxNames};
+use Modules\Integrations\{ContractSecurityMax,ContractWorkflowRelay,CurrentContractMaxProof,ServerWorkflowMax,Support,TemplateCatalog,WorkflowMaxNames};
 $event=['project_id'=>Modules\Rental\WorkflowEvents::PROJECT,'epoch'=>'current-server-epoch','event_id'=>1094,'entity_kind'=>'contract','event_kind'=>'legalApprove','action'=>'contract.legal','to_status'=>'accounting'];
 if(Modules\Integrations\CurrentContractMaxProof::select($event)!=='legalApprove')throw new RuntimeException('Current server epoch rejected');
 $denied=false;try{Modules\Integrations\WorkflowMaxEvent::select($event);}catch(RuntimeException){$denied=true;}if(!$denied)throw new RuntimeException('Legacy rollout guard changed');
@@ -60,6 +60,58 @@ $staff=CurrentContractMaxProof::staffValues([
 if ($staff['actor']!=='Юрист' || $staff['recipientNames']!=='Бухгалтер, Раиса Шилова'
     || WorkflowMaxNames::display(3,'Core Copy Industries','manager')!=='Core Copy Industries')
     throw new RuntimeException('Staff handoff should replace test identities with their role labels');
+$key=ContractSecurityMax::KEY;
+$legacy=['source_key'=>$key,'format'=>$entries[$key]['format'],'body_text'=>$entries[$key]['body']];
+$entry=array_replace($legacy,['body_text'=>ContractSecurityMax::template()['body']]);
+$values=Modules\Integrations\MaxTemplateAdmin::sampleValues($legacy);
+unset($values[ContractSecurityMax::TOKEN]);
+$unchanged=TemplateCatalog::preview('max',$entry,$values)['body'];
+if ($unchanged!==TemplateCatalog::preview('max',$legacy,$values)['body']) {
+    throw new RuntimeException('A legal approval without a multiplier change must keep the old message');
+}
+$change=['entity_kind'=>'contract','event_kind'=>$key,'security_multiple_change'=>['amount'=>'40000.00','current'=>2,'previous'=>1]];
+$values[ContractSecurityMax::TOKEN]=ContractSecurityMax::value($change);
+$changed=TemplateCatalog::preview('max',$entry,$values)['body'];
+if (!str_contains($changed,"по <b>06.12.2026</b>\nКратность обеспечения изменена с <b>1</b> до <b>2</b>. Обеспечительный платёж с НДС — <b>40 000,00 ₽</b>.\nКонтрагент")) {
+    throw new RuntimeException('The security change should appear with bold values immediately after the dates');
+}
+$change['security_multiple_change']=['previous'=>2,'current'=>0,'amount'=>'0.00'];
+$values[ContractSecurityMax::TOKEN]=ContractSecurityMax::value($change);
+$zero=TemplateCatalog::preview('max',$entry,$values)['body'];
+if (!str_contains($zero,'с <b>2</b> до <b>0</b>. Обеспечительный платёж не предусмотрен.') || str_contains($zero,'₽')) {
+    throw new RuntimeException('Zero multiplier must state that no security payment is required');
+}
+$now=time();
+$scope=['key'=>str_repeat('a',64),'source'=>Support::uuid(),'source_epoch'=>Support::uuid(),
+    'actor_map'=>[4=>4],'catalog_versions'=>[$key=>4],'valid_from'=>$now-1,'expires_at'=>$now+30,
+    'event_floor'=>1,'future_after'=>1,'contract_ids'=>[]];
+$wire=['source'=>$scope['source'],'epoch'=>$scope['source_epoch'],'event_id'=>2,'recorded_at'=>$now,
+    'contract_id'=>2,'actor_id'=>4,'kind'=>$key,'action'=>'contract.legal','version'=>4,
+    'values'=>array_intersect_key($values,array_flip(['number','party','contractStart','contractEnd','contractObjectLines']))];
+$verify=static function (array $payload,array $binding) use ($now): array {
+    $body=Support::json($payload);
+    return ContractWorkflowRelay::verify($body,(string)$now,ContractWorkflowRelay::signature($body,$now,$binding['key']),$binding,$now);
+};
+if ($verify($wire,$scope)!==$wire) throw new RuntimeException('Approved legacy wire payload changed');
+$withChange=$wire;
+$withChange['values'][ContractSecurityMax::TOKEN]=$values[ContractSecurityMax::TOKEN];
+try {
+    $verify($withChange,$scope);
+    throw new LogicException('The legacy wire payload accepted an unknown field');
+} catch (RuntimeException $error) {
+    if ($error->getMessage()!=='CONTRACT_RELAY_VALUES') throw $error;
+}
+$scope['catalog_versions'][$key]=5;
+$wire['version']=$withChange['version']=5;
+if ($verify($wire,$scope)!==$wire || $verify($withChange,$scope)!==$withChange)
+    throw new RuntimeException('The updated wire payload did not accept both the normal and changed cases');
+$withChange['values'][ContractSecurityMax::TOKEN]='{"previous":2,"current":2,"amount":"0.00"}';
+try {
+    $verify($withChange,$scope);
+    throw new LogicException('The updated wire payload accepted an invalid multiplier snapshot');
+} catch (RuntimeException $error) {
+    if ($error->getMessage()!=='CONTRACT_RELAY_VALUES') throw $error;
+}
 $html=Modules\Integrations\MessageTransport::maxPayload($render['body'],'html');
 $url='https://platform-api2.max.ru/messages?chat_id=-123';
 ServerWorkflowMax::assertPath(0,'POST',$url,$html,'-123',$render['body'],'html');
