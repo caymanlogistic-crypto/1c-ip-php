@@ -46,7 +46,7 @@ final class ActiveLeaseCard
     private static function party(array $contract): string
     {
         $body=RentalUI::pairs([['Наименование',$contract['party_name']],['ИНН',$contract['party_inn'] ?: '—']]);
-        $body.='<div class="form-grid-3 registry-ui-form-row">';
+        $body.='<div class="form-grid-3">';
         foreach ([['Контактное лицо',$contract['party_contact']],['Электронная почта',$contract['party_email']],['Телефон',$contract['party_phone']]] as [$label,$value]) {
             $body.='<div class="field"><span class="registry-ui-secondary">'.View::e($label).'</span>'
                 .'<span class="registry-ui-modal-text">'.View::e(trim((string)$value) ?: '—').'</span></div>';
