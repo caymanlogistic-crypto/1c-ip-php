@@ -17,12 +17,12 @@ final class View {
             $roles.='</div></fieldset>';
             $script='<script defer src="/assets/local-test-login.js"></script>';
         } elseif ($serverPresets) {
-            $roles='<fieldset data-server-role-login><legend class="field-label">Тестовые роли</legend><div class="inline-actions">';
-            foreach ($serverPresets as $role=>$label) {
-                $roles.='<button type="button" class="btn btn-secondary" data-login-role="'.self::e($role).'">'
-                    .self::e($label).'</button>';
+            $roles='<fieldset data-server-role-login><legend class="field-label">Логины по ролям</legend><div class="inline-actions">';
+            foreach ($serverPresets as $preset) {
+                $roles.='<button type="button" class="btn btn-secondary" data-login-name="'.self::e($preset['username']).'">'
+                    .self::e($preset['label']).'</button>';
             }
-            $roles.='</div><p class="field-msg is-error" role="alert" hidden>Не удалось заполнить форму. Обновите страницу.</p></fieldset>';
+            $roles.='</div></fieldset>';
             $script='<script defer src="/assets/server-role-login.js"></script>';
         }
         $name='ИП Яковлев';return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>Вход в систему · '.self::e($name).'</title>'.$css.$script.'</head><body><main class="modal-overlay is-open login-screen" aria-label="Вход в систему"><dialog open class="modal registry-ui-modal registry-ui-modal--confirmation" aria-labelledby="login-title"><form method="post" class="registry-ui-modal-form"><input type="hidden" name="_csrf" value="'.self::e(Http::csrf()).'"><div class="modal-head"><h1 class="modal-title" id="login-title">'.self::e($name).'</h1></div><div class="modal-body registry-ui-modal-grid"><p class="registry-ui-modal-text">Войдите в свою учётную запись</p>'.$error.'<div class="field"><label class="field-label" for="id_username">Логин</label><input type="text" name="username" autofocus autocapitalize="none" autocomplete="username" maxlength="150" class="field-input" required id="id_username"></div><div class="field"><label class="field-label" for="id_password">Пароль</label><input type="password" name="password" autocomplete="current-password" class="field-input" required id="id_password"></div>'.$roles.'</div><div class="modal-foot"><button class="btn btn-primary" type="submit">Войти в систему</button></div></form></dialog></main></body></html>';
