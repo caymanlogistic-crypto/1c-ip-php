@@ -25,7 +25,9 @@ final class ServerLoginPresets
         $presets = [];
         foreach (self::ROLES as $role => $label) {
             $username = $names[$role] ?? null;
-            if (!is_string($username) || !preg_match('/\A[a-zA-Z0-9_.-]{3,80}\z/D', $username)) return [];
+            if (!is_string($username) || strlen($username) > 100) return [];
+            if (!preg_match('/\A[a-zA-Z0-9_.-]{3,80}\z/D', $username)
+                && filter_var($username, FILTER_VALIDATE_EMAIL) === false) return [];
             $presets[] = ['username' => $username, 'label' => $label];
         }
         return $presets;
