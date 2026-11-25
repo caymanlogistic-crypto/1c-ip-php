@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use App\DB;
-use Modules\Integrations\{Config, ContractWorkflowRelay, MaxSettings, MaxWorkingDestination, ReservationMaxRelay, Support};
+use Modules\Integrations\{Config, ContractWorkflowRelay, MaxSettings, MaxWorkingDestination, Messaging, MessageTransport, ReservationMaxRelay, ServerManualMax, Support};
 use Modules\Rental\WorkflowEvents;
 
 require dirname(__DIR__).'/app/bootstrap.php';
@@ -32,11 +32,12 @@ check(PHP_SAPI==='cli' && !getenv('APP_STAND') && !Config::liveAllowed()
     && getenv('APP_MAX_WORKING_DESTINATION_FIXTURE')==='max-destination-fixture'
     && $database==='ipphp_task_max_destination','A private destination fixture is required');
 $marker=APP_ROOT.'/.local/max-working-destination.json';
+$baseMarker=APP_ROOT.'/.local/workflow-max-destination-fixture.json';
 $local=APP_ROOT.'/.local/max-working-destination-local.json';
 $contract=APP_ROOT.'/.local/contract-workflow-relay-local.json';
 $reservation=APP_ROOT.'/.local/reservation-max-relay-local.json';
 $vault=APP_ROOT.'/private/integrations/max.enc';
-$files=[$marker,$local,$contract,$reservation,$vault];
+$files=[$marker,$baseMarker,$local,$contract,$reservation,$vault];
 foreach ($files as $file) check(!file_exists($file) && !is_link($file),'Private fixture file already exists');
 check(!$db->query("SELECT 1 FROM integration_connections WHERE provider='max'")->fetchColumn(),'A fresh MAX fixture is required');
 
@@ -134,7 +135,83 @@ try {
     check((int)Config::get($db,'max')['revision']===6 && hash_file('sha256',$vault)===$vaultHash
         && Config::secrets('max')===$secret,'Group operations changed the bot credentials');
     check((int)$db->query('SELECT COUNT(*) FROM messaging_attempts')->fetchColumn()===0,'Configuration attempted to send');
+    $adminVersion=(int)$db->query("SELECT auth_version FROM users WHERE id=".$admin)->fetchColumn();
+    $_SESSION=['user_id'=>$admin,'auth_version'=>$adminVersion];
+    file_put_contents($baseMarker,Support::json($base));
+    $beforeChoice=MaxWorkingDestination::selection($db);
+    $calls=[];
+    $body='Проверка рабочей группы';
+    $key=Support::uuid();
+    $manual=null;
+    $manual=new ServerManualMax($db,static function(string $method,string $path,array $headers,?string $raw) use(
+        &$manual,&$calls,$db,$workChat,$body,$key
+    ):array {
+        check(!$db->inTransaction(),'Network started before committed claim');
+        $lock=$db->query("SELECT IS_USED_LOCK('ipphp-provider:max') = CONNECTION_ID()")->fetchColumn();
+        check((int)$lock===1,'Provider lock not held');
+        $pending=$db->prepare("SELECT COUNT(*) FROM messaging_attempts WHERE request_key=? AND target=? AND status='pending'");
+        $pending->execute([$key,$workChat]);
+        check((int)$pending->fetchColumn()===1,'Missing committed manual claim');
+        $url='https://platform-api2.max.ru'.$path;
+        denied(fn()=> $manual->assertHttpRequest('GET',$url,$raw),'OBJECT_MAX_HTTP_REJECTED');
+        denied(fn()=> $manual->assertHttpRequest($method,$url,MessageTransport::maxPayload('другой текст')),'OBJECT_MAX_HTTP_REJECTED');
+        denied(fn()=> $manual->assertHttpRequest($method,'https://example.invalid'.$path,$raw),'OBJECT_MAX_HTTP_REJECTED');
+        $manual->assertHttpRequest($method,$url,$raw);
+        denied(fn()=> $manual->assertHttpRequest($method,$url,$raw),'MAX_MANUAL_REQUEST_REJECTED');
+        $calls[]=[$method,$path,$raw];
+        check($raw===MessageTransport::maxPayload($body),'Manual body changed');
+        return ['status'=>200,'raw'=>Support::json(['message'=>['body'=>['mid'=>'fixture-mid'],'recipient'=>['chat_id'=>$workChat]]])];
+    });
+
+    denied(fn()=> (new ServerManualMax($db))->dispatch($admin,$key,[$staged['id']],$body),'MAX_MANUAL_ADMISSION_REQUIRED');
+    denied(fn()=> $manual->dispatch($admin,$key,[$testGroup],$body),'MAX_MANUAL_WORK_ONLY');
+    denied(fn()=> $manual->dispatch($admin,$key,[$testGroup,$staged['id']],$body),'MAX_MANUAL_WORK_ONLY');
+    denied(fn()=> $manual->dispatch($admin,$key,[$workChat],$body),'MAX_MANUAL_WORK_ONLY');
+    denied(fn()=> $manual->assertHttpRequest('POST','https://platform-api2.max.ru/messages?chat_id='.$workChat,
+        MessageTransport::maxPayload($body)),'MAX_MANUAL_REQUEST_REJECTED');
+
+    $db->prepare("INSERT INTO users(username,password_hash,name,role) VALUES(?,'fixture','MAX fixture reader','manager')")
+        ->execute(['max-fixture-reader-'.bin2hex(random_bytes(6))]);
+    $readerId=(int)$db->lastInsertId();
+    $db->exec("INSERT IGNORE INTO role_permissions(role_id,permission_key) VALUES ('manager','messaging.read'),('manager','messaging.send')");
+    $db->exec("UPDATE roles SET grants_configured=1 WHERE id='manager'");
+    $db->exec("INSERT INTO role_page_grants(role_id,page_key,level) VALUES ('manager','connections.max',1)
+        ON DUPLICATE KEY UPDATE level=1");
+    $_SESSION=['user_id'=>$readerId,'auth_version'=>1];
+    denied(fn()=> $manual->dispatch($readerId,$key,[$staged['id']],$body),'MAX_MANUAL_FORBIDDEN');
+    denied(fn()=> $manual->dispatch($admin,$key,[$staged['id']],$body),'MAX_MANUAL_FORBIDDEN');
+    $_SESSION=['user_id'=>$admin,'auth_version'=>$adminVersion];
+
+    $beforeMarker=file_get_contents($marker);
+    unlink($marker);
+    denied(fn()=> $manual->dispatch($admin,$key,[$staged['id']],$body),'MAX_MANUAL_ADMISSION_REQUIRED');
+    file_put_contents($marker,$beforeMarker);
+    $db->prepare("UPDATE messaging_groups SET enabled=0 WHERE id=?")->execute([$staged['id']]);
+    denied(fn()=> $manual->dispatch($admin,$key,[$staged['id']],$body),'MAX_MANUAL_ADMISSION_REQUIRED');
+    $db->prepare("UPDATE messaging_groups SET enabled=1 WHERE id=?")->execute([$staged['id']]);
+
+    $oldKey=Support::uuid();
+    $old=(new Messaging($db,Config::store()))->dispatch('max',$admin,$oldKey,'send',[$staged['id']],$body);
+    check($old[0]['result_code']==='EXTERNAL_ACCESS_NOT_AUTHORIZED','Global gate unexpectedly admitted generic MAX');
+    check($manual->dispatch($admin,$oldKey,[$staged['id']],$body)[0]['id']===$old[0]['id'] && !$calls,
+        'A failed generic claim was replayed under the new manual scope');
+    $db->prepare("UPDATE messaging_attempts SET created_at=NOW(6)-INTERVAL 2 SECOND WHERE id=?")->execute([$old[0]['id']]);
+
+    $sent=$manual->dispatch($admin,$key,[$staged['id']],$body);
+    check($sent[0]['status']==='accepted' && $sent[0]['remote_id']==='fixture-mid'
+        && $calls===[['POST','/messages?chat_id='.$workChat,MessageTransport::maxPayload($body)]],'Manual delivery mismatch');
+    check($manual->dispatch($admin,$key,[$staged['id']],$body)[0]['id']===$sent[0]['id'],'Duplicate claim ID changed');
+    denied(fn()=> $manual->dispatch($admin,$key,[$staged['id']],'Изменённый текст'),'IDEMPOTENCY_CONFLICT');
+
+    $db->prepare("UPDATE messaging_attempts SET status='uncertain' WHERE id=?")->execute([$sent[0]['id']]);
+    denied(fn()=> $manual->dispatch($admin,Support::uuid(),[$staged['id']],$body),'MAX_MANUAL_RECONCILIATION_REQUIRED');
+    check(count($calls)===1 && (int)$db->query('SELECT COUNT(*) FROM messaging_attempts')->fetchColumn()===2,
+        'Denied sends appended claims or made requests');
+    check(MaxWorkingDestination::selection($db)===$beforeChoice && !Config::liveAllowed()
+        && hash_file('sha256',$vault)===$vaultHash && Config::secrets('max')===$secret,
+        'Manual send changed automatic destination or provider access');
     echo "PASS staged group, exact destination, independent relay scopes, stable bounds, revision and vault.\n";
+    echo "PASS manual working group, rights, committed claim, single fake POST, guarded retry and unchanged automatic route.\n";
 } finally {
     foreach ($files as $file) if (is_file($file)) unlink($file);
 }
