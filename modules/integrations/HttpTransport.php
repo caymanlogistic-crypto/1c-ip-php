@@ -5,7 +5,7 @@ namespace Modules\Integrations;
 /** HTTPS only, bounded responses, no redirects/proxies, explicit project authorization. */
 final class HttpTransport
 {
-    public static function request(string $method,string $url,array $headers=[],?string $body=null,int $limit=8388608,int $timeoutSeconds=30,?WorkflowMaxEvent $workflowEvent=null,?callable $observer=null,MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|DadataLookup|BookingMax|ReservationMaxRelay|ContractWorkflowRelay|ContractWorkflowReceiver|null $readCheck=null): array
+    public static function request(string $method,string $url,array $headers=[],?string $body=null,int $limit=8388608,int $timeoutSeconds=30,?WorkflowMaxEvent $workflowEvent=null,?callable $observer=null,MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|ServerManualMax|DadataLookup|BookingMax|ReservationMaxRelay|ContractWorkflowRelay|ContractWorkflowReceiver|null $readCheck=null): array
     {
         $mark=static function(string $stage,array $facts=[])use($observer):void{
             if($observer!==null)try{$observer($stage,$facts);}catch(\Throwable){} // Diagnostics never mask the original result.
@@ -24,7 +24,7 @@ final class HttpTransport
         if($readCheck instanceof DadataLookup && ($resolve=$readCheck->resolve()))curl_setopt($ch,CURLOPT_RESOLVE,$resolve);
         $mark('ca_select',['ca_configured'=>(bool)(getenv('IPPHP_CAFILE')?:getenv('APP_INTEGRATION_CAFILE')?:ini_get('curl.cainfo'))]);
         $ca=$readCheck instanceof ServerObjectMax||$readCheck instanceof ServerWorkflowMax||$readCheck instanceof BookingMax
-            ||$readCheck instanceof ContractWorkflowReceiver?$readCheck->caFile():Support::caFile();
+            ||$readCheck instanceof ContractWorkflowReceiver||$readCheck instanceof ServerManualMax?$readCheck->caFile():Support::caFile();
         $effectiveCa=$ca?:ini_get('curl.cainfo');
         $ssl='';
         if($observer!==null)try{$ssl=curl_version()['ssl_version']??'';}catch(\Throwable){}

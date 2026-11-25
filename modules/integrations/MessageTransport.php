@@ -4,7 +4,7 @@ namespace Modules\Integrations;
 
 final class MessageTransport
 {
-    public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|BookingMax|ContractWorkflowReceiver|null $readCheck = null) {}
+    public function __construct(private mixed $maxHttpFixture = null,private mixed $beforeMaxRequest = null,private ?WorkflowMaxEvent $workflowEvent = null,private MaxReadCheck|LocalMaxReadCheck|ServerObjectMax|ServerWorkflowMax|ServerManualMax|BookingMax|ContractWorkflowReceiver|null $readCheck = null) {}
     public static function maxPayload(string $text,?string $format=null): string
     {
         return Support::json(['text'=>$text]+($format===null?[]:['format'=>$format]));
@@ -30,7 +30,8 @@ final class MessageTransport
             'RENTAL_MAX_RESPONSIBLE_UNRESOLVED','RENTAL_MAX_CATALOG_REVISION_CHANGED','RENTAL_MAX_WORD_MODE_CATALOG_UPDATE_REQUIRED',
             'RENTAL_MAX_CONTEXT_CHANGED','RENTAL_MAX_TARGET_CHANGED','RENTAL_MAX_PRIVATE_BINDING_CHANGED','RENTAL_MAX_COMMITTED_CLAIM_REQUIRED',
             'RENTAL_MAX_HTTP_SCOPE_REJECTED','CREDENTIAL_REVISION_CONFLICT','CATALOG_ENTRY_NOT_FOUND','SECRET_STORE_CORRUPT','SPOOL_HMAC_FAILED','SPOOL_BYTES_FAILED',
-            'MAX_RESPONSE_REJECTED','MAX_CONTEXT_CHANGED','BOT_IDENTITY_MISSING','BOT_MEMBERSHIP_MISSING','INVALID_GROUP'];
+            'MAX_RESPONSE_REJECTED','MAX_CONTEXT_CHANGED','BOT_IDENTITY_MISSING','BOT_MEMBERSHIP_MISSING','INVALID_GROUP',
+            'MAX_MANUAL_ADMISSION_REQUIRED','MAX_MANUAL_FORBIDDEN','MAX_MANUAL_REQUEST_REJECTED','MAX_MANUAL_CLAIM_REQUIRED'];
         return ['exception_class'=>in_array(get_class($error),$classes,true)?get_class($error):'Throwable',
             'exception_code'=>is_int($error->getCode())?$error->getCode():null,
             'exception_category'=>in_array($error->getMessage(),$codes,true)?$error->getMessage():'UNCLASSIFIED_EXCEPTION'];
